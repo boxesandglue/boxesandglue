@@ -1,8 +1,9 @@
 package node
 
 import (
-	"container/list"
+	"fmt"
 
+	"github.com/speedata/texperiments/bag"
 	"github.com/speedata/texperiments/lang"
 )
 
@@ -29,13 +30,17 @@ type basenode struct {
 
 // NewElement creates a list element from the node type. You must ensure that the val is a
 // valid node type.
-func NewElement(val interface{}) *list.Element {
-	return &list.Element{Value: val}
+func NewElement(val interface{}) *Node {
+	return &Node{Value: val}
 }
 
 // A Disc is a hyphenation point.
 type Disc struct {
 	basenode
+}
+
+func (d *Disc) String() string {
+	return "disc"
 }
 
 // NewDisc creates an initialized Disc node
@@ -52,7 +57,7 @@ func NewDiscWithContents(n *Disc) *Disc {
 }
 
 // IsDisc retuns the value of the element and true, if the element is a Disc node.
-func IsDisc(elt *list.Element) (*Disc, bool) {
+func IsDisc(elt *Node) (*Disc, bool) {
 	Disc, ok := elt.Value.(*Disc)
 	return Disc, ok
 }
@@ -62,7 +67,12 @@ type Glyph struct {
 	basenode
 	GlyphID    int    // The font specific glyph id
 	Components string // A codepoint can contain more than one rune, for example a fi ligature contains f + i
+	Width      bag.ScaledPoint
 	Hyphenate  bool
+}
+
+func (g *Glyph) String() string {
+	return fmt.Sprintf("glyph: %s", string(rune(g.GlyphID)))
 }
 
 // NewGlyph returns an initialized Glyph
@@ -73,7 +83,7 @@ func NewGlyph() *Glyph {
 }
 
 // IsGlyph returns the value of the element and true, if the element is a Glyph node.
-func IsGlyph(elt *list.Element) (*Glyph, bool) {
+func IsGlyph(elt *Node) (*Glyph, bool) {
 	n, ok := elt.Value.(*Glyph)
 	return n, ok
 }
@@ -81,11 +91,15 @@ func IsGlyph(elt *list.Element) (*Glyph, bool) {
 // A Glue node has the value of a shrinking and stretching space
 type Glue struct {
 	basenode
-	Width        float64
+	Width        bag.ScaledPoint
 	Stretch      int
 	Shrink       int
 	StretchOrder int
 	ShrinkOrder  int
+}
+
+func (g *Glue) String() string {
+	return "glue"
 }
 
 // NewGlue creates an initialized Glue node
@@ -96,7 +110,7 @@ func NewGlue() *Glue {
 }
 
 // IsGlue retuns the value of the element and true, if the element is a Glue node.
-func IsGlue(elt *list.Element) (*Glue, bool) {
+func IsGlue(elt *Node) (*Glue, bool) {
 	n, ok := elt.Value.(*Glue)
 	return n, ok
 }
@@ -104,7 +118,17 @@ func IsGlue(elt *list.Element) (*Glue, bool) {
 // A HList is a horizontal list.
 type HList struct {
 	basenode
-	List *list.Element
+	Width bag.ScaledPoint
+	List  *Nodelist
+}
+
+func (h *HList) String() string {
+	return "hlist"
+}
+
+// Head returns the head of the list
+func (h *HList) Head() *Node {
+	return h.List.Front()
 }
 
 // NewHList creates an initialized HList node
@@ -115,7 +139,7 @@ func NewHList() *HList {
 }
 
 // IsHList retuns the value of the element and true, if the element is a HList node.
-func IsHList(elt *list.Element) (*HList, bool) {
+func IsHList(elt *Node) (*HList, bool) {
 	hlist, ok := elt.Value.(*HList)
 	return hlist, ok
 }
@@ -124,6 +148,10 @@ func IsHList(elt *list.Element) (*HList, bool) {
 type Lang struct {
 	basenode
 	Lang *lang.Lang
+}
+
+func (l *Lang) String() string {
+	return "lang: " + l.Lang.Name
 }
 
 // NewLang creates an initialized Lang node
@@ -140,7 +168,37 @@ func NewLangWithContents(n *Lang) *Lang {
 }
 
 // IsLang retuns the value of the element and true, if the element is a Lang node.
-func IsLang(elt *list.Element) (*Lang, bool) {
+func IsLang(elt *Node) (*Lang, bool) {
 	lang, ok := elt.Value.(*Lang)
 	return lang, ok
+}
+
+// A VList is a horizontal list.
+type VList struct {
+	basenode
+	Width bag.ScaledPoint
+	List  *Nodelist
+}
+
+func (v *VList) String() string {
+	return "vlist"
+}
+
+// Head returns the head of the list
+func (v *VList) Head() *Node {
+	return v.List.Front()
+}
+
+// NewVList creates an initialized VList node
+func NewVList() *VList {
+	n := &VList{}
+	n.List = NewNodelist()
+	n.id = <-ids
+	return n
+}
+
+// IsVList retuns the value of the element and true, if the element is a VList node.
+func IsVList(elt *Node) (*VList, bool) {
+	vlist, ok := elt.Value.(*VList)
+	return vlist, ok
 }

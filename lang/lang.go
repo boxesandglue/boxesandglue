@@ -28,6 +28,7 @@ type Lang struct {
 	ID             int
 	Lefthyphenmin  int
 	Righthyphenmin int
+	Name           string
 	lang           *hyphenation.Lang
 }
 
@@ -52,26 +53,18 @@ func Load(fn string) (*Lang, error) {
 
 // Hyphenate retuns a slice of hyphenation points
 func (l *Lang) Hyphenate(word string) []int {
+	l.lang.Leftmin = l.Lefthyphenmin
+	l.lang.Rightmin = l.Righthyphenmin
+
 	hyphenpoints := l.lang.Hyphenate(word)
-	if len(hyphenpoints) == 0 {
-		return hyphenpoints
-	}
-	tmp := []int{}
-	minp := l.Lefthyphenmin
-	maxp := len(word) - l.Righthyphenmin
-	for _, p := range hyphenpoints {
-		if p >= minp && p <= maxp {
-			tmp = append(tmp, p)
-		}
-	}
 	// The slice hyphenpoints contains the valid break points
 	// after a character.
 	// We need the number of characters to move forward,
 	// so we change the slice
-	if len(tmp) > 0 {
-		for i := len(tmp) - 1; i > 0; i-- {
-			tmp[i] = tmp[i] - tmp[i-1]
+	if len(hyphenpoints) > 0 {
+		for i := len(hyphenpoints) - 1; i > 0; i-- {
+			hyphenpoints[i] = hyphenpoints[i] - hyphenpoints[i-1]
 		}
 	}
-	return tmp
+	return hyphenpoints
 }
