@@ -3,8 +3,8 @@ package node
 import (
 	"fmt"
 
-	"github.com/speedata/texperiments/bag"
-	"github.com/speedata/texperiments/lang"
+	"github.com/speedata/boxesandglue/bag"
+	"github.com/speedata/boxesandglue/lang"
 )
 
 var (

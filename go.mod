@@ -1,4 +1,4 @@
-module github.com/speedata/texperiments
+module github.com/speedata/boxesandglue
 
 go 1.16
 

@@ -3,7 +3,7 @@ package node
 import (
 	"fmt"
 
-	"github.com/speedata/texperiments/bag"
+	"github.com/speedata/boxesandglue/bag"
 )
 
 // LinebreakSettings contains all information about the final paragraph

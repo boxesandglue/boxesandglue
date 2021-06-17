@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/speedata/texperiments/bag"
+	"github.com/speedata/boxesandglue/bag"
 )
 
 // Font is the main structure of a font instance
