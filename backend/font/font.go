@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/speedata/boxesandglue/bag"
+	"github.com/speedata/boxesandglue/backend/bag"
 )
 
 // A Codepoint contains size information about the glyphs as a result of Shape

@@ -7,7 +7,7 @@ import (
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 
-	"github.com/speedata/boxesandglue/bag"
+	"github.com/speedata/boxesandglue/backend/bag"
 )
 
 const (
