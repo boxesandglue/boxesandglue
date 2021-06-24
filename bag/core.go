@@ -25,11 +25,17 @@ const Factor ScaledPoint = 0xffff
 type ScaledPoint int
 
 func (s ScaledPoint) String() string {
-	return fmt.Sprintf("%.5g", float64(s)/float64(0xffff))
+	return fmt.Sprintf("%.5g", float64(s)/float64(Factor))
+}
+
+// Float returns the unit as a float64 DTP point. 2 * 0xffff returns 2.0
+func (s ScaledPoint) Float() float64 {
+	return float64(s) / float64(Factor)
 }
 
 // Sp return the unit converted to ScaledPoint
 func Sp(unit string) (ScaledPoint, error) {
+	log.Trace("convert to sp: " + unit)
 	unit = strings.ToLower(unit)
 	m := unitRE.FindAllStringSubmatch(unit, -1)
 	if len(m) != 1 {
@@ -47,22 +53,22 @@ func Sp(unit string) (ScaledPoint, error) {
 
 	switch unitstring {
 	case "pt":
-		return ScaledPoint(l * 0xffff), nil
+		return ScaledPoint(l * float64(Factor)), nil
 	case "in":
-		return ScaledPoint(l * 72 * 0xffff), nil
+		return ScaledPoint(l * 72 * float64(Factor)), nil
 	case "mm":
 		// l = l / 10 [cm], l = l / 2.54 [in], l = l * 72 [pt]
-		return ScaledPoint(l / 10 / 2.54 * 72 * 0xffff), nil
+		return ScaledPoint(l / 10 / 2.54 * 72 * float64(Factor)), nil
 	case "cm":
-		return ScaledPoint(l / 2.54 * 72 * 0xffff), nil
+		return ScaledPoint(l / 2.54 * 72 * float64(Factor)), nil
 	case "m":
-		return ScaledPoint(l * 100 / 2.54 * 72 * 0xffff), nil
+		return ScaledPoint(l * 100 / 2.54 * 72 * float64(Factor)), nil
 	case "px":
 		// 1/96th of an inch
-		return ScaledPoint(l * 97 / 72 * 0xffff), nil
+		return ScaledPoint(l * 96 / 72 * float64(Factor)), nil
 	case "pc":
 		// pica, 12pt
-		return ScaledPoint(l * 12 * 0xffff), nil
+		return ScaledPoint(l * 12 * float64(Factor)), nil
 	default:
 		return 0, ErrConversion
 
@@ -74,6 +80,7 @@ func MustSp(unit string) ScaledPoint {
 	val, err := Sp(unit)
 	if err != nil {
 		if errors.Is(err, ErrConversion) {
+			LogError(errors.Unwrap(err))
 			fmt.Println(errors.Unwrap(err))
 		}
 		panic(err)
