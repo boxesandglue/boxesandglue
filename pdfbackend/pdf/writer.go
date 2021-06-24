@@ -52,14 +52,6 @@ type Page struct {
 	stream  *Stream
 }
 
-// RegisterChars tells the PDF file which fonts are used on a page and which characters are included.
-// The string r must include every used char in this font in any order at least once.
-func (pg *Page) RegisterChars(fnt *Font, r string) {
-	for _, v := range r {
-		fnt.usedChar[v] = true
-	}
-}
-
 // AddPage adds a page to the PDF file. The stream must be complete.
 func (pw *PDF) AddPage(pagestream *Stream) *Page {
 	pg := &Page{}
@@ -107,7 +99,7 @@ func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
 		if len(page.Fonts) > 0 {
 			res = append(res, "<< ")
 			for _, fnt := range page.Fonts {
-				res = append(res, fmt.Sprintf("%s %s", fnt.InternalName, fnt.fontobject.ObjectNumber.ref()))
+				res = append(res, fmt.Sprintf("%s %s", fnt.InternalName(), fnt.face.fontobject.ObjectNumber.ref()))
 			}
 			res = append(res, " >>")
 		}
@@ -157,7 +149,7 @@ func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
 
 	// write out all font descriptors and files into the PDF
 	for _, fnt := range pw.fonts {
-		fnt.finish()
+		fnt.face.finish()
 	}
 	return catalog.ObjectNumber, nil
 }

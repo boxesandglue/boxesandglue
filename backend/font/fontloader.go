@@ -1,6 +1,7 @@
 package font
 
 import (
+	"bytes"
 	"os"
 
 	"golang.org/x/image/font"
@@ -61,6 +62,35 @@ func init() {
 	loadedFaces = make(map[string]*Face)
 }
 
+func fillFaceObject(id string, sf *sfnt.Font) (*Face, error) {
+	face := Face{
+		FaceID:       <-ids,
+		UnitsPerEM:   int32(sf.UnitsPerEm()),
+		Height:       0,
+		filename:     id,
+		sfntobj:      sf,
+		sfntbuffer:   sfnt.Buffer{},
+		ToRune:       make(map[sfnt.GlyphIndex]rune),
+		ToGlyphIndex: make(map[rune]sfnt.GlyphIndex),
+	}
+
+	loadedFaces[id] = &face
+	return &face, nil
+
+}
+
+// NewFaceFromData returns a Face object which is a representation of a font file.
+// The first parameter (id) should be the file name of the font, but can be any string.
+// This is to prevent duplicate font loading.
+func NewFaceFromData(id string, data []byte) (*Face, error) {
+	r := bytes.NewReader(data)
+	sf, err := sfnt.ParseReaderAt(r)
+	if err != nil {
+		return nil, err
+	}
+	return fillFaceObject(id, sf)
+}
+
 func getFace(filename string) (*Face, error) {
 	if f, ok := loadedFaces[filename]; ok {
 		bag.LogTrace("Found face")
@@ -71,24 +101,17 @@ func getFace(filename string) (*Face, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := sfnt.ParseReaderAt(r)
+
+	sf, err := sfnt.ParseReaderAt(r)
+	if err != nil {
+		return nil, err
+	}
+	err = r.Close()
 	if err != nil {
 		return nil, err
 	}
 
-	face := Face{
-		FaceID:       <-ids,
-		UnitsPerEM:   int32(f.UnitsPerEm()),
-		Height:       0,
-		filename:     filename,
-		sfntobj:      f,
-		sfntbuffer:   sfnt.Buffer{},
-		ToRune:       make(map[sfnt.GlyphIndex]rune),
-		ToGlyphIndex: make(map[rune]sfnt.GlyphIndex),
-	}
-
-	loadedFaces[filename] = &face
-	return &face, nil
+	return fillFaceObject(filename, sf)
 }
 
 // LoadFont loads a font from the harddrive
