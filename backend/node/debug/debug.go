@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/speedata/boxesandglue/node"
+	"github.com/speedata/boxesandglue/backend/node"
 
 	"github.com/fatih/color"
 )

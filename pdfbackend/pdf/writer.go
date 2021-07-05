@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"compress/zlib"
 	"fmt"
 	"io"
 	"os"
@@ -66,9 +67,24 @@ func (pw *PDF) nextObject() objectnumber {
 	return pw.nextobject - 1
 }
 
+// writeStream writes a new stream object with the data and extra dictionary entries. writeStream returns the object number of the stream.
 func (pw *PDF) writeStream(st *Stream) objectnumber {
 	obj := pw.NewObject()
-	st.dict["/Length"] = fmt.Sprintf("%d", len(st.data))
+	if st.compress {
+		st.dict["/Filter"] = "/FlateDecode"
+	}
+	if st.compress {
+		var b bytes.Buffer
+		zw := zlib.NewWriter(&b)
+		zw.Write(st.data)
+		zw.Close()
+		st.dict["/Length"] = fmt.Sprintf("%d", b.Len())
+		st.dict["/Length1"] = fmt.Sprintf("%d", len(st.data))
+		st.data = b.Bytes()
+	} else {
+		st.dict["/Length"] = fmt.Sprintf("%d", len(st.data))
+	}
+
 	obj.Dict(st.dict)
 	obj.Data.WriteString("\nstream\n")
 	obj.Data.Write(st.data)

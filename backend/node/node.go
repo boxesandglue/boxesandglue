@@ -3,8 +3,8 @@ package node
 import (
 	"fmt"
 
-	"github.com/speedata/boxesandglue/bag"
-	"github.com/speedata/boxesandglue/lang"
+	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/lang"
 )
 
 var (

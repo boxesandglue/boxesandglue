@@ -61,8 +61,13 @@ func getCharTag(runelist []rune) string {
 // Name must be a string length 6 such as "ABCDEF" and should be unique.
 // Returns a string containing all the names of the used characters, for example /one/a/b/V/exclam,
 // and the error if something went wrong.
-func (t *Type1) Subset(runelist []rune) (string, error) {
+func (t *Type1) Subset(codepoints []int) (string, error) {
 	var err error
+	// let's assume for a moment that codepoint == unicode point
+	runelist := make([]rune, len(codepoints))
+	for i, cp := range codepoints {
+		runelist[i] = rune(cp)
+	}
 	t.SubsetID = getCharTag(runelist)
 	decoded := decodeEexec(t.Segments[1])
 	r := bytes.NewReader(decoded)

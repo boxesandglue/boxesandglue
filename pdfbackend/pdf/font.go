@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
@@ -38,13 +37,13 @@ const (
 
 // FontSubsetter holds fonts that can be subsetted
 type FontSubsetter interface {
-	Subset([]rune) (string, error)
+	Subset([]int) (string, error)
 }
 
 // Face holds information about a font file
 type Face struct {
 	fonttype     int
-	usedChar     map[rune]bool
+	usedChar     map[int]bool
 	InternalName string
 	fontobject   *Object
 	pw           *PDF
@@ -55,7 +54,7 @@ type Face struct {
 func (pw *PDF) NewFace(filename string) (*Face, error) {
 	face := &Face{
 		pw:           pw,
-		usedChar:     make(map[rune]bool),
+		usedChar:     make(map[int]bool),
 		InternalName: newInternalFontName(),
 	}
 
@@ -66,6 +65,7 @@ func (pw *PDF) NewFace(filename string) (*Face, error) {
 		if err != nil {
 			return nil, err
 		}
+		tt.ReadTables()
 		face.formatobject = tt
 	case ".pfb":
 		face.fonttype = FType1
@@ -77,6 +77,15 @@ func (pw *PDF) NewFace(filename string) (*Face, error) {
 	}
 
 	return face, nil
+}
+
+// Codepoints return the codepoints for the runes
+func (f *Face) Codepoints(runes []rune) []int {
+	switch fnt := f.formatobject.(type) {
+	case *truetype.Font:
+		return fnt.Codepoints(runes)
+	}
+	return []int{}
 }
 
 // NewFont returns a font for the given size. One ScaledPoint is 1/0xffff DTP point
@@ -91,10 +100,11 @@ func (f *Face) NewFont(size bag.ScaledPoint) *Font {
 }
 
 // RegisterChars marks the codepoints as used on the page. For font subsetting.
-func (f *Face) RegisterChars(codepoint string) {
+func (f *Face) RegisterChars(codepoints []int) {
 	// RegisterChars tells the PDF file which fonts are used on a page and which characters are included.
 	// The string r must include every used char in this font in any order at least once.
-	for _, v := range codepoint {
+	f.usedChar[0] = true
+	for _, v := range codepoints {
 		f.usedChar[v] = true
 	}
 }
@@ -118,7 +128,7 @@ func newInternalFontName() string {
 }
 
 // Used for subsetting the fonts
-type charSubset []rune
+type charSubset []int
 
 func (p charSubset) Len() int           { return len(p) }
 func (p charSubset) Less(i, j int) bool { return p[i] < p[j] }
@@ -128,8 +138,67 @@ func (p charSubset) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 func (f *Face) finish() error {
 	bag.LogWithFields(bag.Fields{"id": f.InternalName}).Trace("Finish font face")
 	switch fnt := f.formatobject.(type) {
-	case *truetype.TrueType:
-		fmt.Println(fnt)
+	case *truetype.Font:
+		subset := make([]int, len(f.usedChar))
+		i := 0
+		for g := range f.usedChar {
+			subset[i] = g
+			i++
+		}
+
+		_, err := fnt.Subset(subset)
+		if err != nil {
+			return err
+		}
+		var w bytes.Buffer
+		fnt.WriteSubset(&w)
+		b := w.Bytes()
+
+		fontstream := NewStream(b)
+		fontstream.SetCompression()
+		fontstreamOnum := f.pw.writeStream(fontstream)
+
+		fontDescriptor := Dict{
+			"/Type":        "/FontDescriptor",
+			"/FontFile2":   fontstreamOnum.ref(),
+			"/FontName":    fnt.PDFName(),
+			"/FontBBox":    fnt.BoundingBox(),
+			"/Ascent":      fmt.Sprintf("%d", fnt.Ascender()),
+			"/Descent":     fmt.Sprintf("%d", fnt.Descender()),
+			"/CapHeight":   fmt.Sprintf("%d", fnt.CapHeight()),
+			"/Flags":       fmt.Sprintf("%d", fnt.Flags()),
+			"/ItalicAngle": fmt.Sprintf("%d", fnt.ItalicAngle()),
+			"/StemV":       fmt.Sprintf("%d", fnt.StemV()),
+			"/XHeight":     fmt.Sprintf("%d", fnt.XHeight()),
+		}
+		fontDescriptorObj := f.pw.NewObject()
+		fontDescriptorObj.Dict(fontDescriptor).Save()
+
+		cmap := fnt.CMap()
+		cmapStream := NewStream([]byte(cmap))
+		cmapOnum := f.pw.writeStream(cmapStream)
+
+		cidFontType2 := Dict{
+			"/BaseFont":       fnt.PDFName(),
+			"/CIDSystemInfo":  `<< /Ordering (Identity) /Registry (Adobe) /Supplement 0 >>`,
+			"/FontDescriptor": fontDescriptorObj.ObjectNumber.ref(),
+			"/Subtype":        "/CIDFontType2",
+			"/Type":           "/Font",
+			"/W":              fnt.Widths(),
+		}
+		cidFontType2Obj := f.pw.NewObject()
+		cidFontType2Obj.Dict(cidFontType2).Save()
+
+		fontObj := f.fontobject
+		fontObj.Dict(Dict{
+			"/BaseFont":        fnt.PDFName(),
+			"/DescendantFonts": fmt.Sprintf("[%s]", cidFontType2Obj.ObjectNumber.ref()),
+			"/Encoding":        "/Identity-H",
+			"/Subtype":         "/Type0",
+			"/ToUnicode":       cmapOnum.ref(),
+			"/Type":            "/Font",
+		})
+		fontObj.Save()
 	case *type1.Type1:
 		subset := make(charSubset, len(f.usedChar))
 		i := 0
@@ -137,8 +206,12 @@ func (f *Face) finish() error {
 			subset[i] = g
 			i++
 		}
-		sort.Sort(subset)
-		charset, err := fnt.Subset(subset)
+		codepoints := make([]int, len(subset))
+		for i, r := range subset {
+			codepoints[i] = int(r)
+		}
+
+		charset, err := fnt.Subset(codepoints)
 		if err != nil {
 			return err
 		}
@@ -173,7 +246,7 @@ func (f *Face) finish() error {
 
 		widths := []string{"["}
 		for i := subset[0]; i <= subset[len(subset)-1]; i++ {
-			widths = append(widths, fmt.Sprintf("%d", fnt.CharsCodepoint[i].Wx))
+			widths = append(widths, fmt.Sprintf("%d", fnt.CharsCodepoint[rune(i)].Wx))
 		}
 		widths = append(widths, "]")
 		wd := strings.Join(widths, " ")

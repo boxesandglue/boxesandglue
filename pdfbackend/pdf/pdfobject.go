@@ -34,6 +34,7 @@ func (obj *Object) Save() {
 }
 
 // Dict writes the dict d to a PDF object
-func (obj *Object) Dict(d Dict) {
+func (obj *Object) Dict(d Dict) *Object {
 	obj.Data.WriteString(hashToString(d, 0))
+	return obj
 }
