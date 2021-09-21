@@ -5,8 +5,9 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
-	"os"
 	"strings"
+
+	"github.com/speedata/boxesandglue/backend/bag"
 )
 
 type objectnumber int
@@ -20,16 +21,17 @@ type Dict map[string]string
 
 // PDF is the central point of writing a PDF file.
 type PDF struct {
-	outfile         io.WriteSeeker
+	outfile         io.Writer
 	nextobject      objectnumber
 	objectlocations map[objectnumber]int64
 	pages           *Pages
 	lastEOL         int64
-	fonts           []*Font
+	Faces           []*Face
+	pos             int64
 }
 
 // NewPDFWriter creates a PDF file for writing to file
-func NewPDFWriter(file io.WriteSeeker) *PDF {
+func NewPDFWriter(file io.Writer) *PDF {
 	pw := PDF{}
 	pw.outfile = file
 	pw.nextobject = 1
@@ -49,7 +51,7 @@ type Pages struct {
 type Page struct {
 	onum    objectnumber
 	dictnum objectnumber
-	Fonts   []*Font
+	Faces   []*Face
 	stream  *Stream
 }
 
@@ -94,6 +96,7 @@ func (pw *PDF) writeStream(st *Stream) objectnumber {
 }
 
 func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
+	bag.LogTrace("write document catalog")
 	// Write all page streams:
 	for _, page := range pw.pages.pages {
 		page.onum = pw.writeStream(page.stream)
@@ -112,16 +115,16 @@ func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
 		page.dictnum = onum
 
 		var res []string
-		if len(page.Fonts) > 0 {
+		if len(page.Faces) > 0 {
 			res = append(res, "<< ")
-			for _, fnt := range page.Fonts {
-				res = append(res, fmt.Sprintf("%s %s", fnt.InternalName(), fnt.face.fontobject.ObjectNumber.ref()))
+			for _, face := range page.Faces {
+				res = append(res, fmt.Sprintf("%s %s", face.InternalName(), face.fontobject.ObjectNumber.ref()))
 			}
 			res = append(res, " >>")
 		}
 
 		resHash := Dict{}
-		if len(page.Fonts) > 0 {
+		if len(page.Faces) > 0 {
 			resHash["/Font"] = strings.Join(res, " ")
 		}
 		pageHash := Dict{
@@ -164,8 +167,8 @@ func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
 	catalog.Save()
 
 	// write out all font descriptors and files into the PDF
-	for _, fnt := range pw.fonts {
-		fnt.face.finish()
+	for _, fnt := range pw.Faces {
+		fnt.finish()
 	}
 	return catalog.ObjectNumber, nil
 }
@@ -179,7 +182,7 @@ func (pw *PDF) Finish() error {
 	}
 
 	// XRef section
-	xrefpos := pw.curpos()
+	xrefpos := pw.pos
 	pw.out("xref")
 	pw.outf("0 %d\n", pw.nextobject)
 	fmt.Fprintln(pw.outfile, "0000000000 65535 f ")
@@ -221,35 +224,29 @@ func (pw *PDF) outHash(h Dict) {
 
 // Write an end of line (EOL) marker to the file if it is not on a EOL already.
 func (pw *PDF) eol() {
-	if curpos := pw.curpos(); curpos != pw.lastEOL {
-		fmt.Fprintln(pw.outfile, "")
-		pw.lastEOL = curpos
+	if pw.pos != pw.lastEOL {
+		i, _ := fmt.Fprintln(pw.outfile, "")
+		pw.pos += int64(i)
+		pw.lastEOL = pw.pos
 	}
 }
 
 func (pw *PDF) out(str string) {
-	fmt.Fprintln(pw.outfile, str)
-	pw.lastEOL = pw.curpos()
+	i, _ := fmt.Fprintln(pw.outfile, str)
+	pw.pos += int64(i)
+	pw.lastEOL = pw.pos
 }
 
 // Write a formatted string to the PDF file
 func (pw *PDF) outf(format string, str ...interface{}) {
-	fmt.Fprintf(pw.outfile, format, str...)
-}
-
-// Return the current position in the PDF file. Panics if something is wrong.
-func (pw *PDF) curpos() int64 {
-	pos, err := pw.outfile.Seek(0, os.SEEK_CUR)
-	if err != nil {
-		panic(err)
-	}
-	return pos
+	i, _ := fmt.Fprintf(pw.outfile, format, str...)
+	pw.pos = int64(i)
 }
 
 // Write a start object marker with the next free object.
 func (pw *PDF) startObject(onum objectnumber) error {
 	var position int64
-	position = pw.curpos() + 1
+	position = pw.pos + 1
 	pw.objectlocations[onum] = position
 	pw.outf("\n%d 0 obj\n", onum)
 	return nil

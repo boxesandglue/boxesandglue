@@ -19,13 +19,13 @@ func debug(nl *node.Nodelist, level int) {
 		fmt.Print(strings.Repeat(" | ", level))
 		switch v := e.Value.(type) {
 		case *node.VList:
-			color.Cyan("vlist wd: %s", v.Width)
+			color.Cyan("vlist wd: %s ht %s", v.Width, v.Height)
 			debug(v.List, level+1)
 		case *node.HList:
-			color.HiBlue("hlist wd: %s", v.Width)
+			color.HiBlue("hlist wd: %s ht: %s", v.Width, v.Height)
 			debug(v.List, level+1)
 		case *node.Glyph:
-			color.HiGreen("glyph: %s wd: %s", v.Components, v.Width)
+			color.HiGreen("glyph: %s wd: %s cp: %d", v.Components, v.Width, v.Codepoint)
 		case *node.Lang:
 			color.Magenta("lang: %s", v.Lang.Name)
 		case *node.Glue:

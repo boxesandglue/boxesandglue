@@ -63,7 +63,7 @@ func Hyphenate(nodelist *Nodelist) {
 				if v.Components != "" {
 					b.WriteString(v.Components)
 				} else {
-					b.WriteRune(rune(v.GlyphID))
+					b.WriteRune(rune(v.Codepoint))
 				}
 			}
 		case *Lang:

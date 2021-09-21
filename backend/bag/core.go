@@ -18,7 +18,7 @@ func init() {
 	unitRE = regexp.MustCompile("(.*?)(mm|cm|in|pt|px|pc|m)")
 }
 
-// Factor is the multiplyer to get ScaledPoints from  points to get the ScaledPoint unit
+// Factor is the multiplier to get DTP points from scaled points.
 const Factor ScaledPoint = 0xffff
 
 // A ScaledPoint is a 65535th of a DTP point
@@ -33,9 +33,11 @@ func (s ScaledPoint) Float() float64 {
 	return float64(s) / float64(Factor)
 }
 
-// Sp return the unit converted to ScaledPoint
+// Sp return the unit converted to ScaledPoint. Unit can be a string like "1cm"
+// or "12.5in". The units which are interpreted are pt, in, mm, cm, m, px and
+// pc. A (wrapped) ErrConversion is returned in case of an error.
 func Sp(unit string) (ScaledPoint, error) {
-	log.Trace("convert to sp: " + unit)
+	log.WithField("unit", unit).Trace("Sp")
 	unit = strings.ToLower(unit)
 	m := unitRE.FindAllStringSubmatch(unit, -1)
 	if len(m) != 1 {
@@ -71,11 +73,11 @@ func Sp(unit string) (ScaledPoint, error) {
 		return ScaledPoint(l * 12 * float64(Factor)), nil
 	default:
 		return 0, ErrConversion
-
 	}
 }
 
-// MustSp converts the unit to ScaledPoints. In case of an error, the function panics
+// MustSp converts the unit to ScaledPoints. In case of an error, the function
+// panics.
 func MustSp(unit string) ScaledPoint {
 	val, err := Sp(unit)
 	if err != nil {

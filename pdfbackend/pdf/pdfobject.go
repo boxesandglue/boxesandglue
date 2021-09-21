@@ -29,7 +29,8 @@ func (obj *Object) Save() {
 		fmt.Fprintln(obj.pdfwriter.outfile, "% "+obj.comment)
 	}
 	obj.pdfwriter.startObject(obj.ObjectNumber)
-	obj.Data.WriteTo(obj.pdfwriter.outfile)
+	n, _ := obj.Data.WriteTo(obj.pdfwriter.outfile)
+	obj.pdfwriter.pos += n
 	obj.pdfwriter.endObject()
 }
 

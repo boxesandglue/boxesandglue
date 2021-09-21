@@ -5,23 +5,35 @@ import (
 	"unicode"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
-// A Codepoint contains size information about the glyphs as a result of Shape
-type Codepoint struct {
+// An Atom contains size information about the glyphs as a result of Shape
+type Atom struct {
 	Glyph      int
 	Advance    bag.ScaledPoint
 	Components string
+	Codepoint  int
 	Hyphenate  bool
 }
 
-// Shape transforms the text into a slice of codepoints.
-func (f *Font) Shape(text string) []Codepoint {
+// Font is the main structure of a font instance
+type Font struct {
+	Space        bag.ScaledPoint
+	SpaceStretch bag.ScaledPoint
+	SpaceShrink  bag.ScaledPoint
+	Size         bag.ScaledPoint
+	Face         *pdf.Face
+	Mag          int
+}
 
-	codepoints := make([]Codepoint, 0, len(text))
+// Shape transforms the text into a slice of codepoints.
+func (f *Font) Shape(text string) []Atom {
+
+	glyphs := make([]Atom, 0, len(text))
 	for _, r := range text {
 		if unicode.IsSpace(r) {
-			codepoints = append(codepoints, Codepoint{
+			glyphs = append(glyphs, Atom{
 				Glyph:      32,
 				Advance:    f.Size,
 				Components: " ",
@@ -31,13 +43,28 @@ func (f *Font) Shape(text string) []Codepoint {
 			if err != nil {
 				fmt.Println(err)
 			}
-			codepoints = append(codepoints, Codepoint{
+			glyphs = append(glyphs, Atom{
 				Glyph:      int(r),
 				Advance:    adv,
 				Hyphenate:  unicode.IsLetter(r),
 				Components: string(r),
+				Codepoint:  f.Face.ToGlyphIndex[r],
 			})
 		}
 	}
-	return codepoints
+	return glyphs
+}
+
+// AdvanceX returns the advance in horiontal direction
+func (f *Font) AdvanceX(r rune) (bag.ScaledPoint, error) {
+	idx, err := f.Face.GetIndex(r)
+	if err != nil {
+		return 0, err
+	}
+	adv, err := f.Face.Font.GlyphAdvance(idx)
+	if err != nil {
+		return 0, err
+	}
+	wd := bag.ScaledPoint(adv) * bag.ScaledPoint(f.Mag)
+	return wd, nil
 }

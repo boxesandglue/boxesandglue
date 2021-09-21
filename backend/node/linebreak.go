@@ -8,7 +8,8 @@ import (
 
 // LinebreakSettings contains all information about the final paragraph
 type LinebreakSettings struct {
-	HSize bag.ScaledPoint
+	HSize      bag.ScaledPoint
+	LineHeight bag.ScaledPoint
 }
 
 // Linebreak returns a VList with horizontal lists where each horizontal
@@ -33,9 +34,11 @@ func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 				sumwd = sumwd + v.Width
 			} else {
 				hl := HPackToWithEnd(linehead, lastBreakpoint.glueNode.Prev(), settings.HSize)
+				hl.Height = settings.LineHeight
 				sumwd = sumwd - lastBreakpoint.sumwd
 				linehead = lastBreakpoint.glueNode.Next()
 				vl.List.AppendNode(hl)
+				vl.Height += hl.Height
 			}
 		case *Glyph:
 			sumwd += v.Width
@@ -48,7 +51,10 @@ func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 	}
 
 	hl := HPackToWithEnd(linehead, linehead.list.Back(), settings.HSize)
+	hl.Height = settings.HSize
 	vl.List.AppendNode(hl)
+	vl.Width = settings.HSize
+	vl.Height += hl.Height
 
 	return vl
 }

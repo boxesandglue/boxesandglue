@@ -5,6 +5,7 @@ import (
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/lang"
+	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
 var (
@@ -28,8 +29,8 @@ type basenode struct {
 	id int
 }
 
-// NewElement creates a list element from the node type. You must ensure that the val is a
-// valid node type.
+// NewElement creates a list element from the node type. You must ensure that
+// the val is a valid node type.
 func NewElement(val interface{}) *Node {
 	return &Node{Value: val}
 }
@@ -56,23 +57,26 @@ func NewDiscWithContents(n *Disc) *Disc {
 	return n
 }
 
-// IsDisc retuns the value of the element and true, if the element is a Disc node.
+// IsDisc retuns the value of the element and true, if the element is a Disc
+// node.
 func IsDisc(elt *Node) (*Disc, bool) {
 	Disc, ok := elt.Value.(*Disc)
 	return Disc, ok
 }
 
-// Glyph nodes represents a single visible entity such as a letter or a ligature.
+// Glyph nodes represents a single visible entity such as a letter or a
+// ligature.
 type Glyph struct {
 	basenode
-	GlyphID    int    // The font specific glyph id
+	Face       *pdf.Face
+	Codepoint  int    // The font specific glyph id
 	Components string // A codepoint can contain more than one rune, for example a fi ligature contains f + i
 	Width      bag.ScaledPoint
 	Hyphenate  bool
 }
 
 func (g *Glyph) String() string {
-	return fmt.Sprintf("glyph: %s", string(rune(g.GlyphID)))
+	return fmt.Sprintf("glyph: %s (face: %s)", g.Components, g.Face.InternalName())
 }
 
 // NewGlyph returns an initialized Glyph
@@ -82,7 +86,8 @@ func NewGlyph() *Glyph {
 	return n
 }
 
-// IsGlyph returns the value of the element and true, if the element is a Glyph node.
+// IsGlyph returns the value of the element and true, if the element is a Glyph
+// node.
 func IsGlyph(elt *Node) (*Glyph, bool) {
 	n, ok := elt.Value.(*Glyph)
 	return n, ok
@@ -109,7 +114,8 @@ func NewGlue() *Glue {
 	return n
 }
 
-// IsGlue retuns the value of the element and true, if the element is a Glue node.
+// IsGlue retuns the value of the element and true, if the element is a Glue
+// node.
 func IsGlue(elt *Node) (*Glue, bool) {
 	n, ok := elt.Value.(*Glue)
 	return n, ok
@@ -118,8 +124,9 @@ func IsGlue(elt *Node) (*Glue, bool) {
 // A HList is a horizontal list.
 type HList struct {
 	basenode
-	Width bag.ScaledPoint
-	List  *Nodelist
+	Width  bag.ScaledPoint
+	Height bag.ScaledPoint
+	List   *Nodelist
 }
 
 func (h *HList) String() string {
@@ -138,7 +145,8 @@ func NewHList() *HList {
 	return n
 }
 
-// IsHList retuns the value of the element and true, if the element is a HList node.
+// IsHList retuns the value of the element and true, if the element is a HList
+// node.
 func IsHList(elt *Node) (*HList, bool) {
 	hlist, ok := elt.Value.(*HList)
 	return hlist, ok
@@ -167,7 +175,8 @@ func NewLangWithContents(n *Lang) *Lang {
 	return n
 }
 
-// IsLang retuns the value of the element and true, if the element is a Lang node.
+// IsLang retuns the value of the element and true, if the element is a Lang
+// node.
 func IsLang(elt *Node) (*Lang, bool) {
 	lang, ok := elt.Value.(*Lang)
 	return lang, ok
@@ -176,8 +185,9 @@ func IsLang(elt *Node) (*Lang, bool) {
 // A VList is a horizontal list.
 type VList struct {
 	basenode
-	Width bag.ScaledPoint
-	List  *Nodelist
+	Width  bag.ScaledPoint
+	Height bag.ScaledPoint
+	List   *Nodelist
 }
 
 func (v *VList) String() string {
