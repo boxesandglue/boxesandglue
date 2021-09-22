@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/lang"
-	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
 var (
@@ -68,15 +68,16 @@ func IsDisc(elt *Node) (*Disc, bool) {
 // ligature.
 type Glyph struct {
 	basenode
-	Face       *pdf.Face
+	Font       *font.Font
 	Codepoint  int    // The font specific glyph id
 	Components string // A codepoint can contain more than one rune, for example a fi ligature contains f + i
 	Width      bag.ScaledPoint
 	Hyphenate  bool
+	NewFont    bool // if this glyph should start a new font
 }
 
 func (g *Glyph) String() string {
-	return fmt.Sprintf("glyph: %s (face: %s)", g.Components, g.Face.InternalName())
+	return fmt.Sprintf("glyph: %s (font: %s)", g.Components, g.Font.Face.InternalName())
 }
 
 // NewGlyph returns an initialized Glyph
@@ -185,9 +186,10 @@ func IsLang(elt *Node) (*Lang, bool) {
 // A VList is a horizontal list.
 type VList struct {
 	basenode
-	Width  bag.ScaledPoint
-	Height bag.ScaledPoint
-	List   *Nodelist
+	Width     bag.ScaledPoint
+	Height    bag.ScaledPoint
+	List      *Nodelist
+	FirstFont *font.Font
 }
 
 func (v *VList) String() string {

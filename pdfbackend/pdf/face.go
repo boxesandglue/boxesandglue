@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/gootf/opentype"
 )
 
@@ -93,7 +92,6 @@ func NewFaceFromData(id string, data []byte) (*Face, error) {
 }
 
 func getFace(filename string) (*Face, error) {
-	bag.LogTrace("Create new face")
 	r, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -109,7 +107,6 @@ func getFace(filename string) (*Face, error) {
 // LoadFace loads a font from the disc. The index specifies the sub font to be
 // loaded.
 func LoadFace(pw *PDF, filename string, idx int) (*Face, error) {
-	bag.LogTrace("Create new face")
 	r, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -155,9 +152,7 @@ func (face *Face) Codepoints(runes []rune) []int {
 // finish writes the font file to the PDF. The font should be sub-setted,
 // therefore we know the requirements only the end of the PDF file.
 func (face *Face) finish() error {
-	bag.LogTrace("finish face")
 	var err error
-	bag.LogWithFields(bag.Fields{"id": face.InternalName}).Trace("Finish font face")
 	fnt := face.Font
 	subset := make([]int, len(face.usedChar))
 	i := 0

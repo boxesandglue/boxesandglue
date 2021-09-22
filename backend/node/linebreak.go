@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/font"
 )
 
 // LinebreakSettings contains all information about the final paragraph
@@ -24,6 +25,8 @@ func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 	lastBreakpoint := breakpoint{}
 	var sumwd bag.ScaledPoint
 	linehead := nl.Front()
+	var firstFont *font.Font
+	var prevFace *font.Font
 	for e := nl.Front(); e != nil; e = e.Next() {
 		switch v := e.Value.(type) {
 		case *Glue:
@@ -41,6 +44,14 @@ func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 				vl.Height += hl.Height
 			}
 		case *Glyph:
+			if firstFont == nil {
+				firstFont = v.Font
+				prevFace = v.Font
+			}
+			if v.Font != prevFace {
+				prevFace = v.Font
+				v.NewFont = true
+			}
 			sumwd += v.Width
 		case *Lang, *Disc:
 			// ignore
@@ -52,6 +63,7 @@ func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 
 	hl := HPackToWithEnd(linehead, linehead.list.Back(), settings.HSize)
 	hl.Height = settings.HSize
+	vl.FirstFont = firstFont
 	vl.List.AppendNode(hl)
 	vl.Width = settings.HSize
 	vl.Height += hl.Height

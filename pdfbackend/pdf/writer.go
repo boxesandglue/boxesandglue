@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/speedata/boxesandglue/backend/bag"
 )
 
 type objectnumber int
@@ -96,7 +94,6 @@ func (pw *PDF) writeStream(st *Stream) objectnumber {
 }
 
 func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
-	bag.LogTrace("write document catalog")
 	// Write all page streams:
 	for _, page := range pw.pages.pages {
 		page.onum = pw.writeStream(page.stream)
@@ -175,7 +172,6 @@ func (pw *PDF) writeDocumentCatalog() (objectnumber, error) {
 
 // Finish writes the trailer and xref section but does not close the file
 func (pw *PDF) Finish() error {
-	fmt.Println("Now finishing the PDF")
 	dc, err := pw.writeDocumentCatalog()
 	if err != nil {
 		return err

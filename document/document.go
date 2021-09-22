@@ -28,16 +28,6 @@ type Page struct {
 	Finished bool
 }
 
-type faceCodepoint struct {
-	face       *pdf.Face
-	codepoints []int
-}
-
-func (d *Document) getFaceCodepoints(nl *node.Nodelist) []faceCodepoint {
-	f := d.Faces[0]
-	return []faceCodepoint{{d.Faces[0], f.Font.Codepoints([]rune("Hello"))}}
-}
-
 // Shipout places all objects on a page and finishes this page.
 func (p *Page) Shipout() {
 	if p.Finished {
@@ -45,36 +35,52 @@ func (p *Page) Shipout() {
 	}
 	p.Finished = true
 
-	var usedFaces []*pdf.Face
+	usedFaces := make(map[*pdf.Face]bool)
+	var currentFont *font.Font
 	var s strings.Builder
 	sumV := bag.ScaledPoint(0)
 	for _, obj := range p.Objects {
-		for _, fc := range p.document.getFaceCodepoints(obj.Vlist.List) {
-			usedFaces = append(usedFaces, fc.face)
-			fmt.Fprintf(&s, `BT  %s 12 Tf`, fc.face.InternalName())
-			for vl := obj.Vlist.List.Front(); vl != nil; vl = vl.Next() {
-				hlist := vl.Value.(*node.HList)
-				fmt.Fprintf(&s, " q %4f %4f Td  [<", obj.X.Float()/bag.Factor.Float(), (obj.Y-sumV).Float()/bag.Factor.Float())
-				for hl := hlist.List.Front(); hl != nil; hl = hl.Next() {
-					switch n := hl.Value.(type) {
-					case *node.Glyph:
-						n.Face.RegisterChar(n.Codepoint)
-						fmt.Fprintf(&s, "%04x", n.Codepoint)
-					case *node.Glue:
-						fmt.Fprintf(&s, "> -%.4g <", n.Width.Float()/bag.Factor.Float()*12)
-					}
-				}
-				sumV += hlist.Height
-				fmt.Fprintln(&s, ">]TJ Q ")
-			}
+		vlist := obj.Vlist
+		firstFont := vlist.FirstFont
+		fmt.Fprintf(&s, "BT %s %f Tf ", firstFont.Face.InternalName(), float64(firstFont.Size/bag.Factor))
+		usedFaces[vlist.FirstFont.Face] = true
+		currentFont = vlist.FirstFont
 
-			fmt.Fprintln(&s, "ET")
+		for vl := vlist.List.Front(); vl != nil; vl = vl.Next() {
+			hlist := vl.Value.(*node.HList)
+			fmt.Fprintf(&s, " q %4f %4f Td  [<", obj.X.Float()/bag.Factor.Float(), (obj.Y-sumV).Float()/bag.Factor.Float())
+			for hl := hlist.List.Front(); hl != nil; hl = hl.Next() {
+				switch n := hl.Value.(type) {
+				case *node.Glyph:
+					if n.NewFont {
+						fmt.Fprintf(&s, `>] %s %f Tf [<`, n.Font.Face.InternalName(), float64(n.Font.Size/bag.Factor))
+						usedFaces[n.Font.Face] = true
+						currentFont = n.Font
+					}
+					n.Font.Face.RegisterChar(n.Codepoint)
+					fmt.Fprintf(&s, "%04x", n.Codepoint)
+				case *node.Glue:
+					fmt.Fprintf(&s, "> -%.4g <", n.Width.Float()*bag.Factor.Float()*currentFont.Size.Float())
+				case *node.Lang:
+					// ignore
+				default:
+					fmt.Println(hl.Value)
+					panic("nyi")
+				}
+			}
+			sumV += hlist.Height
+			fmt.Fprintln(&s, ">]TJ Q")
 		}
+
+		fmt.Fprintln(&s, "ET")
+
 	}
 	st := pdf.NewStream([]byte(s.String()))
-	st.SetCompression()
+	// st.SetCompression()
 	page := p.document.pdf.AddPage(st)
-	page.Faces = usedFaces
+	for f := range usedFaces {
+		page.Faces = append(page.Faces, f)
+	}
 }
 
 // Document contains all references to a document
