@@ -48,7 +48,7 @@ func (p *Page) Shipout() {
 
 		for vl := vlist.List.Front(); vl != nil; vl = vl.Next() {
 			hlist := vl.Value.(*node.HList)
-			fmt.Fprintf(&s, " q %4f %4f Td  [<", obj.X.Float()/bag.Factor.Float(), (obj.Y-sumV).Float()/bag.Factor.Float())
+			fmt.Fprintf(&s, " 1 0 0 1 %4f %4f Tm  [<", obj.X.Float()/bag.Factor.Float(), (obj.Y-sumV).Float()/bag.Factor.Float())
 			for hl := hlist.List.Front(); hl != nil; hl = hl.Next() {
 				switch n := hl.Value.(type) {
 				case *node.Glyph:
@@ -60,7 +60,10 @@ func (p *Page) Shipout() {
 					n.Font.Face.RegisterChar(n.Codepoint)
 					fmt.Fprintf(&s, "%04x", n.Codepoint)
 				case *node.Glue:
-					fmt.Fprintf(&s, "> -%.4g <", n.Width.Float()*bag.Factor.Float()*currentFont.Size.Float())
+					fmt.Fprintf(&s, "> -%.4f <", 1000*n.Width.Float()*bag.Factor.Float()/currentFont.Size.Float())
+					if false {
+						fmt.Println(currentFont)
+					}
 				case *node.Lang:
 					// ignore
 				default:
@@ -69,7 +72,7 @@ func (p *Page) Shipout() {
 				}
 			}
 			sumV += hlist.Height
-			fmt.Fprintln(&s, ">]TJ Q")
+			fmt.Fprintln(&s, ">]TJ ")
 		}
 
 		fmt.Fprintln(&s, "ET")
@@ -141,7 +144,7 @@ func (d *Document) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VL
 func (d *Document) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
 	mag := int(size) / int(face.UnitsPerEM)
 	return &font.Font{
-		Space:        size,
+		Space:        size * 5 / 10,
 		SpaceStretch: size / 3,
 		SpaceShrink:  size / 10,
 		Size:         size,

@@ -13,9 +13,9 @@ type LinebreakSettings struct {
 	LineHeight bag.ScaledPoint
 }
 
-// Linebreak returns a VList with horizontal lists where each horizontal
+// SimpleLinebreak returns a VList with horizontal lists where each horizontal
 // list is a line.
-func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
+func SimpleLinebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 	type breakpoint struct {
 		glueNode *Node
 		sumwd    bag.ScaledPoint
@@ -61,7 +61,7 @@ func Linebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 
 	}
 
-	hl := HPackToWithEnd(linehead, linehead.list.Back(), settings.HSize)
+	hl := Hpack(linehead)
 	hl.Height = settings.HSize
 	vl.FirstFont = firstFont
 	vl.List.AppendNode(hl)

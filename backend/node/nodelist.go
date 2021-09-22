@@ -82,19 +82,35 @@ func Hyphenate(nodelist *Nodelist) {
 }
 
 // Hpack returns a HList node with the node list as its list
-func Hpack(nl *Nodelist) *HList {
+func Hpack(firstNode *Node) *HList {
 	sumwd := bag.ScaledPoint(0)
-	for e := nl.Front(); e != nil; e = e.Next() {
+	nl := firstNode.list
+	glues := []*Node{}
+	sumglue := 0
+
+	newlist := NewNodelist()
+
+	e := firstNode
+	for {
+		if e == nil {
+			break
+		}
+		nextE := e.Next()
 		switch v := e.Value.(type) {
 		case *Glyph:
 			sumwd = sumwd + v.Width
 		case *Glue:
 			sumwd = sumwd + v.Width
+			sumglue = sumglue + int(v.Width)
+			glues = append(glues, e)
 		}
-	}
 
+		val := nl.Remove(e)
+		newlist.PushBack(val)
+		e = nextE
+	}
 	hl := NewHList()
-	hl.List = nl
+	hl.List = newlist
 	hl.Width = sumwd
 	return hl
 }
