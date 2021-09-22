@@ -18,7 +18,7 @@ There are several types of nodes:
 
 ## Status
 
-This repository is not usable for any serious purpose yet.
+This repository is not usable for any serious purpose yet. It is used for experiments for a successor of LuaTeX as a backend for the [speedata Publisher](https://github.com/speedata/publisher/).
 
 ## Contact
 
