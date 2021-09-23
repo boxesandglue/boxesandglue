@@ -144,9 +144,9 @@ func (d *Document) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VL
 func (d *Document) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
 	mag := int(size) / int(face.UnitsPerEM)
 	return &font.Font{
-		Space:        size * 5 / 10,
-		SpaceStretch: size / 3,
-		SpaceShrink:  size / 10,
+		Space:        size * 333 / 1000,
+		SpaceStretch: size * 167 / 1000,
+		SpaceShrink:  size * 111 / 1000,
 		Size:         size,
 		Face:         face,
 		Mag:          mag,

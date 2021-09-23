@@ -2,7 +2,6 @@ package pdf
 
 import (
 	"bytes"
-	"fmt"
 )
 
 // Object has information about a specific PDF object
@@ -24,18 +23,27 @@ func (pw *PDF) NewObject() *Object {
 }
 
 // Save adds the PDF object to the main PDF file.
-func (obj *Object) Save() {
+func (obj *Object) Save() error {
 	if obj.comment != "" {
-		fmt.Fprintln(obj.pdfwriter.outfile, "% "+obj.comment)
+		if err := obj.pdfwriter.Println("% " + obj.comment); err != nil {
+			return err
+		}
 	}
 	obj.pdfwriter.startObject(obj.ObjectNumber)
-	n, _ := obj.Data.WriteTo(obj.pdfwriter.outfile)
+	n, err := obj.Data.WriteTo(obj.pdfwriter.outfile)
+	if err != nil {
+		return err
+	}
 	obj.pdfwriter.pos += n
 	obj.pdfwriter.endObject()
+	return nil
 }
 
 // Dict writes the dict d to a PDF object
-func (obj *Object) Dict(d Dict) *Object {
-	obj.Data.WriteString(hashToString(d, 0))
-	return obj
+func (obj *Object) Dict(d Dict) (*Object, error) {
+	_, err := obj.Data.WriteString(hashToString(d, 0))
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
 }

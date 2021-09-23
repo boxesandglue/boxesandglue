@@ -61,7 +61,16 @@ func SimpleLinebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 
 	}
 
+	if sumwd > settings.HSize {
+		hl := HPackToWithEnd(linehead, lastBreakpoint.glueNode.Prev(), settings.HSize)
+		hl.Height = settings.LineHeight
+		sumwd = sumwd - lastBreakpoint.sumwd
+		linehead = lastBreakpoint.glueNode.Next()
+		vl.List.AppendNode(hl)
+		vl.Height += hl.Height
+	}
 	hl := Hpack(linehead)
+
 	hl.Height = settings.HSize
 	vl.FirstFont = firstFont
 	vl.List.AppendNode(hl)
