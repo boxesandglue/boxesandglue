@@ -117,7 +117,7 @@ func (pw *PDF) writeStream(st *Stream) (objectnumber, error) {
 		return 0, err
 	}
 
-	if _, err = obj.Data.WriteString("\nendstream\n"); err != nil {
+	if _, err = obj.Data.WriteString("\nendstream"); err != nil {
 		return 0, err
 	}
 	obj.Save()
@@ -245,7 +245,7 @@ func (pw *PDF) Finish() error {
 
 	pw.outHash(trailer)
 
-	if err = pw.Printf("startxref\n%d\n%%EOF\n", xrefpos); err != nil {
+	if err = pw.Printf("\nstartxref\n%d\n%%%%EOF\n", xrefpos); err != nil {
 		return err
 	}
 
