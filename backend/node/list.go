@@ -54,6 +54,11 @@ func (l *Nodelist) Init() *Nodelist {
 	return l
 }
 
+// AppendNode appends the node val to the end of the node list nl.
+func (l *Nodelist) AppendNode(val interface{}) *Node {
+	return l.PushBack(val)
+}
+
 // NewNodelist returns an initialized list.
 func NewNodelist() *Nodelist { return new(Nodelist).Init() }
 

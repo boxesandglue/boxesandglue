@@ -3,6 +3,7 @@ package bag
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,12 +25,21 @@ const Factor ScaledPoint = 0xffff
 // A ScaledPoint is a 65535th of a DTP point
 type ScaledPoint int
 
-func (s ScaledPoint) String() string {
-	return fmt.Sprintf("%.5g", float64(s)/float64(Factor))
+// ScaledPointFromFloat converts the DTP point f to a ScaledPoint
+func ScaledPointFromFloat(f float64) ScaledPoint {
+	return ScaledPoint(f * float64(Factor))
 }
 
-// Float returns the unit as a float64 DTP point. 2 * 0xffff returns 2.0
-func (s ScaledPoint) Float() float64 {
+// String converts the scaled point into a string, like Sprintf("%.3f")
+// but with trailing zeroes (and possibly ".") removed (from gopdf)
+func (s ScaledPoint) String() string {
+	const precisionFactor = 100.0
+	rounded := math.Round(precisionFactor*float64(s)/float64(Factor)) / precisionFactor
+	return strconv.FormatFloat(rounded, 'f', -1, 64)
+}
+
+// ToPT returns the unit as a float64 DTP point. 2 * 0xffff returns 2.0
+func (s ScaledPoint) ToPT() float64 {
 	return float64(s) / float64(Factor)
 }
 

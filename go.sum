@@ -12,6 +12,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/sirupsen/logrus v1.8.1 h1:dJKuHgqk1NNQlqoA6BTlM1Wf9DOH3NBjQyu0h9+AZZE=
 github.com/sirupsen/logrus v1.8.1/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
+github.com/speedata/gofpdi v1.0.14 h1:7GedtIAkCEm44JY8WSps+KcnvRADC0atjzyzU5hrXco=
+github.com/speedata/gofpdi v1.0.14/go.mod h1:aRZ6VjhFbzJWwCoHeKOdbUjImuf4GMVCJpwS9+bCYuM=
 github.com/speedata/gootf v0.0.0-20210922121111-803211d11afa h1:N7DXCiYMrnVG6eUxKjOTF3ZfPbA+6GABse8LvOnzSU8=
 github.com/speedata/gootf v0.0.0-20210922121111-803211d11afa/go.mod h1:bXdvybIvXGiKH0Yvm3KeIINmXldBdxe8RgHL7nkk25U=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=

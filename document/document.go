@@ -7,6 +7,7 @@ import (
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/font"
+	"github.com/speedata/boxesandglue/backend/image"
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
@@ -36,53 +37,95 @@ func (p *Page) Shipout() {
 	p.Finished = true
 
 	usedFaces := make(map[*pdf.Face]bool)
+	usedImages := make(map[*pdf.Imagefile]bool)
 	var currentFont *font.Font
 	var s strings.Builder
 	sumV := bag.ScaledPoint(0)
+	inTextMode := false
+	stopTextMode := func() {
+		if inTextMode {
+			fmt.Fprintln(&s, "ET")
+			inTextMode = false
+		}
+	}
+
 	for _, obj := range p.Objects {
 		vlist := obj.Vlist
-		firstFont := vlist.FirstFont
-		fmt.Fprintf(&s, "BT %s %f Tf ", firstFont.Face.InternalName(), float64(firstFont.Size/bag.Factor))
-		usedFaces[vlist.FirstFont.Face] = true
-		currentFont = vlist.FirstFont
-
 		for vl := vlist.List.Front(); vl != nil; vl = vl.Next() {
-			hlist := vl.Value.(*node.HList)
-			fmt.Fprintf(&s, " 1 0 0 1 %4f %4f Tm  [<", obj.X.Float()/bag.Factor.Float(), (obj.Y-sumV).Float()/bag.Factor.Float())
-			for hl := hlist.List.Front(); hl != nil; hl = hl.Next() {
-				switch n := hl.Value.(type) {
-				case *node.Glyph:
-					if n.NewFont {
-						fmt.Fprintf(&s, `>] %s %f Tf [<`, n.Font.Face.InternalName(), float64(n.Font.Size/bag.Factor))
-						usedFaces[n.Font.Face] = true
-						currentFont = n.Font
-					}
-					n.Font.Face.RegisterChar(n.Codepoint)
-					fmt.Fprintf(&s, "%04x", n.Codepoint)
-				case *node.Glue:
-					fmt.Fprintf(&s, "> -%.4f <", 1000*n.Width.Float()*bag.Factor.Float()/currentFont.Size.Float())
-					if false {
-						fmt.Println(currentFont)
-					}
-				case *node.Lang:
-					// ignore
-				default:
-					fmt.Println(hl.Value)
-					panic("nyi")
+			switch v := vl.Value.(type) {
+			case *node.HList:
+				hlist := v
+
+				if inTextMode {
+					fmt.Fprintf(&s, " 1 0 0 1 %s %s Tm  [<", obj.X.String(), (obj.Y - sumV).String())
 				}
+				for hl := hlist.List.Front(); hl != nil; hl = hl.Next() {
+					switch n := hl.Value.(type) {
+					case *node.Glyph:
+						if !inTextMode {
+							fmt.Fprintf(&s, "BT %s %s Tf ", n.Font.Face.InternalName(), n.Font.Size.String())
+							usedFaces[n.Font.Face] = true
+							currentFont = n.Font
+							inTextMode = true
+							fmt.Fprintf(&s, " 1 0 0 1 %s %s Tm  [<", obj.X.String(), (obj.Y - sumV).String())
+						}
+						if n.Font != currentFont {
+							fmt.Fprintf(&s, `>] %s %s Tf [<`, n.Font.Face.InternalName(), n.Font.Size.String())
+							usedFaces[n.Font.Face] = true
+							currentFont = n.Font
+						}
+						n.Font.Face.RegisterChar(n.Codepoint)
+						fmt.Fprintf(&s, "%04x", n.Codepoint)
+					case *node.Glue:
+						fmt.Fprintf(&s, "> -%d <", 1000*n.Width/currentFont.Size)
+						if false {
+							fmt.Println(currentFont)
+						}
+					case *node.Lang:
+						// ignore
+					default:
+						fmt.Println(hl.Value)
+						panic("nyi")
+					}
+				}
+				sumV += hlist.Height
+				fmt.Fprintln(&s, ">]TJ ")
+			case *node.Image:
+				img := v.Img
+				if img.Used {
+					bag.LogWarn("image node already in use, id: ", v.ID)
+				} else {
+					img.Used = true
+				}
+				ifile := img.ImageFile
+				usedImages[ifile] = true
+				stopTextMode()
+
+				scaleX := v.Width.ToPT() / ifile.ScaleX
+				scaleY := v.Height.ToPT() / ifile.ScaleY
+
+				ht := v.Height
+				y := obj.Y - ht
+				x := obj.X
+				if p.document.IsTrace(VTraceImages) {
+					fmt.Fprintf(&s, "q 0.2 w %s %s %s %s re S Q\n", x.String(), y.String(), v.Width.String(), v.Height.String())
+				}
+				fmt.Fprintf(&s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x.String(), y.String(), img.ImageFile.InternalName())
 			}
-			sumV += hlist.Height
-			fmt.Fprintln(&s, ">]TJ ")
 		}
-
-		fmt.Fprintln(&s, "ET")
-
+		stopTextMode()
 	}
 	st := pdf.NewStream([]byte(s.String()))
-	// st.SetCompression()
+	st.SetCompression()
 	page := p.document.pdf.AddPage(st)
+
+	page.Width = p.Width
+	page.Height = p.Height
 	for f := range usedFaces {
 		page.Faces = append(page.Faces, f)
+	}
+	for i := range usedImages {
+		page.Images = append(page.Images, i)
 	}
 }
 
@@ -90,11 +133,13 @@ func (p *Page) Shipout() {
 type Document struct {
 	Languages         []*lang.Lang
 	Faces             []*pdf.Face
+	Images            []*pdf.Imagefile
 	DefaultPageWidth  bag.ScaledPoint
 	DefaultPageHeight bag.ScaledPoint
 	Pages             []*Page
 	CurrentPage       *Page
 	pdf               *pdf.PDF
+	tracing           VTrace
 }
 
 // NewDocument creates an empty document.
@@ -129,13 +174,39 @@ func (d *Document) LoadFace(filename string, index int) (*pdf.Face, error) {
 	return f, nil
 }
 
+// LoadImageFile loads an image file. Images that should be placed in the PDF file must be
+// derived from the file.
+func (d *Document) LoadImageFile(filename string) (*pdf.Imagefile, error) {
+	img, err := pdf.LoadImageFile(d.pdf, filename)
+	if err != nil {
+		return nil, err
+	}
+	d.Images = append(d.Images, img)
+	return img, nil
+}
+
+// CreateImage returns a new Image derived from the image file.
+func (d *Document) CreateImage(imgfile *pdf.Imagefile) *image.Image {
+	img := &image.Image{}
+	img.ImageFile = imgfile
+	return img
+}
+
+// NewPage creates a new Page object and adds it to the page list in the document.
+func (d *Document) NewPage() *Page {
+	d.CurrentPage = &Page{
+		document: d,
+		Width:    d.DefaultPageWidth,
+		Height:   d.DefaultPageHeight,
+	}
+	d.Pages = append(d.Pages, d.CurrentPage)
+	return d.CurrentPage
+}
+
 // OutputAt places the nodelist at the position.
 func (d *Document) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VList) {
 	if d.CurrentPage == nil {
-		d.CurrentPage = &Page{
-			document: d,
-		}
-		d.Pages = append(d.Pages, d.CurrentPage)
+		d.CurrentPage = d.NewPage()
 	}
 	d.CurrentPage.Objects = append(d.CurrentPage.Objects, Object{x, y, vlist})
 }
@@ -157,6 +228,7 @@ func (d *Document) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
 func (d *Document) Finish() error {
 	var err error
 	d.pdf.Faces = d.Faces
+	d.pdf.ImageFiles = d.Images
 	if err = d.pdf.Finish(); err != nil {
 		return err
 	}

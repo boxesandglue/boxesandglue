@@ -5,6 +5,7 @@ import (
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/font"
+	"github.com/speedata/boxesandglue/backend/image"
 	"github.com/speedata/boxesandglue/backend/lang"
 )
 
@@ -26,7 +27,7 @@ func init() {
 }
 
 type basenode struct {
-	id int
+	ID int
 }
 
 // NewElement creates a list element from the node type. You must ensure that
@@ -47,13 +48,13 @@ func (d *Disc) String() string {
 // NewDisc creates an initialized Disc node
 func NewDisc() *Disc {
 	n := &Disc{}
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
 // NewDiscWithContents creates an initialized Disc node with the given contents
 func NewDiscWithContents(n *Disc) *Disc {
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
@@ -73,7 +74,6 @@ type Glyph struct {
 	Components string // A codepoint can contain more than one rune, for example a fi ligature contains f + i
 	Width      bag.ScaledPoint
 	Hyphenate  bool
-	NewFont    bool // if this glyph should start a new font
 }
 
 func (g *Glyph) String() string {
@@ -83,7 +83,7 @@ func (g *Glyph) String() string {
 // NewGlyph returns an initialized Glyph
 func NewGlyph() *Glyph {
 	n := &Glyph{}
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
@@ -111,7 +111,7 @@ func (g *Glue) String() string {
 // NewGlue creates an initialized Glue node
 func NewGlue() *Glue {
 	n := &Glue{}
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
@@ -142,7 +142,7 @@ func (h *HList) Head() *Node {
 // NewHList creates an initialized HList node
 func NewHList() *HList {
 	n := &HList{}
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
@@ -166,13 +166,13 @@ func (l *Lang) String() string {
 // NewLang creates an initialized Lang node
 func NewLang() *Lang {
 	n := &Lang{}
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
 // NewLangWithContents creates an initialized Lang node with the given contents
 func NewLangWithContents(n *Lang) *Lang {
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
@@ -205,7 +205,7 @@ func (v *VList) Head() *Node {
 func NewVList() *VList {
 	n := &VList{}
 	n.List = NewNodelist()
-	n.id = <-ids
+	n.ID = <-ids
 	return n
 }
 
@@ -213,4 +213,29 @@ func NewVList() *VList {
 func IsVList(elt *Node) (*VList, bool) {
 	vlist, ok := elt.Value.(*VList)
 	return vlist, ok
+}
+
+// An Image is a horizontal list.
+type Image struct {
+	basenode
+	Width  bag.ScaledPoint
+	Height bag.ScaledPoint
+	Img    *image.Image
+}
+
+func (n *Image) String() string {
+	return "image"
+}
+
+// NewImage creates an initialized Image node
+func NewImage() *Image {
+	n := &Image{}
+	n.ID = <-ids
+	return n
+}
+
+// IsImage retuns the value of the element and true, if the element is a Image node.
+func IsImage(elt *Node) (*Image, bool) {
+	img, ok := elt.Value.(*Image)
+	return img, ok
 }

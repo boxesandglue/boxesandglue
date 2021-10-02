@@ -71,6 +71,11 @@ func LogError(args ...interface{}) {
 	log.Error(args...)
 }
 
+// LogWarn logs with log level WarnLevel
+func LogWarn(args ...interface{}) {
+	log.Warn(args...)
+}
+
 // LogInfo logs with log level InfoLevel
 func LogInfo(args ...interface{}) {
 	log.Info(args...)

@@ -40,7 +40,7 @@ type Face struct {
 	ToRune       map[int]rune
 	ToGlyphIndex map[rune]int
 	usedChar     map[int]bool
-	FontFile     objectnumber
+	FontFile     Objectnumber // TODO used?
 	fontobject   *Object
 	pw           *PDF
 }
@@ -195,16 +195,13 @@ func (face *Face) finish() error {
 		"/XHeight":     fmt.Sprintf("%d", fnt.XHeight()),
 	}
 	if fnt.IsCFF {
-		fontDescriptor["/FontFile3"] = fontstreamOnum.ref()
+		fontDescriptor["/FontFile3"] = fontstreamOnum.Ref()
 	} else {
-		fontDescriptor["/FontFile2"] = fontstreamOnum.ref()
+		fontDescriptor["/FontFile2"] = fontstreamOnum.Ref()
 	}
 
 	fontDescriptorObj := face.pw.NewObject()
-	fdd, err := fontDescriptorObj.Dict(fontDescriptor)
-	if err != nil {
-		return err
-	}
+	fdd := fontDescriptorObj.Dict(fontDescriptor)
 	fdd.Save()
 
 	cmap := fnt.CMap()
@@ -217,7 +214,7 @@ func (face *Face) finish() error {
 	cidFontType2 := Dict{
 		"/BaseFont":       fnt.PDFName(),
 		"/CIDSystemInfo":  `<< /Ordering (Identity) /Registry (Adobe) /Supplement 0 >>`,
-		"/FontDescriptor": fontDescriptorObj.ObjectNumber.ref(),
+		"/FontDescriptor": fontDescriptorObj.ObjectNumber.Ref(),
 		"/Subtype":        "/CIDFontType2",
 		"/Type":           "/Font",
 		"/W":              fnt.Widths(),
@@ -229,19 +226,16 @@ func (face *Face) finish() error {
 		cidFontType2["/Subtype"] = "/CIDFontType2"
 	}
 	cidFontType2Obj := face.pw.NewObject()
-	d, err := cidFontType2Obj.Dict(cidFontType2)
-	if err != nil {
-		return err
-	}
+	d := cidFontType2Obj.Dict(cidFontType2)
 	d.Save()
 
 	fontObj := face.fontobject
 	fontObj.Dict(Dict{
 		"/BaseFont":        fnt.PDFName(),
-		"/DescendantFonts": fmt.Sprintf("[%s]", cidFontType2Obj.ObjectNumber.ref()),
+		"/DescendantFonts": fmt.Sprintf("[%s]", cidFontType2Obj.ObjectNumber.Ref()),
 		"/Encoding":        "/Identity-H",
 		"/Subtype":         "/Type0",
-		"/ToUnicode":       cmapOnum.ref(),
+		"/ToUnicode":       cmapOnum.Ref(),
 		"/Type":            "/Font",
 	})
 	fontObj.Save()

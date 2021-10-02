@@ -7,16 +7,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/lang"
 )
 
-// Nodelist contains a list of nodes
-// type Nodelist *list.List
-
-// NewNodelist creates an empty node list
-
-// AppendNode appends the node val to the end of the node list nl.
-func (nl *Nodelist) AppendNode(val interface{}) *Node {
-	return nl.PushBack(val)
-}
-
 func insertBreakpoints(l *lang.Lang, word *strings.Builder, nodelist *Nodelist, wordstart *Node) {
 	cur := wordstart
 	if word.Len() > 0 {

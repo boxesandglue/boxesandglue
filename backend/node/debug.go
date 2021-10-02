@@ -23,7 +23,7 @@ func debug(nl *Nodelist, level int) {
 			color.HiBlue("hlist wd: %s ht: %s", v.Width, v.Height)
 			debug(v.List, level+1)
 		case *Glyph:
-			color.HiGreen("glyph: %s wd: %s cp: %d (nf?) %t", v.Components, v.Width, v.Codepoint, v.NewFont)
+			color.HiGreen("glyph: %s wd: %s cp: %d", v.Components, v.Width, v.Codepoint)
 		case *Lang:
 			color.Magenta("lang: %s", v.Lang.Name)
 		case *Glue:
