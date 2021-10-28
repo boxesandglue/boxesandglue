@@ -40,7 +40,6 @@ func (p *Page) Shipout() {
 	usedImages := make(map[*pdf.Imagefile]bool)
 	var currentFont *font.Font
 	var s strings.Builder
-	sumV := bag.ScaledPoint(0)
 	inTextMode := false
 	stopTextMode := func() {
 		if inTextMode {
@@ -50,17 +49,18 @@ func (p *Page) Shipout() {
 	}
 
 	for _, obj := range p.Objects {
+		sumV := bag.ScaledPoint(0)
 		vlist := obj.Vlist
-		for vl := vlist.List.Front(); vl != nil; vl = vl.Next() {
-			switch v := vl.Value.(type) {
+		for vl := vlist.List; vl != nil; vl = vl.Next() {
+			switch v := vl.(type) {
 			case *node.HList:
 				hlist := v
 
 				if inTextMode {
 					fmt.Fprintf(&s, " 1 0 0 1 %s %s Tm  [<", obj.X.String(), (obj.Y - sumV).String())
 				}
-				for hl := hlist.List.Front(); hl != nil; hl = hl.Next() {
-					switch n := hl.Value.(type) {
+				for hl := hlist.List; hl != nil; hl = hl.Next() {
+					switch n := hl.(type) {
 					case *node.Glyph:
 						if !inTextMode {
 							fmt.Fprintf(&s, "BT %s %s Tf ", n.Font.Face.InternalName(), n.Font.Size.String())
@@ -84,7 +84,7 @@ func (p *Page) Shipout() {
 					case *node.Lang:
 						// ignore
 					default:
-						fmt.Println(hl.Value)
+						fmt.Println(hl)
 						panic("nyi")
 					}
 				}

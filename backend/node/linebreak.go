@@ -14,18 +14,20 @@ type LinebreakSettings struct {
 
 // SimpleLinebreak returns a VList with horizontal lists where each horizontal
 // list is a line.
-func SimpleLinebreak(nl *Nodelist, settings LinebreakSettings) *VList {
+func SimpleLinebreak(hl *HList, settings LinebreakSettings) *VList {
 	type breakpoint struct {
-		glueNode *Node
+		glueNode Node
 		sumwd    bag.ScaledPoint
 	}
-
+	nl := hl.List
 	vl := NewVList()
+	var lastLine Node
 	lastBreakpoint := breakpoint{}
 	var sumwd bag.ScaledPoint
-	linehead := nl.Front()
-	for e := nl.Front(); e != nil; e = e.Next() {
-		switch v := e.Value.(type) {
+	linehead := nl
+
+	for e := nl; e != nil; e = e.Next() {
+		switch v := e.(type) {
 		case *Glue:
 			if sumwd < settings.HSize {
 				// collect more nodes but remember this glue
@@ -33,11 +35,14 @@ func SimpleLinebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 				lastBreakpoint.sumwd = sumwd
 				sumwd = sumwd + v.Width
 			} else {
-				hl := HPackToWithEnd(linehead, lastBreakpoint.glueNode.Prev(), settings.HSize)
+				lastGlue := lastBreakpoint.glueNode
+				lastNode := lastGlue.Prev()
+				hl := HPackToWithEnd(linehead, lastNode, settings.HSize)
 				hl.Height = settings.LineHeight
 				sumwd = sumwd - lastBreakpoint.sumwd
+				vl.List = InsertAfter(vl.List, lastLine, hl)
 				linehead = lastBreakpoint.glueNode.Next()
-				vl.List.AppendNode(hl)
+				lastLine = hl
 				vl.Height += hl.Height
 			}
 		case *Glyph:
@@ -47,7 +52,6 @@ func SimpleLinebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 		default:
 			fmt.Println("Linebreak: unknown node type", v)
 		}
-
 	}
 
 	if sumwd > settings.HSize {
@@ -55,13 +59,14 @@ func SimpleLinebreak(nl *Nodelist, settings LinebreakSettings) *VList {
 		hl.Height = settings.LineHeight
 		sumwd = sumwd - lastBreakpoint.sumwd
 		linehead = lastBreakpoint.glueNode.Next()
-		vl.List.AppendNode(hl)
+		vl.List = InsertAfter(vl.List, lastLine, hl)
+		lastLine = hl
 		vl.Height += hl.Height
 	}
-	hl := Hpack(linehead)
+	hl = Hpack(linehead)
 
 	hl.Height = settings.HSize
-	vl.List.AppendNode(hl)
+	InsertAfter(vl.List, lastLine, hl)
 	vl.Width = settings.HSize
 	vl.Height += hl.Height
 

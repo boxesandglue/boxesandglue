@@ -13,6 +13,20 @@ var (
 	ids chan int
 )
 
+// Node represents any kind of node
+type Node interface {
+	Next() Node
+	Prev() Node
+	SetNext(Node)
+	SetPrev(Node)
+}
+
+type basenode struct {
+	next Node
+	prev Node
+	ID   int
+}
+
 func genIntegerSequence(ids chan int) {
 	i := int(0)
 	for {
@@ -26,14 +40,13 @@ func init() {
 	go genIntegerSequence(ids)
 }
 
-type basenode struct {
-	ID int
-}
-
-// NewElement creates a list element from the node type. You must ensure that
-// the val is a valid node type.
-func NewElement(val interface{}) *Node {
-	return &Node{Value: val}
+// IsNode returns true if the argument is a Node.
+func IsNode(arg interface{}) bool {
+	switch arg.(type) {
+	case *Disc, *Glyph, *Glue, *Image, *HList, *Lang, *VList:
+		return true
+	}
+	return false
 }
 
 // A Disc is a hyphenation point.
@@ -52,6 +65,26 @@ func NewDisc() *Disc {
 	return n
 }
 
+// Next returns the following node or nil if no such node exists.
+func (d *Disc) Next() Node {
+	return d.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (d *Disc) Prev() Node {
+	return d.prev
+}
+
+// SetNext sets the following node.
+func (d *Disc) SetNext(n Node) {
+	d.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (d *Disc) SetPrev(n Node) {
+	d.prev = n
+}
+
 // NewDiscWithContents creates an initialized Disc node with the given contents
 func NewDiscWithContents(n *Disc) *Disc {
 	n.ID = <-ids
@@ -60,8 +93,8 @@ func NewDiscWithContents(n *Disc) *Disc {
 
 // IsDisc retuns the value of the element and true, if the element is a Disc
 // node.
-func IsDisc(elt *Node) (*Disc, bool) {
-	Disc, ok := elt.Value.(*Disc)
+func IsDisc(elt Node) (*Disc, bool) {
+	Disc, ok := elt.(*Disc)
 	return Disc, ok
 }
 
@@ -80,6 +113,26 @@ func (g *Glyph) String() string {
 	return fmt.Sprintf("glyph: %s (font: %s)", g.Components, g.Font.Face.InternalName())
 }
 
+// Next returns the following node or nil if no such node exists.
+func (g *Glyph) Next() Node {
+	return g.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (g *Glyph) Prev() Node {
+	return g.prev
+}
+
+// SetNext sets the following node.
+func (g *Glyph) SetNext(n Node) {
+	g.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (g *Glyph) SetPrev(n Node) {
+	g.prev = n
+}
+
 // NewGlyph returns an initialized Glyph
 func NewGlyph() *Glyph {
 	n := &Glyph{}
@@ -89,8 +142,8 @@ func NewGlyph() *Glyph {
 
 // IsGlyph returns the value of the element and true, if the element is a Glyph
 // node.
-func IsGlyph(elt *Node) (*Glyph, bool) {
-	n, ok := elt.Value.(*Glyph)
+func IsGlyph(elt Node) (*Glyph, bool) {
+	n, ok := elt.(*Glyph)
 	return n, ok
 }
 
@@ -108,6 +161,26 @@ func (g *Glue) String() string {
 	return "glue"
 }
 
+// Next returns the following node or nil if no such node exists.
+func (g *Glue) Next() Node {
+	return g.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (g *Glue) Prev() Node {
+	return g.prev
+}
+
+// SetNext sets the following node.
+func (g *Glue) SetNext(n Node) {
+	g.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (g *Glue) SetPrev(n Node) {
+	g.prev = n
+}
+
 // NewGlue creates an initialized Glue node
 func NewGlue() *Glue {
 	n := &Glue{}
@@ -117,8 +190,8 @@ func NewGlue() *Glue {
 
 // IsGlue retuns the value of the element and true, if the element is a Glue
 // node.
-func IsGlue(elt *Node) (*Glue, bool) {
-	n, ok := elt.Value.(*Glue)
+func IsGlue(elt Node) (*Glue, bool) {
+	n, ok := elt.(*Glue)
 	return n, ok
 }
 
@@ -127,7 +200,7 @@ type HList struct {
 	basenode
 	Width  bag.ScaledPoint
 	Height bag.ScaledPoint
-	List   *Nodelist
+	List   Node
 }
 
 func (h *HList) String() string {
@@ -135,8 +208,28 @@ func (h *HList) String() string {
 }
 
 // Head returns the head of the list
-func (h *HList) Head() *Node {
-	return h.List.Front()
+func (h *HList) Head() Node {
+	return h.List
+}
+
+// Next returns the following node or nil if no such node exists.
+func (h *HList) Next() Node {
+	return h.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (h *HList) Prev() Node {
+	return h.prev
+}
+
+// SetNext sets the following node.
+func (h *HList) SetNext(n Node) {
+	h.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (h *HList) SetPrev(n Node) {
+	h.prev = n
 }
 
 // NewHList creates an initialized HList node
@@ -148,8 +241,8 @@ func NewHList() *HList {
 
 // IsHList retuns the value of the element and true, if the element is a HList
 // node.
-func IsHList(elt *Node) (*HList, bool) {
-	hlist, ok := elt.Value.(*HList)
+func IsHList(elt Node) (*HList, bool) {
+	hlist, ok := elt.(*HList)
 	return hlist, ok
 }
 
@@ -161,6 +254,26 @@ type Lang struct {
 
 func (l *Lang) String() string {
 	return "lang: " + l.Lang.Name
+}
+
+// Next returns the following node or nil if no such node exists.
+func (l *Lang) Next() Node {
+	return l.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (l *Lang) Prev() Node {
+	return l.prev
+}
+
+// SetNext sets the following node.
+func (l *Lang) SetNext(n Node) {
+	l.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (l *Lang) SetPrev(n Node) {
+	l.prev = n
 }
 
 // NewLang creates an initialized Lang node
@@ -178,8 +291,8 @@ func NewLangWithContents(n *Lang) *Lang {
 
 // IsLang retuns the value of the element and true, if the element is a Lang
 // node.
-func IsLang(elt *Node) (*Lang, bool) {
-	lang, ok := elt.Value.(*Lang)
+func IsLang(elt Node) (*Lang, bool) {
+	lang, ok := elt.(*Lang)
 	return lang, ok
 }
 
@@ -188,8 +301,8 @@ type VList struct {
 	basenode
 	Width     bag.ScaledPoint
 	Height    bag.ScaledPoint
-	List      *Nodelist
 	FirstFont *font.Font
+	List      Node
 }
 
 func (v *VList) String() string {
@@ -197,25 +310,44 @@ func (v *VList) String() string {
 }
 
 // Head returns the head of the list
-func (v *VList) Head() *Node {
-	return v.List.Front()
+func (v *VList) Head() Node {
+	return v.List
+}
+
+// Next returns the following node or nil if no such node exists.
+func (v *VList) Next() Node {
+	return v.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (v *VList) Prev() Node {
+	return v.prev
+}
+
+// SetNext sets the following node.
+func (v *VList) SetNext(n Node) {
+	v.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (v *VList) SetPrev(n Node) {
+	v.prev = n
 }
 
 // NewVList creates an initialized VList node
 func NewVList() *VList {
 	n := &VList{}
-	n.List = NewNodelist()
 	n.ID = <-ids
 	return n
 }
 
 // IsVList retuns the value of the element and true, if the element is a VList node.
-func IsVList(elt *Node) (*VList, bool) {
-	vlist, ok := elt.Value.(*VList)
+func IsVList(elt Node) (*VList, bool) {
+	vlist, ok := elt.(*VList)
 	return vlist, ok
 }
 
-// An Image is a horizontal list.
+// An Image contains a reference to the image object.
 type Image struct {
 	basenode
 	Width  bag.ScaledPoint
@@ -223,8 +355,28 @@ type Image struct {
 	Img    *image.Image
 }
 
-func (n *Image) String() string {
+func (img *Image) String() string {
 	return "image"
+}
+
+// Next returns the following node or nil if no such node exists.
+func (img *Image) Next() Node {
+	return img.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (img *Image) Prev() Node {
+	return img.prev
+}
+
+// SetNext sets the following node.
+func (img *Image) SetNext(n Node) {
+	img.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (img *Image) SetPrev(n Node) {
+	img.prev = n
 }
 
 // NewImage creates an initialized Image node
@@ -235,7 +387,7 @@ func NewImage() *Image {
 }
 
 // IsImage retuns the value of the element and true, if the element is a Image node.
-func IsImage(elt *Node) (*Image, bool) {
-	img, ok := elt.Value.(*Image)
+func IsImage(elt Node) (*Image, bool) {
+	img, ok := elt.(*Image)
 	return img, ok
 }

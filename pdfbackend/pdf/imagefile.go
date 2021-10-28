@@ -62,14 +62,15 @@ func LoadImageFile(pw *PDF, filename string) (*Imagefile, error) {
 	}
 
 	imgf := &Imagefile{
-		Filename:    filename,
-		Format:      format,
-		id:          <-ids,
-		pw:          pw,
-		imageobject: pw.NewObject(),
-		r:           r,
-		ScaleX:      1,
-		ScaleY:      1,
+		Filename:      filename,
+		Format:        format,
+		id:            <-ids,
+		pw:            pw,
+		imageobject:   pw.NewObject(),
+		r:             r,
+		ScaleX:        1,
+		ScaleY:        1,
+		NumberOfPages: 1,
 	}
 
 	switch format {

@@ -1,13 +1,56 @@
 package node
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/lang"
 )
 
-func insertBreakpoints(l *lang.Lang, word *strings.Builder, nodelist *Nodelist, wordstart *Node) {
+// InsertAfter inserts the node insert right after cur. If cur is nil then insert is the new head. This method retuns the head node.
+func InsertAfter(head, cur, insert Node) Node {
+	if cur == nil {
+		return insert
+	}
+	curNext := cur.Next()
+	if curNext != nil {
+		insert.SetNext(curNext)
+		curNext.SetPrev(insert)
+	} else {
+	}
+	cur.SetNext(insert)
+	insert.SetPrev(cur)
+
+	return head
+}
+
+// InsertBefore inserts the node insert before the current not cur. It returns the (perhaps) new head node.
+func InsertBefore(head, cur, insert Node) Node {
+	curPrev := cur.Prev()
+	curPrev.SetNext(insert)
+	insert.SetPrev(curPrev)
+	cur.SetPrev(insert)
+	insert.SetNext(cur)
+	return head
+}
+
+// Tail returns the last node of a node list.
+func Tail(nl Node) Node {
+	if nl == nil {
+		return nl
+	}
+	if nl.Next() == nil {
+		return nl
+	}
+	var e Node
+
+	for e = nl; e.Next() != nil; e = e.Next() {
+	}
+	return e
+}
+
+func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart Node) {
 	cur := wordstart
 	if word.Len() > 0 {
 		str := word.String()
@@ -18,32 +61,31 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, nodelist *Nodelist, 
 				cur = cur.Next()
 			}
 			disc := NewDiscWithContents(&Disc{})
-			cur = nodelist.InsertBefore(disc, cur)
+			InsertBefore(wordstart, cur, disc)
 			cur = cur.Next()
 		}
 	}
 }
 
 // Hyphenate inserts hyphenation points in to the list
-func Hyphenate(nodelist *Nodelist) {
+func Hyphenate(nodelist Node) {
 	// hyphenation points should be inserted when a language changes or when
 	// the word ends (with a comma or a space for example).
-	nl := nodelist
 	var curlang *lang.Lang
 	var wordboundary bool
 	var prevhyphenate bool
-	var wordstart *Node
+	var wordstart Node
 	var b strings.Builder
-	e := nl.Front()
+	e := nodelist
 	for {
-		switch v := e.Value.(type) {
+		switch v := e.(type) {
 		case *Glyph:
 			if prevhyphenate != v.Hyphenate {
 				wordboundary = true
 			}
 
 			if wordboundary {
-				insertBreakpoints(curlang, &b, nodelist, wordstart)
+				insertBreakpoints(curlang, &b, wordstart)
 				wordstart = e
 			}
 
@@ -57,9 +99,11 @@ func Hyphenate(nodelist *Nodelist) {
 				}
 			}
 		case *Lang:
+			fmt.Println("lang")
 			curlang = v.Lang
 			wordboundary = true
 		default:
+			fmt.Println("other")
 			wordboundary = true
 
 		}
@@ -68,25 +112,20 @@ func Hyphenate(nodelist *Nodelist) {
 			break
 		}
 	}
-	insertBreakpoints(curlang, &b, nodelist, wordstart)
+	insertBreakpoints(curlang, &b, wordstart)
 }
 
 // Hpack returns a HList node with the node list as its list
-func Hpack(firstNode *Node) *HList {
+func Hpack(firstNode Node) *HList {
 	sumwd := bag.ScaledPoint(0)
-	nl := firstNode.list
-	glues := []*Node{}
+	glues := []Node{}
 	sumglue := 0
 
-	newlist := NewNodelist()
-
-	e := firstNode
-	for {
+	for e := firstNode; e != nil; e = e.Next() {
 		if e == nil {
 			break
 		}
-		nextE := e.Next()
-		switch v := e.Value.(type) {
+		switch v := e.(type) {
 		case *Glyph:
 			sumwd = sumwd + v.Width
 		case *Glue:
@@ -94,13 +133,9 @@ func Hpack(firstNode *Node) *HList {
 			sumglue = sumglue + int(v.Width)
 			glues = append(glues, e)
 		}
-
-		val := nl.Remove(e)
-		newlist.PushBack(val)
-		e = nextE
 	}
 	hl := NewHList()
-	hl.List = newlist
+	hl.List = firstNode
 	hl.Width = sumwd
 	return hl
 }
@@ -108,28 +143,21 @@ func Hpack(firstNode *Node) *HList {
 // HpackTo returns a HList node with the node list as its list.
 // The width is supposed to be width, but can be different if not
 // enough glue is found in the list
-func HpackTo(firstNode *Node, width bag.ScaledPoint) *HList {
-	return HPackToWithEnd(firstNode, firstNode.list.Back(), width)
+func HpackTo(firstNode Node, width bag.ScaledPoint) *HList {
+	return HPackToWithEnd(firstNode, Tail(firstNode), width)
 }
 
 // HPackToWithEnd returns a HList node with nl as its list.
 // The width is supposed to be width, but can be different if not
 // enough glue is found in the list. The list stops at lastNode (including lastNode).
-func HPackToWithEnd(firstNode *Node, lastNode *Node, width bag.ScaledPoint) *HList {
+func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList {
 	sumwd := bag.ScaledPoint(0)
-	nl := firstNode.list
-	glues := []*Node{}
+	glues := []Node{}
+
 	sumglue := 0
 
-	newlist := NewNodelist()
-
-	e := firstNode
-	for {
-		if e == nil {
-			break
-		}
-		nextE := e.Next()
-		switch v := e.Value.(type) {
+	for e := firstNode; e != nil; e = e.Next() {
+		switch v := e.(type) {
 		case *Glyph:
 			sumwd = sumwd + v.Width
 		case *Glue:
@@ -138,26 +166,27 @@ func HPackToWithEnd(firstNode *Node, lastNode *Node, width bag.ScaledPoint) *HLi
 			glues = append(glues, e)
 		}
 
-		val := nl.Remove(e)
-		newlist.PushBack(val)
 		if e == lastNode {
+			if e.Next() != nil {
+				e.Next().SetPrev(nil)
+			}
+			e.SetNext(nil)
 			break
 		}
-		e = nextE
 	}
 
 	delta := width - sumwd
 	stretch := float64(delta) / float64(sumglue)
 
 	for _, elt := range glues {
-		g := elt.Value.(*Glue)
+		g := elt.(*Glue)
 		g.Width += bag.ScaledPoint(float64(g.Width) * stretch)
 	}
 
 	// re-calculate sum to get an exact result
 	sumwd = 0
-	for e := newlist.Front(); e != nil; e = e.Next() {
-		switch v := e.Value.(type) {
+	for e := firstNode; e != nil; e = e.Next() {
+		switch v := e.(type) {
 		case *Glyph:
 			sumwd = sumwd + v.Width
 		case *Glue:
@@ -167,7 +196,7 @@ func HPackToWithEnd(firstNode *Node, lastNode *Node, width bag.ScaledPoint) *HLi
 	}
 
 	hl := NewHList()
-	hl.List = newlist
+	hl.List = firstNode
 	hl.Width = sumwd
 	return hl
 }

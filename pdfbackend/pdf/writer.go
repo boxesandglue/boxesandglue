@@ -3,6 +3,7 @@ package pdf
 import (
 	"bytes"
 	"compress/zlib"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"strings"
@@ -145,6 +146,9 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		img.finish()
 	}
 
+	if len(pw.pages.pages) == 0 {
+		return 0, fmt.Errorf("no pages in document")
+	}
 	for _, page := range pw.pages.pages {
 		obj := pw.NewObject()
 		onum := obj.ObjectNumber
@@ -240,20 +244,23 @@ func (pw *PDF) Finish() error {
 		return err
 	}
 	pw.pos += int64(n)
-
+	var str strings.Builder
 	for i := Objectnumber(1); i < pw.nextobject; i++ {
 		if loc, ok := pw.objectlocations[i]; ok {
-			err := pw.Printf("%010d 00000 n \n", loc)
+			_, err = fmt.Fprintf(&str, "%010d 00000 n \n", loc)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
+	fmt.Fprint(pw.outfile, str.String())
+	sum := fmt.Sprintf("%X", md5.Sum([]byte(str.String())))
+
 	trailer := Dict{
 		"/Size": fmt.Sprint(pw.nextobject),
 		"/Root": dc.Ref(),
-		"/ID":   "[<72081BF410BDCCB959F83B2B25A355D7> <72081BF410BDCCB959F83B2B25A355D7>]",
+		"/ID":   fmt.Sprintf("[<%s> <%s>]", sum, sum),
 	}
 	if err = pw.Println("trailer"); err != nil {
 		return err

@@ -7,29 +7,31 @@ import (
 	"github.com/fatih/color"
 )
 
-// Debug outputs a colorful representation of the nodelist
-func Debug(nl *Nodelist) {
-	debug(nl, 0)
+// Debug shows node list debug output
+func Debug(n Node) {
+	debugNode(n, 0)
 }
 
-func debug(nl *Nodelist, level int) {
-	for e := nl.Front(); e != nil; e = e.Next() {
+func debugNode(n Node, level int) {
+	for e := n; e != nil; e = e.Next() {
 		fmt.Print(strings.Repeat(" | ", level))
-		switch v := e.Value.(type) {
+		switch v := e.(type) {
 		case *VList:
-			color.Cyan("vlist wd: %s ht %s", v.Width, v.Height)
-			debug(v.List, level+1)
+			color.Cyan("vlist (%d) wd: %s ht %s", v.ID, v.Width, v.Height)
+			debugNode(v.List, level+1)
 		case *HList:
-			color.HiBlue("hlist wd: %s ht: %s", v.Width, v.Height)
-			debug(v.List, level+1)
-		case *Glyph:
-			color.HiGreen("glyph: %s wd: %s cp: %d", v.Components, v.Width, v.Codepoint)
-		case *Lang:
-			color.Magenta("lang: %s", v.Lang.Name)
-		case *Glue:
-			color.HiMagenta("glue: %s", v.Width)
+			color.HiBlue("hlist (%d) wd: %s ht: %s", v.ID, v.Width, v.Height)
+			debugNode(v.List, level+1)
 		case *Disc:
 			color.HiBlack("disc")
+		case *Glyph:
+			color.HiGreen("glyph: %s wd: %s cp: %d", v.Components, v.Width, v.Codepoint)
+		case *Glue:
+			color.HiMagenta("glue: %spt", v.Width)
+		case *Image:
+			color.Magenta("image: %s", v.Img.ImageFile.Filename)
+		case *Lang:
+			color.Magenta("lang: %s", v.Lang.Name)
 		default:
 			color.HiRed("Unhandled token %v", v)
 		}
