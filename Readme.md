@@ -39,61 +39,64 @@ import (
 )
 
 func dothings() error {
-	bag.SetLogLevel(bag.TraceLevel)
-	bag.LogDebug("main/setup")
-
 	w, err := os.Create("sample.pdf")
 	if err != nil {
 		return err
 	}
 	d := document.NewDocument(w)
+	d.Filename = "sample.pdf"
 	l, err := d.LoadPatternFile("hyphenationpatterns/hyph-en-us.pat.txt")
 	if err != nil {
 		return err
 	}
 	l.Name = "en-US"
 
-	face, err := d.LoadFace("fonts/rws.otf", 0)
+	face, err := d.LoadFace("fonts/CrimsonPro-Regular.ttf", 0)
 	if err != nil {
 		return err
 	}
 	font := d.CreateFont(face, 10*bag.Factor)
-
-	nodelist := node.NewNodelist()
-	ln := node.NewLangWithContents(&node.Lang{Lang: l})
-	nodelist.AppendNode(ln)
+	var cur node.Node
+	head := node.NewLangWithContents(&node.Lang{Lang: l})
+	cur = head
 
 	var str string
 	str = "A wonderful serenity has taken possession of my entire soul. "
 
-	var lastglue *node.Node
+	var lastglue node.Node
 	for _, r := range font.Shape(str) {
 		if r.Glyph == 32 {
 			if lastglue == nil {
 				g := node.NewGlue()
 				g.Width = font.Space
-				lastglue = nodelist.AppendNode(g)
+				node.InsertAfter(head, cur, g)
+				cur = g
+				lastglue = g
 			}
 		} else {
 			n := node.NewGlyph()
 			n.Hyphenate = r.Hyphenate
 			n.Codepoint = r.Codepoint
 			n.Components = r.Components
-			n.Face = face
+			n.Font = font
 			n.Width = r.Advance
-			nodelist.AppendNode(n)
+			node.InsertAfter(head, cur, n)
+			cur = n
 			lastglue = nil
 		}
 	}
-	if lastglue != nil {
-		nodelist.Remove(lastglue)
+	if lastglue != nil && lastglue.Prev() != nil {
+		p := lastglue.Prev()
+		p.SetNext(nil)
+		lastglue.SetPrev(nil)
 	}
 
 	settings := node.LinebreakSettings{
 		HSize:      200 * bag.Factor,
 		LineHeight: 12 * bag.Factor,
 	}
-	vlist := node.Linebreak(nodelist, settings)
+	hlist := node.Hpack(head)
+	vlist := node.SimpleLinebreak(hlist, settings)
 
 	d.OutputAt(bag.MustSp("4cm"), bag.MustSp("20cm"), vlist)
 	d.CurrentPage.Shipout()
