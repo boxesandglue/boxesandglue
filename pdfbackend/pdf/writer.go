@@ -254,7 +254,7 @@ func (pw *PDF) Finish() error {
 		}
 	}
 
-	fmt.Fprint(pw.outfile, str.String())
+	pw.Print(str.String())
 	sum := fmt.Sprintf("%X", md5.Sum([]byte(str.String())))
 
 	trailer := Dict{
@@ -273,6 +273,11 @@ func (pw *PDF) Finish() error {
 	}
 
 	return nil
+}
+
+// Size returns the current size of the PDF file.
+func (pw *PDF) Size() int64 {
+	return pw.pos
 }
 
 func hashToString(h Dict, level int) string {

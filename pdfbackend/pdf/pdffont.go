@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/gootf/opentype"
 )
 
@@ -84,6 +85,7 @@ func fillFaceObject(id string, fnt *opentype.Font) (*Face, error) {
 // This is to prevent duplicate font loading.
 func NewFaceFromData(id string, data []byte) (*Face, error) {
 	r := bytes.NewReader(data)
+	bag.Logger.Info("Read font")
 	fnt, err := opentype.Open(r, 0)
 	if err != nil {
 		return nil, err
@@ -96,6 +98,7 @@ func getFace(filename string) (*Face, error) {
 	if err != nil {
 		return nil, err
 	}
+	bag.Logger.Infof("Load font %s", filename)
 	fnt, err := opentype.Open(r, 0)
 	if err != nil {
 		return nil, err
@@ -111,6 +114,7 @@ func LoadFace(pw *PDF, filename string, idx int) (*Face, error) {
 	if err != nil {
 		return nil, err
 	}
+	bag.Logger.Infof("Load font %s", filename)
 	fnt, err := opentype.Open(r, 0)
 	if err != nil {
 		return nil, err
@@ -153,6 +157,7 @@ func (face *Face) Codepoints(runes []rune) []int {
 // therefore we know the requirements only the end of the PDF file.
 func (face *Face) finish() error {
 	var err error
+	bag.Logger.Infof("Write font %s to PDF", face.filename)
 	fnt := face.Font
 	subset := make([]int, len(face.usedChar))
 	i := 0

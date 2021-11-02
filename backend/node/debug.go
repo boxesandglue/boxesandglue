@@ -23,15 +23,27 @@ func debugNode(n Node, level int) {
 			color.HiBlue("hlist (%d) wd: %s ht: %s", v.ID, v.Width, v.Height)
 			debugNode(v.List, level+1)
 		case *Disc:
-			color.HiBlack("disc")
+			color.HiBlack("disc (%d)", v.ID)
 		case *Glyph:
-			color.HiGreen("glyph: %s wd: %s cp: %d", v.Components, v.Width, v.Codepoint)
+			color.HiGreen("glyph (%d): %s wd: %s cp: %d", v.ID, v.Components, v.Width, v.Codepoint)
 		case *Glue:
-			color.HiMagenta("glue: %spt", v.Width)
+			color.HiMagenta("glue (%d): %spt", v.ID, v.Width)
 		case *Image:
-			color.Magenta("image: %s", v.Img.ImageFile.Filename)
+			var filename string
+			if v.Img != nil && v.Img.ImageFile != nil {
+				filename = v.Img.ImageFile.Filename
+			} else {
+				filename = "(image object not set)"
+			}
+			color.Magenta("image (%d): %s", v.ID, filename)
 		case *Lang:
-			color.Magenta("lang: %s", v.Lang.Name)
+			var langname string
+			if v.Lang != nil {
+				langname = v.Lang.Name
+			} else {
+				langname = "-"
+			}
+			color.Magenta("lang (%d): %s", v.ID, langname)
 		default:
 			color.HiRed("Unhandled token %v", v)
 		}

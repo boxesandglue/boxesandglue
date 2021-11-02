@@ -93,7 +93,7 @@ func (p *Page) Shipout() {
 			case *node.Image:
 				img := v.Img
 				if img.Used {
-					bag.LogWarn("image node already in use, id: ", v.ID)
+					bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
 				} else {
 					img.Used = true
 				}
@@ -138,6 +138,7 @@ type Document struct {
 	DefaultPageHeight bag.ScaledPoint
 	Pages             []*Page
 	CurrentPage       *Page
+	Filename          string
 	pdf               *pdf.PDF
 	tracing           VTrace
 }
@@ -232,5 +233,11 @@ func (d *Document) Finish() error {
 	if err = d.pdf.Finish(); err != nil {
 		return err
 	}
+	if d.Filename != "" {
+		bag.Logger.Infof("Output written to %s (%d bytes)", d.Filename, d.pdf.Size())
+	} else {
+		bag.Logger.Info("Output written (%d bytes)", d.pdf.Size())
+	}
+	bag.Logger.Sync()
 	return nil
 }

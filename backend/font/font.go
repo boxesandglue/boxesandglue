@@ -29,7 +29,6 @@ type Font struct {
 
 // Shape transforms the text into a slice of codepoints.
 func (f *Font) Shape(text string) []Atom {
-
 	glyphs := make([]Atom, 0, len(text))
 	for _, r := range text {
 		if unicode.IsSpace(r) {

@@ -48,6 +48,7 @@ type Imagefile struct {
 
 // LoadImageFile loads an image from the disc.
 func LoadImageFile(pw *PDF, filename string) (*Imagefile, error) {
+	bag.Logger.Infof("Load image %s", filename)
 	r, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -147,7 +148,7 @@ func (imgf *Imagefile) InternalName() string {
 }
 
 func (imgf *Imagefile) finish() error {
-	bag.LogInfo("Import image " + imgf.Filename)
+	bag.Logger.Infof("Write image %s to PDF", imgf.Filename)
 	imgo := imgf.imageobject
 
 	if imgf.Format == "pdf" {

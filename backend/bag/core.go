@@ -7,16 +7,22 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 var (
 	unitRE *regexp.Regexp
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
+	// Logger is a zap lgger which can be overridden from other packages
+	Logger *zap.SugaredLogger
 )
 
 func init() {
 	unitRE = regexp.MustCompile("(.*?)(mm|cm|in|pt|px|pc|m)")
+	logger, _ := zap.NewProduction()
+	Logger = logger.Sugar()
 }
 
 // Factor is the multiplier to get DTP points from scaled points.
@@ -91,7 +97,7 @@ func MustSp(unit string) ScaledPoint {
 	val, err := Sp(unit)
 	if err != nil {
 		if errors.Is(err, ErrConversion) {
-			LogError(errors.Unwrap(err))
+			Logger.Error(err.Error())
 			fmt.Println(errors.Unwrap(err))
 		}
 		panic(err)
