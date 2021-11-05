@@ -17,11 +17,12 @@ func InsertAfter(head, cur, insert Node) Node {
 	if curNext != nil {
 		insert.SetNext(curNext)
 		curNext.SetPrev(insert)
-	} else {
 	}
 	cur.SetNext(insert)
 	insert.SetPrev(cur)
-
+	if head == nil {
+		return cur
+	}
 	return head
 }
 
@@ -132,6 +133,9 @@ func Hpack(firstNode Node) *HList {
 			sumwd = sumwd + v.Width
 			sumglue = sumglue + int(v.Width)
 			glues = append(glues, e)
+		case *Lang:
+		default:
+			bag.Logger.DPanic(v)
 		}
 	}
 	hl := NewHList()

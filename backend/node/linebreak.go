@@ -38,10 +38,15 @@ func SimpleLinebreak(hl *HList, settings LinebreakSettings) *VList {
 				lastGlue := lastBreakpoint.glueNode
 				lastNode := lastGlue.Prev()
 				hl := HPackToWithEnd(linehead, lastNode, settings.HSize)
+
 				hl.Height = settings.LineHeight
 				sumwd = sumwd - lastBreakpoint.sumwd
 				vl.List = InsertAfter(vl.List, lastLine, hl)
-				linehead = lastBreakpoint.glueNode.Next()
+
+				linehead = lastNode.Next()
+				lastNode.Next().SetPrev(nil)
+				lastNode.SetNext(nil)
+
 				lastLine = hl
 				vl.Height += hl.Height
 			}
@@ -65,8 +70,9 @@ func SimpleLinebreak(hl *HList, settings LinebreakSettings) *VList {
 	}
 	hl = Hpack(linehead)
 
-	hl.Height = settings.HSize
-	InsertAfter(vl.List, lastLine, hl)
+	hl.Height = settings.LineHeight
+	vl.List = InsertAfter(vl.List, lastLine, hl)
+
 	vl.Width = settings.HSize
 	vl.Height += hl.Height
 

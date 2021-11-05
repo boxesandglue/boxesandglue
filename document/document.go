@@ -31,6 +31,7 @@ type Page struct {
 
 // Shipout places all objects on a page and finishes this page.
 func (p *Page) Shipout() {
+	bag.Logger.Debug("Shipout page")
 	if p.Finished {
 		return
 	}
@@ -85,7 +86,7 @@ func (p *Page) Shipout() {
 						// ignore
 					default:
 						fmt.Println(hl)
-						panic("nyi")
+						bag.Logger.DPanic("nyi")
 					}
 				}
 				sumV += hlist.Height

@@ -56,10 +56,10 @@ func Sp(unit string) (ScaledPoint, error) {
 	unit = strings.ToLower(unit)
 	m := unitRE.FindAllStringSubmatch(unit, -1)
 	if len(m) != 1 {
-		return 0, fmt.Errorf("%w len(m) %d", ErrConversion, len(m))
+		return 0, ErrConversion
 	}
 	if len(m[0]) != 3 {
-		return 0, fmt.Errorf("%w len(m[0]) %d", ErrConversion, len(m[0]))
+		return 0, ErrConversion
 	}
 
 	l, err := strconv.ParseFloat(m[0][1], 64)
