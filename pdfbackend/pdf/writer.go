@@ -42,14 +42,16 @@ type Page struct {
 
 // PDF is the central point of writing a PDF file.
 type PDF struct {
-	outfile         io.Writer
-	nextobject      Objectnumber
-	objectlocations map[Objectnumber]int64
-	pages           *Pages
-	lastEOL         int64
-	Faces           []*Face
-	ImageFiles      []*Imagefile
-	pos             int64
+	outfile           io.Writer
+	nextobject        Objectnumber
+	DefaultPageWidth  bag.ScaledPoint
+	DefaultPageHeight bag.ScaledPoint
+	objectlocations   map[Objectnumber]int64
+	pages             *Pages
+	lastEOL           int64
+	Faces             []*Face
+	ImageFiles        []*Imagefile
+	pos               int64
 }
 
 // NewPDFWriter creates a PDF file for writing to file
@@ -208,7 +210,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		"/Type":     "/Pages",
 		"/Kids":     "[ " + strings.Join(kids, " ") + " ]",
 		"/Count":    fmt.Sprint(len(pw.pages.pages)),
-		"/MediaBox": "[0 0 612 792]",
+		"/MediaBox": fmt.Sprintf("[0 0 %s %s]", pw.DefaultPageWidth.String(), pw.DefaultPageHeight.String()),
 	})
 	pagesObj.Save()
 

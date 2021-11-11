@@ -296,6 +296,52 @@ func IsLang(elt Node) (*Lang, bool) {
 	return lang, ok
 }
 
+// A Penalty is a node that sets information about a place to break a list.
+type Penalty struct {
+	basenode
+	Penalty int
+	Flagged bool
+	Width   bag.ScaledPoint
+}
+
+func (p *Penalty) String() string {
+	return fmt.Sprintf("Penalty: %d", p.Penalty)
+}
+
+// Next returns the following node or nil if no such node exists.
+func (p *Penalty) Next() Node {
+	return p.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (p *Penalty) Prev() Node {
+	return p.prev
+}
+
+// SetNext sets the following node.
+func (p *Penalty) SetNext(n Node) {
+	p.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (p *Penalty) SetPrev(n Node) {
+	p.prev = n
+}
+
+// NewPenalty creates an initialized Penalty node
+func NewPenalty() *Penalty {
+	n := &Penalty{}
+	n.ID = <-ids
+	return n
+}
+
+// IsPenalty retuns the value of the element and true, if the element is a Penalty
+// node.
+func IsPenalty(elt Node) (*Penalty, bool) {
+	Penalty, ok := elt.(*Penalty)
+	return Penalty, ok
+}
+
 // A VList is a horizontal list.
 type VList struct {
 	basenode

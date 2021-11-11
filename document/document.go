@@ -231,6 +231,8 @@ func (d *Document) Finish() error {
 	var err error
 	d.pdf.Faces = d.Faces
 	d.pdf.ImageFiles = d.Images
+	d.pdf.DefaultPageWidth = d.DefaultPageWidth
+	d.pdf.DefaultPageHeight = d.DefaultPageHeight
 	if err = d.pdf.Finish(); err != nil {
 		return err
 	}
