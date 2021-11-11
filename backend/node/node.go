@@ -19,6 +19,32 @@ type Node interface {
 	Prev() Node
 	SetNext(Node)
 	SetPrev(Node)
+	GetID() int
+	Name() string
+}
+
+// String returns a string representation of the node n and the previous and next node.
+func String(n Node) string {
+	var nx, pr, extrainfo string
+	if next := n.Next(); next != nil {
+		nx = fmt.Sprintf("%s %d", next.Name(), next.GetID())
+	} else {
+		nx = "-"
+	}
+	if prev := n.Prev(); prev != nil {
+		pr = fmt.Sprintf("%s %d", prev.Name(), prev.GetID())
+	} else {
+		pr = "-"
+	}
+	switch t := n.(type) {
+	case *Glue:
+		extrainfo = fmt.Sprintf(": %spt plus %d", t.Width, t.Stretch)
+	case *Glyph:
+		extrainfo = fmt.Sprintf(": %s (font: %s)", t.Components, t.Font.Face.InternalName())
+
+	}
+	return fmt.Sprintf(" %s <- %s %d -> %s%s", pr, n.Name(), n.GetID(), nx, extrainfo)
+
 }
 
 type basenode struct {
@@ -85,6 +111,16 @@ func (d *Disc) SetPrev(n Node) {
 	d.prev = n
 }
 
+// GetID returns the node id
+func (d *Disc) GetID() int {
+	return d.ID
+}
+
+// Name returns the name of the node
+func (d *Disc) Name() string {
+	return "disc"
+}
+
 // NewDiscWithContents creates an initialized Disc node with the given contents
 func NewDiscWithContents(n *Disc) *Disc {
 	n.ID = <-ids
@@ -110,7 +146,7 @@ type Glyph struct {
 }
 
 func (g *Glyph) String() string {
-	return fmt.Sprintf("glyph: %s (font: %s)", g.Components, g.Font.Face.InternalName())
+	return String(g)
 }
 
 // Next returns the following node or nil if no such node exists.
@@ -131,6 +167,16 @@ func (g *Glyph) SetNext(n Node) {
 // SetPrev sets the preceeding node.
 func (g *Glyph) SetPrev(n Node) {
 	g.prev = n
+}
+
+// GetID returns the node id
+func (g *Glyph) GetID() int {
+	return g.ID
+}
+
+// Name returns the name of the node
+func (g *Glyph) Name() string {
+	return "glyph"
 }
 
 // NewGlyph returns an initialized Glyph
@@ -158,7 +204,7 @@ type Glue struct {
 }
 
 func (g *Glue) String() string {
-	return "glue"
+	return String(g)
 }
 
 // Next returns the following node or nil if no such node exists.
@@ -179,6 +225,16 @@ func (g *Glue) SetNext(n Node) {
 // SetPrev sets the preceeding node.
 func (g *Glue) SetPrev(n Node) {
 	g.prev = n
+}
+
+// GetID returns the node id
+func (g *Glue) GetID() int {
+	return g.ID
+}
+
+// Name returns the name of the node
+func (g *Glue) Name() string {
+	return "glue"
 }
 
 // NewGlue creates an initialized Glue node
@@ -232,6 +288,16 @@ func (h *HList) SetPrev(n Node) {
 	h.prev = n
 }
 
+// GetID returns the node id
+func (h *HList) GetID() int {
+	return h.ID
+}
+
+// Name returns the name of the node
+func (h *HList) Name() string {
+	return "hlist"
+}
+
 // NewHList creates an initialized HList node
 func NewHList() *HList {
 	n := &HList{}
@@ -274,6 +340,16 @@ func (l *Lang) SetNext(n Node) {
 // SetPrev sets the preceeding node.
 func (l *Lang) SetPrev(n Node) {
 	l.prev = n
+}
+
+// GetID returns the node id
+func (l *Lang) GetID() int {
+	return l.ID
+}
+
+// Name returns the name of the node
+func (l *Lang) Name() string {
+	return "lang"
 }
 
 // NewLang creates an initialized Lang node
@@ -328,6 +404,16 @@ func (p *Penalty) SetPrev(n Node) {
 	p.prev = n
 }
 
+// GetID returns the node id
+func (p *Penalty) GetID() int {
+	return p.ID
+}
+
+// Name returns the name of the node
+func (p *Penalty) Name() string {
+	return "penalty"
+}
+
 // NewPenalty creates an initialized Penalty node
 func NewPenalty() *Penalty {
 	n := &Penalty{}
@@ -380,6 +466,16 @@ func (v *VList) SetPrev(n Node) {
 	v.prev = n
 }
 
+// GetID returns the node id
+func (v *VList) GetID() int {
+	return v.ID
+}
+
+// Name returns the name of the node
+func (v *VList) Name() string {
+	return "vlist"
+}
+
 // NewVList creates an initialized VList node
 func NewVList() *VList {
 	n := &VList{}
@@ -423,6 +519,16 @@ func (img *Image) SetNext(n Node) {
 // SetPrev sets the preceeding node.
 func (img *Image) SetPrev(n Node) {
 	img.prev = n
+}
+
+// GetID returns the node id
+func (img *Image) GetID() int {
+	return img.ID
+}
+
+// Name returns the name of the node
+func (img *Image) Name() string {
+	return "image"
 }
 
 // NewImage creates an initialized Image node

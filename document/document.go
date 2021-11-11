@@ -82,7 +82,7 @@ func (p *Page) Shipout() {
 						if false {
 							fmt.Println(currentFont)
 						}
-					case *node.Lang:
+					case *node.Lang, *node.Penalty:
 						// ignore
 					default:
 						fmt.Println(hl)

@@ -1,8 +1,6 @@
 package node
 
 import (
-	"fmt"
-
 	"github.com/speedata/boxesandglue/backend/bag"
 )
 
@@ -37,25 +35,29 @@ func SimpleLinebreak(hl *HList, settings LinebreakSettings) *VList {
 			} else {
 				lastGlue := lastBreakpoint.glueNode
 				lastNode := lastGlue.Prev()
-				hl := HPackToWithEnd(linehead, lastNode, settings.HSize)
+				nextLinehead := lastGlue.Next()
 
+				hl := HPackToWithEnd(linehead, lastNode, settings.HSize)
 				hl.Height = settings.LineHeight
+
 				sumwd = sumwd - lastBreakpoint.sumwd
 				vl.List = InsertAfter(vl.List, lastLine, hl)
 
-				linehead = lastNode.Next()
-				lastNode.Next().SetPrev(nil)
-				lastNode.SetNext(nil)
-
+				linehead = nextLinehead
+				linehead.SetPrev(nil)
 				lastLine = hl
 				vl.Height += hl.Height
 			}
 		case *Glyph:
 			sumwd += v.Width
-		case *Lang, *Disc:
+		case *Penalty:
+			sumwd += v.Width
+		case *Lang:
+			// ignore
+		case *Disc:
 			// ignore
 		default:
-			fmt.Println("Linebreak: unknown node type", v)
+			bag.Logger.DPanicf("Linebreak: unknown node type", v)
 		}
 	}
 

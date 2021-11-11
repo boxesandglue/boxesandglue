@@ -44,6 +44,8 @@ func debugNode(n Node, level int) {
 				langname = "-"
 			}
 			color.Magenta("lang (%d): %s", v.ID, langname)
+		case *Penalty:
+			color.HiMagenta("peanlty (%d): %d flagged: %t wd: %spt", v.ID, v.Penalty, v.Flagged, v.Width)
 		default:
 			color.HiRed("Unhandled token %v", v)
 		}

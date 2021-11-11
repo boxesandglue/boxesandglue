@@ -134,6 +134,8 @@ func Hpack(firstNode Node) *HList {
 			sumglue = sumglue + int(v.Width)
 			glues = append(glues, e)
 		case *Lang:
+		case *Penalty:
+			sumwd += v.Width
 		default:
 			bag.Logger.DPanic(v)
 		}
