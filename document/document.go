@@ -53,6 +53,8 @@ func (p *Page) Shipout() {
 		sumV := bag.ScaledPoint(0)
 		vlist := obj.Vlist
 		for vl := vlist.List; vl != nil; vl = vl.Next() {
+			var glue string
+			var shiftX bag.ScaledPoint
 			switch v := vl.(type) {
 			case *node.HList:
 				hlist := v
@@ -61,6 +63,7 @@ func (p *Page) Shipout() {
 					fmt.Fprintf(&s, " 1 0 0 1 %s %s Tm  [<", obj.X.String(), (obj.Y - sumV).String())
 				}
 				for hl := hlist.List; hl != nil; hl = hl.Next() {
+					// fmt.Printf("hl %#v\n", hl)
 					switch n := hl.(type) {
 					case *node.Glyph:
 						if !inTextMode {
@@ -68,7 +71,8 @@ func (p *Page) Shipout() {
 							usedFaces[n.Font.Face] = true
 							currentFont = n.Font
 							inTextMode = true
-							fmt.Fprintf(&s, " 1 0 0 1 %s %s Tm  [<", obj.X.String(), (obj.Y - sumV).String())
+							fmt.Fprintf(&s, " 1 0 0 1 %s %s Tm  [<", obj.X+shiftX, (obj.Y - sumV).String())
+							shiftX = 0
 						}
 						if n.Font != currentFont {
 							fmt.Fprintf(&s, `>] %s %s Tf [<`, n.Font.Face.InternalName(), n.Font.Size.String())
@@ -76,11 +80,14 @@ func (p *Page) Shipout() {
 							currentFont = n.Font
 						}
 						n.Font.Face.RegisterChar(n.Codepoint)
-						fmt.Fprintf(&s, "%04x", n.Codepoint)
+						fmt.Fprintf(&s, "%s%04x", glue, n.Codepoint)
+						glue = ""
 					case *node.Glue:
-						fmt.Fprintf(&s, "> -%d <", 1000*n.Width/currentFont.Size)
-						if false {
-							fmt.Println(currentFont)
+						if !inTextMode {
+							shiftX = n.Width
+						} else {
+							// Single glue at end should not be printed. Therefore we save it for later.
+							glue = fmt.Sprintf("> %d <", -1*1000*n.Width/currentFont.Size)
 						}
 					case *node.Lang, *node.Penalty:
 						// ignore

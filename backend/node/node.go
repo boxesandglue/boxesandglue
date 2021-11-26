@@ -13,6 +13,35 @@ var (
 	ids chan int
 )
 
+// Type is the type of node.
+type Type int
+
+const (
+	// TypeUnknown is a node which type is unknown.
+	TypeUnknown Type = iota
+	// TypeDisc is a Disc node.
+	TypeDisc
+	// TypeGlue is a Glue node.
+	TypeGlue
+	// TypeGlyph is a Glyph node.
+	TypeGlyph
+	// TypeHList is a HList node.
+	TypeHList
+	// TypeImage is a Image node.
+	TypeImage
+	// TypeLang is a Lang node.
+	TypeLang
+	// TypePenalty is a Penalty node.
+	TypePenalty
+	// TypeRule is a Rule node.
+	TypeRule
+	// TypeVList is a VList node.
+	TypeVList
+)
+
+// H is a shortcut for map[string]interface{}
+type H map[string]interface{}
+
 // Node represents any kind of node
 type Node interface {
 	Next() Node
@@ -20,7 +49,9 @@ type Node interface {
 	SetNext(Node)
 	SetPrev(Node)
 	GetID() int
+	Type() Type
 	Name() string
+	Copy() Node
 }
 
 // String returns a string representation of the node n and the previous and next node.
@@ -38,19 +69,22 @@ func String(n Node) string {
 	}
 	switch t := n.(type) {
 	case *Glue:
-		extrainfo = fmt.Sprintf(": %spt plus %d", t.Width, t.Stretch)
+		extrainfo = fmt.Sprintf(": %spt plus %s", t.Width, t.Stretch)
 	case *Glyph:
-		extrainfo = fmt.Sprintf(": %s (font: %s)", t.Components, t.Font.Face.InternalName())
-
+		var fontname string
+		if t.Font != nil && t.Font.Face != nil {
+			fontname = fmt.Sprintf("font: %s", t.Font.Face.InternalName())
+		}
+		extrainfo = fmt.Sprintf(": %s (%s)", t.Components, fontname)
 	}
-	return fmt.Sprintf(" %s <- %s %d -> %s%s", pr, n.Name(), n.GetID(), nx, extrainfo)
-
+	return fmt.Sprintf(" %12s <- %-10s %4d -> %12s%s", pr, n.Name(), n.GetID(), nx, extrainfo)
 }
 
 type basenode struct {
-	next Node
-	prev Node
-	ID   int
+	next      Node
+	prev      Node
+	ID        int
+	Attibutes H
 }
 
 func genIntegerSequence(ids chan int) {
@@ -121,6 +155,17 @@ func (d *Disc) Name() string {
 	return "disc"
 }
 
+// Type returns the type of the node
+func (d *Disc) Type() Type {
+	return TypeDisc
+}
+
+// Copy creates a deep copy of the node.
+func (d *Disc) Copy() Node {
+	n := NewDisc()
+	return n
+}
+
 // NewDiscWithContents creates an initialized Disc node with the given contents
 func NewDiscWithContents(n *Disc) *Disc {
 	n.ID = <-ids
@@ -142,6 +187,8 @@ type Glyph struct {
 	Codepoint  int    // The font specific glyph id
 	Components string // A codepoint can contain more than one rune, for example a fi ligature contains f + i
 	Width      bag.ScaledPoint
+	Height     bag.ScaledPoint
+	Depth      bag.ScaledPoint
 	Hyphenate  bool
 }
 
@@ -179,6 +226,24 @@ func (g *Glyph) Name() string {
 	return "glyph"
 }
 
+// Type returns the type of the node
+func (g *Glyph) Type() Type {
+	return TypeGlyph
+}
+
+// Copy creates a deep copy of the node.
+func (g *Glyph) Copy() Node {
+	n := NewGlyph()
+	n.Font = g.Font
+	n.Codepoint = g.Codepoint
+	n.Components = g.Components
+	n.Width = g.Width
+	n.Height = g.Height
+	n.Depth = g.Depth
+	n.Hyphenate = g.Hyphenate
+	return n
+}
+
 // NewGlyph returns an initialized Glyph
 func NewGlyph() *Glyph {
 	n := &Glyph{}
@@ -193,14 +258,28 @@ func IsGlyph(elt Node) (*Glyph, bool) {
 	return n, ok
 }
 
+// GlueOrder represents the stretch and shrink priority.
+type GlueOrder int
+
+const (
+	// StretchNormal means no stretching
+	StretchNormal GlueOrder = iota
+	// StretchFil is the first order infinity
+	StretchFil
+	// StretchFill is the second order infinity
+	StretchFill
+	// StretchFilll is the third order infinity
+	StretchFilll
+)
+
 // A Glue node has the value of a shrinking and stretching space
 type Glue struct {
 	basenode
 	Width        bag.ScaledPoint
-	Stretch      int
-	Shrink       int
-	StretchOrder int
-	ShrinkOrder  int
+	Stretch      bag.ScaledPoint
+	Shrink       bag.ScaledPoint
+	StretchOrder GlueOrder
+	ShrinkOrder  GlueOrder
 }
 
 func (g *Glue) String() string {
@@ -237,6 +316,22 @@ func (g *Glue) Name() string {
 	return "glue"
 }
 
+// Type returns the type of the node
+func (g *Glue) Type() Type {
+	return TypeGlue
+}
+
+// Copy creates a deep copy of the node.
+func (g *Glue) Copy() Node {
+	n := NewGlue()
+	n.Width = g.Width
+	n.Stretch = g.Stretch
+	n.Shrink = g.Shrink
+	n.StretchOrder = g.StretchOrder
+	n.ShrinkOrder = g.ShrinkOrder
+	return n
+}
+
 // NewGlue creates an initialized Glue node
 func NewGlue() *Glue {
 	n := &Glue{}
@@ -254,9 +349,13 @@ func IsGlue(elt Node) (*Glue, bool) {
 // A HList is a horizontal list.
 type HList struct {
 	basenode
-	Width  bag.ScaledPoint
-	Height bag.ScaledPoint
-	List   Node
+	Width    bag.ScaledPoint
+	Height   bag.ScaledPoint
+	Depth    bag.ScaledPoint
+	GlueSet  float64
+	GlueSign uint8
+	Shift    bag.ScaledPoint
+	List     Node
 }
 
 func (h *HList) String() string {
@@ -296,6 +395,24 @@ func (h *HList) GetID() int {
 // Name returns the name of the node
 func (h *HList) Name() string {
 	return "hlist"
+}
+
+// Type returns the type of the node
+func (h *HList) Type() Type {
+	return TypeHList
+}
+
+// Copy creates a deep copy of the node.
+func (h *HList) Copy() Node {
+	n := NewHList()
+	n.Width = h.Width
+	n.Height = h.Height
+	n.Depth = h.Depth
+	n.GlueSet = h.GlueSet
+	n.GlueSign = h.GlueSign
+	n.Shift = h.Shift
+	n.List = CopyList(h.List)
+	return n
 }
 
 // NewHList creates an initialized HList node
@@ -352,6 +469,13 @@ func (l *Lang) Name() string {
 	return "lang"
 }
 
+// Copy creates a deep copy of the node.
+func (l *Lang) Copy() Node {
+	n := NewLang()
+	n.Lang = l.Lang
+	return n
+}
+
 // NewLang creates an initialized Lang node
 func NewLang() *Lang {
 	n := &Lang{}
@@ -372,6 +496,11 @@ func IsLang(elt Node) (*Lang, bool) {
 	return lang, ok
 }
 
+// Type returns the type of the node
+func (l *Lang) Type() Type {
+	return TypeLang
+}
+
 // A Penalty is a node that sets information about a place to break a list.
 type Penalty struct {
 	basenode
@@ -381,7 +510,7 @@ type Penalty struct {
 }
 
 func (p *Penalty) String() string {
-	return fmt.Sprintf("Penalty: %d", p.Penalty)
+	return String(p)
 }
 
 // Next returns the following node or nil if no such node exists.
@@ -414,6 +543,20 @@ func (p *Penalty) Name() string {
 	return "penalty"
 }
 
+// Type returns the type of the node
+func (p *Penalty) Type() Type {
+	return TypePenalty
+}
+
+// Copy creates a deep copy of the node.
+func (p *Penalty) Copy() Node {
+	n := NewPenalty()
+	n.Penalty = p.Penalty
+	n.Width = p.Width
+	n.Flagged = p.Flagged
+	return n
+}
+
 // NewPenalty creates an initialized Penalty node
 func NewPenalty() *Penalty {
 	n := &Penalty{}
@@ -428,13 +571,86 @@ func IsPenalty(elt Node) (*Penalty, bool) {
 	return Penalty, ok
 }
 
+// A Rule is a node represents a black box
+type Rule struct {
+	basenode
+	Width  bag.ScaledPoint
+	Height bag.ScaledPoint
+	Depth  bag.ScaledPoint
+}
+
+func (r *Rule) String() string {
+	return "rule"
+}
+
+// Next returns the following node or nil if no such node exists.
+func (r *Rule) Next() Node {
+	return r.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (r *Rule) Prev() Node {
+	return r.prev
+}
+
+// SetNext sets the following node.
+func (r *Rule) SetNext(n Node) {
+	r.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (r *Rule) SetPrev(n Node) {
+	r.prev = n
+}
+
+// GetID returns the node id
+func (r *Rule) GetID() int {
+	return r.ID
+}
+
+// Name returns the name of the node
+func (r *Rule) Name() string {
+	return "lang"
+}
+
+// Type returns the type of the node
+func (r *Rule) Type() Type {
+	return TypeRule
+}
+
+// Copy creates a deep copy of the node.
+func (r *Rule) Copy() Node {
+	n := NewRule()
+	n.Width = r.Width
+	n.Height = r.Height
+	n.Depth = r.Depth
+	return n
+}
+
+// NewRule creates an initialized Rule node
+func NewRule() *Rule {
+	n := &Rule{}
+	n.ID = <-ids
+	return n
+}
+
+// IsRule retuns the value of the element and true, if the element is a Rule
+// node.
+func IsRule(elt Node) (*Rule, bool) {
+	rule, ok := elt.(*Rule)
+	return rule, ok
+}
+
 // A VList is a horizontal list.
 type VList struct {
 	basenode
-	Width     bag.ScaledPoint
-	Height    bag.ScaledPoint
-	FirstFont *font.Font
-	List      Node
+	Width    bag.ScaledPoint
+	Height   bag.ScaledPoint
+	Depth    bag.ScaledPoint
+	GlueSet  float64
+	GlueSign uint8
+	Shift    bag.ScaledPoint
+	List     Node
 }
 
 func (v *VList) String() string {
@@ -474,6 +690,24 @@ func (v *VList) GetID() int {
 // Name returns the name of the node
 func (v *VList) Name() string {
 	return "vlist"
+}
+
+// Type returns the type of the node
+func (v *VList) Type() Type {
+	return TypeVList
+}
+
+// Copy creates a deep copy of the node.
+func (v *VList) Copy() Node {
+	n := NewVList()
+	n.Width = v.Width
+	n.Height = v.Height
+	n.Depth = v.Depth
+	n.GlueSet = v.GlueSet
+	n.GlueSign = v.GlueSign
+	n.Shift = v.Shift
+	n.List = CopyList(v.List)
+	return n
 }
 
 // NewVList creates an initialized VList node
@@ -529,6 +763,20 @@ func (img *Image) GetID() int {
 // Name returns the name of the node
 func (img *Image) Name() string {
 	return "image"
+}
+
+// Type returns the type of the node
+func (img *Image) Type() Type {
+	return TypeImage
+}
+
+// Copy creates a deep copy of the node.
+func (img *Image) Copy() Node {
+	n := NewImage()
+	n.Width = img.Width
+	n.Height = img.Height
+	n.Img = img.Img
+	return n
 }
 
 // NewImage creates an initialized Image node

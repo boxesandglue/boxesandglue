@@ -1,12 +1,32 @@
 package node
 
 import (
-	"fmt"
+	"math"
 	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/lang"
 )
+
+// LinebreakSettings contains all information about the final paragraph
+type LinebreakSettings struct {
+	HSize                bag.ScaledPoint
+	LineHeight           bag.ScaledPoint
+	DemeritsFitness      int
+	DoublehyphenDemerits int
+	Tolerance            float64
+}
+
+// NewLinebreakSettings returns a settings struct with defaults initialized.
+func NewLinebreakSettings() *LinebreakSettings {
+	ls := &LinebreakSettings{
+		DoublehyphenDemerits: 3000,
+		DemeritsFitness:      100,
+		Tolerance:            positiveInf,
+	}
+
+	return ls
+}
 
 // InsertAfter inserts the node insert right after cur. If cur is nil then insert is the new head. This method retuns the head node.
 func InsertAfter(head, cur, insert Node) Node {
@@ -28,9 +48,20 @@ func InsertAfter(head, cur, insert Node) Node {
 
 // InsertBefore inserts the node insert before the current not cur. It returns the (perhaps) new head node.
 func InsertBefore(head, cur, insert Node) Node {
+	if head == nil {
+		return insert
+	}
+	if cur == nil || cur == head {
+		insert.SetNext(head)
+		head.SetPrev(insert)
+		return insert
+	}
+
 	curPrev := cur.Prev()
-	curPrev.SetNext(insert)
-	insert.SetPrev(curPrev)
+	if curPrev != nil {
+		curPrev.SetNext(insert)
+		insert.SetPrev(curPrev)
+	}
 	cur.SetPrev(insert)
 	insert.SetNext(cur)
 	return head
@@ -49,6 +80,20 @@ func Tail(nl Node) Node {
 	for e = nl; e.Next() != nil; e = e.Next() {
 	}
 	return e
+}
+
+// CopyList makes a deep copy of the list starting at nl.
+func CopyList(nl Node) Node {
+	var copied, tail Node
+	copied = nl.Copy()
+	tail = copied
+	for e := nl.Next(); e != nil; e = e.Next() {
+		c := e.Copy()
+		tail.SetNext(c)
+		c.SetPrev(tail)
+		tail = c
+	}
+	return copied
 }
 
 func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart Node) {
@@ -100,11 +145,9 @@ func Hyphenate(nodelist Node) {
 				}
 			}
 		case *Lang:
-			fmt.Println("lang")
 			curlang = v.Lang
 			wordboundary = true
 		default:
-			fmt.Println("other")
 			wordboundary = true
 
 		}
@@ -136,6 +179,8 @@ func Hpack(firstNode Node) *HList {
 		case *Lang:
 		case *Penalty:
 			sumwd += v.Width
+		case *Rule:
+			sumwd += v.Width
 		default:
 			bag.Logger.DPanic(v)
 		}
@@ -146,63 +191,103 @@ func Hpack(firstNode Node) *HList {
 	return hl
 }
 
-// HpackTo returns a HList node with the node list as its list.
-// The width is supposed to be width, but can be different if not
-// enough glue is found in the list
-func HpackTo(firstNode Node, width bag.ScaledPoint) *HList {
+// HpackTo returns a HList node with the node list as its list and the badness.
+// The width is the desired width.
+func HpackTo(firstNode Node, width bag.ScaledPoint) (*HList, int) {
 	return HPackToWithEnd(firstNode, Tail(firstNode), width)
 }
 
-// HPackToWithEnd returns a HList node with nl as its list.
-// The width is supposed to be width, but can be different if not
-// enough glue is found in the list. The list stops at lastNode (including lastNode).
-func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList {
-	sumwd := bag.ScaledPoint(0)
-	glues := []Node{}
+// HPackToWithEnd returns a HList node with nl as its list. The width is the
+// desired width. The list stops at lastNode (including lastNode).
+func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HList, int) {
+	glues := []*Glue{}
 
-	sumglue := 0
+	sumwd := bag.ScaledPoint(0)
+	nonGlueSumWd := bag.ScaledPoint(0) // used for real width calculation
+
+	totalStretchability := [4]bag.ScaledPoint{0, 0, 0, 0}
+	totalShrinkability := [4]bag.ScaledPoint{0, 0, 0, 0}
 
 	for e := firstNode; e != nil; e = e.Next() {
 		switch v := e.(type) {
-		case *Glyph:
-			sumwd = sumwd + v.Width
 		case *Glue:
-			sumwd = sumwd + v.Width
-			sumglue = sumglue + int(v.Width)
-			glues = append(glues, e)
+			sumwd += v.Width
+			totalStretchability[v.StretchOrder] += v.Stretch
+			totalShrinkability[v.StretchOrder] += v.Shrink
+			glues = append(glues, v)
+		default:
+			nonGlueSumWd += getWidth(v)
 		}
 
 		if e == lastNode {
 			if e.Next() != nil {
 				e.Next().SetPrev(nil)
+				e.SetNext(nil)
 			}
-			e.SetNext(nil)
 			break
 		}
 	}
+	sumwd += nonGlueSumWd
 
-	delta := width - sumwd
-	stretch := float64(delta) / float64(sumglue)
+	var highestOrderStretch, highestOrderShrink GlueOrder
+	stretchability, shrinkability := totalStretchability[0], totalShrinkability[0]
 
-	for _, elt := range glues {
-		g := elt.(*Glue)
-		g.Width += bag.ScaledPoint(float64(g.Width) * stretch)
+	for i := GlueOrder(3); i > 0; i-- {
+		if totalStretchability[i] != 0 && highestOrderStretch < i {
+			highestOrderStretch = i
+			stretchability = totalStretchability[i]
+		}
+		if totalShrinkability[i] != 0 && highestOrderShrink < i {
+			highestOrderShrink = i
+			shrinkability = totalShrinkability[i]
+		}
 	}
 
-	// re-calculate sum to get an exact result
-	sumwd = 0
-	for e := firstNode; e != nil; e = e.Next() {
-		switch v := e.(type) {
-		case *Glyph:
-			sumwd = sumwd + v.Width
-		case *Glue:
-			sumwd = sumwd + v.Width
-			glues = append(glues, e)
+	var r float64
+	if width == sumwd {
+		r = 1
+	} else if sumwd < width {
+		// a short line
+		r = float64(width-sumwd) / float64(stretchability)
+	} else {
+		// a long line
+		r = float64(width-sumwd) / float64(shrinkability)
+	}
+
+	badness := 10000
+	if r >= -1 {
+		badness = int(math.Round(math.Pow(math.Abs(r), 3) * 100.0))
+		if badness > 10000 {
+			badness = 10000
 		}
+	}
+	if highestOrderShrink > 0 || highestOrderStretch > 0 {
+		badness = 0
+	}
+	// calculate the real width: non-glue widths + new glue widths
+	sumwd = nonGlueSumWd
+	for _, g := range glues {
+		if r >= 0 && highestOrderStretch == g.StretchOrder {
+			if g.StretchOrder == 0 {
+				g.Width += bag.ScaledPoint(r * float64(g.Stretch))
+			} else {
+				g.Width += bag.ScaledPoint(r * float64(g.Stretch))
+			}
+		} else if r <= 0 && highestOrderShrink == g.ShrinkOrder {
+			if g.ShrinkOrder == 0 {
+				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
+			} else {
+				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
+			}
+		}
+		sumwd += g.Width
+		g.Stretch = 0
+		g.Shrink = 0
 	}
 
 	hl := NewHList()
 	hl.List = firstNode
 	hl.Width = sumwd
-	return hl
+	hl.GlueSet = r
+	return hl, badness
 }

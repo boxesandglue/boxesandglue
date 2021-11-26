@@ -30,6 +30,7 @@ Patrick Gundlach, <gundlach@speedata.de>
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -39,29 +40,33 @@ import (
 )
 
 func dothings() error {
-	w, err := os.Create("sample.pdf")
+	outfilename := "sample.pdf"
+	w, err := os.Create(outfilename)
 	if err != nil {
 		return err
 	}
 	d := document.NewDocument(w)
-	d.Filename = "sample.pdf"
-	l, err := d.LoadPatternFile("hyphenationpatterns/hyph-en-us.pat.txt")
-	if err != nil {
-		return err
-	}
-	l.Name = "en-US"
-
+	d.Filename = outfilename
 	face, err := d.LoadFace("fonts/CrimsonPro-Regular.ttf", 0)
 	if err != nil {
 		return err
 	}
 	font := d.CreateFont(face, 10*bag.Factor)
-	var cur node.Node
-	head := node.NewLangWithContents(&node.Lang{Lang: l})
+	indent := node.NewGlue()
+	indent.Width = 18 * bag.Factor
+
+	var head, cur node.Node
+	head = indent
 	cur = head
 
-	var str string
-	str = "A wonderful serenity has taken possession of my entire soul. "
+	str := `In olden times when wishing still helped one, there lived a king whose daughters
+	were all beautiful; and the youngest was so beautiful that the sun itself, which
+	has seen so much, was astonished whenever it shone in her face.
+	Close by the king's castle lay a great dark forest, and under an old lime-tree in the forest
+	was a well, and when the day was very warm, the king's child went out into the
+	forest and sat down by the side of the cool fountain; and when she was bored she
+	took a golden ball, and threw it up on high and caught it; and this ball was her
+	favorite plaything.`
 
 	var lastglue node.Node
 	for _, r := range font.Shape(str) {
@@ -69,6 +74,8 @@ func dothings() error {
 			if lastglue == nil {
 				g := node.NewGlue()
 				g.Width = font.Space
+				g.Stretch = font.SpaceStretch
+				g.Shrink = font.SpaceShrink
 				node.InsertAfter(head, cur, g)
 				cur = g
 				lastglue = g
@@ -91,14 +98,18 @@ func dothings() error {
 		lastglue.SetPrev(nil)
 	}
 
-	settings := node.LinebreakSettings{
-		HSize:      200 * bag.Factor,
-		LineHeight: 12 * bag.Factor,
+	node.AppendLineEndAfter(cur)
+	settings := node.NewLinebreakSettings()
+	settings.HSize = 200 * bag.Factor
+	settings.LineHeight = 12 * bag.Factor
+	vlist, info := node.Linebreak(head, settings)
+	// information about the line breaks, not strictly necessary:
+	for _, line := range info {
+		fmt.Println(line.Line, line.Demerits, line.R)
 	}
-	hlist := node.Hpack(head)
-	vlist := node.SimpleLinebreak(hlist, settings)
 
-	d.OutputAt(bag.MustSp("4cm"), bag.MustSp("20cm"), vlist)
+	d.OutputAt(bag.MustSp("1cm"), bag.MustSp("26cm"), vlist)
+
 	d.CurrentPage.Shipout()
 
 	if err = d.Finish(); err != nil {
