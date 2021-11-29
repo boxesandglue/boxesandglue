@@ -112,6 +112,9 @@ func IsNode(arg interface{}) bool {
 // A Disc is a hyphenation point.
 type Disc struct {
 	basenode
+	Pre     Node
+	Post    Node
+	Replace Node
 }
 
 func (d *Disc) String() string {
@@ -163,6 +166,9 @@ func (d *Disc) Type() Type {
 // Copy creates a deep copy of the node.
 func (d *Disc) Copy() Node {
 	n := NewDisc()
+	n.Pre = CopyList(d.Pre)
+	n.Post = CopyList(d.Post)
+	n.Replace = CopyList(d.Replace)
 	return n
 }
 
@@ -505,7 +511,6 @@ func (l *Lang) Type() Type {
 type Penalty struct {
 	basenode
 	Penalty int
-	Flagged bool
 	Width   bag.ScaledPoint
 }
 
@@ -553,7 +558,6 @@ func (p *Penalty) Copy() Node {
 	n := NewPenalty()
 	n.Penalty = p.Penalty
 	n.Width = p.Width
-	n.Flagged = p.Flagged
 	return n
 }
 

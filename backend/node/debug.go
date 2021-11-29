@@ -45,7 +45,7 @@ func debugNode(n Node, level int) {
 			}
 			color.Magenta("lang (%d): %s", v.ID, langname)
 		case *Penalty:
-			color.HiMagenta("peanlty (%d): %d flagged: %t wd: %spt", v.ID, v.Penalty, v.Flagged, v.Width)
+			color.HiMagenta("peanlty (%d): %d wd: %spt", v.ID, v.Penalty, v.Width)
 		case *Rule:
 			color.HiBlack("rule (%d)", v.ID)
 

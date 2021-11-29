@@ -24,7 +24,28 @@ type Font struct {
 	SpaceShrink  bag.ScaledPoint
 	Size         bag.ScaledPoint
 	Face         *pdf.Face
+	Hyphenchar   Atom
 	Mag          int
+}
+
+// NewFont creates a new font instance.
+func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
+	mag := int(size) / int(face.UnitsPerEM)
+
+	fnt := &Font{
+		Space:        size * 333 / 1000,
+		SpaceStretch: size * 167 / 1000,
+		SpaceShrink:  size * 111 / 1000,
+		Size:         size,
+		Face:         face,
+		Mag:          mag,
+	}
+
+	atoms := fnt.Shape("-")
+	if len(atoms) == 1 {
+		fnt.Hyphenchar = atoms[0]
+	}
+	return fnt
 }
 
 // Shape transforms the text into a slice of codepoints.

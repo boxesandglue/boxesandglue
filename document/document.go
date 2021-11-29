@@ -91,6 +91,8 @@ func (p *Page) Shipout() {
 						}
 					case *node.Lang, *node.Penalty:
 						// ignore
+					case *node.Disc:
+						// ignore
 					default:
 						fmt.Println(hl)
 						bag.Logger.DPanic("nyi")
@@ -144,6 +146,7 @@ type Document struct {
 	Images            []*pdf.Imagefile
 	DefaultPageWidth  bag.ScaledPoint
 	DefaultPageHeight bag.ScaledPoint
+	DefaultLanguage   *lang.Lang
 	Pages             []*Page
 	CurrentPage       *Page
 	Filename          string
@@ -160,7 +163,7 @@ func NewDocument(w io.Writer) *Document {
 	return d
 }
 
-// LoadPatternFile loads a hyphenation pattern file
+// LoadPatternFile loads a hyphenation pattern file.
 func (d *Document) LoadPatternFile(filename string) (*lang.Lang, error) {
 	l, err := lang.Load(filename)
 	if err != nil {
@@ -168,6 +171,11 @@ func (d *Document) LoadPatternFile(filename string) (*lang.Lang, error) {
 	}
 	d.Languages = append(d.Languages, l)
 	return l, nil
+}
+
+// SetDefaultLanguage sets the document default language.
+func (d *Document) SetDefaultLanguage(l *lang.Lang) {
+	d.DefaultLanguage = l
 }
 
 // LoadFace loads a font from a TrueType or OpenType collection. The index
@@ -183,8 +191,8 @@ func (d *Document) LoadFace(filename string, index int) (*pdf.Face, error) {
 	return f, nil
 }
 
-// LoadImageFile loads an image file. Images that should be placed in the PDF file must be
-// derived from the file.
+// LoadImageFile loads an image file. Images that should be placed in the PDF
+// file must be derived from the file.
 func (d *Document) LoadImageFile(filename string) (*pdf.Imagefile, error) {
 	img, err := pdf.LoadImageFile(d.pdf, filename)
 	if err != nil {
@@ -222,18 +230,11 @@ func (d *Document) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VL
 
 // CreateFont returns a new Font object for this face at a given size.
 func (d *Document) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
-	mag := int(size) / int(face.UnitsPerEM)
-	return &font.Font{
-		Space:        size * 333 / 1000,
-		SpaceStretch: size * 167 / 1000,
-		SpaceShrink:  size * 111 / 1000,
-		Size:         size,
-		Face:         face,
-		Mag:          mag,
-	}
+	return font.NewFont(face, size)
 }
 
-// Finish writes all objects to the PDF and writes the XRef section. Finish does not close the writer.
+// Finish writes all objects to the PDF and writes the XRef section. Finish does
+// not close the writer.
 func (d *Document) Finish() error {
 	var err error
 	d.pdf.Faces = d.Faces

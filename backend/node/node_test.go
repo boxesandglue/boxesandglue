@@ -126,8 +126,11 @@ favor|ite play|thing.`
 		'\'': 5,
 		'.':  5,
 	}
-	var cur, head Node
 
+	hyphenchar := NewGlyph()
+	hyphenchar.Width = 6 * bag.Factor
+
+	var cur, head Node
 	startGlue := NewGlyph()
 	startGlue.Width = 18 * bag.Factor
 	head = startGlue
@@ -160,17 +163,12 @@ favor|ite play|thing.`
 			cur = g
 			sumwd += g.Width
 		} else if r == '|' {
-			p := NewPenalty()
-			p.Penalty = 50
-			p.Width = 6 * bag.Factor
-			p.Flagged = true
+			p := NewDisc()
+			p.Pre = hyphenchar.Copy()
 			InsertAfter(head, cur, p)
 			cur = p
 		} else if r == '*' {
-			p := NewPenalty()
-			p.Penalty = 50
-			p.Width = 0
-			p.Flagged = true
+			p := NewDisc()
 			InsertAfter(head, cur, p)
 			cur = p
 		} else {
@@ -189,6 +187,7 @@ favor|ite play|thing.`
 	settings := NewLinebreakSettings()
 	settings.HSize = 390 * bag.Factor
 	settings.LineHeight = 12 * bag.Factor
+	settings.Hyphenpenalty = 50
 
 	_, bps := Linebreak(head, settings)
 

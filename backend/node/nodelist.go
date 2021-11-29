@@ -2,16 +2,15 @@ package node
 
 import (
 	"math"
-	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/lang"
 )
 
 // LinebreakSettings contains all information about the final paragraph
 type LinebreakSettings struct {
 	HSize                bag.ScaledPoint
 	LineHeight           bag.ScaledPoint
+	Hyphenpenalty        int
 	DemeritsFitness      int
 	DoublehyphenDemerits int
 	Tolerance            float64
@@ -22,6 +21,7 @@ func NewLinebreakSettings() *LinebreakSettings {
 	ls := &LinebreakSettings{
 		DoublehyphenDemerits: 3000,
 		DemeritsFitness:      100,
+		Hyphenpenalty:        50,
 		Tolerance:            positiveInf,
 	}
 
@@ -96,67 +96,13 @@ func CopyList(nl Node) Node {
 	return copied
 }
 
-func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart Node) {
-	cur := wordstart
-	if word.Len() > 0 {
-		str := word.String()
-		word.Reset()
-		bp := l.Hyphenate(str)
-		for _, step := range bp {
-			for i := 0; i <= step-1; i++ {
-				cur = cur.Next()
-			}
-			disc := NewDiscWithContents(&Disc{})
-			InsertBefore(wordstart, cur, disc)
-			cur = cur.Next()
-		}
+// Dimensions returns the width of the node list starting at n.
+func Dimensions(n Node) bag.ScaledPoint {
+	var sumwd bag.ScaledPoint
+	for e := n; e != nil; e = e.Next() {
+		sumwd += getWidth(e)
 	}
-}
-
-// Hyphenate inserts hyphenation points in to the list
-func Hyphenate(nodelist Node) {
-	// hyphenation points should be inserted when a language changes or when
-	// the word ends (with a comma or a space for example).
-	var curlang *lang.Lang
-	var wordboundary bool
-	var prevhyphenate bool
-	var wordstart Node
-	var b strings.Builder
-	e := nodelist
-	for {
-		switch v := e.(type) {
-		case *Glyph:
-			if prevhyphenate != v.Hyphenate {
-				wordboundary = true
-			}
-
-			if wordboundary {
-				insertBreakpoints(curlang, &b, wordstart)
-				wordstart = e
-			}
-
-			prevhyphenate = v.Hyphenate
-			wordboundary = false
-			if v.Hyphenate {
-				if v.Components != "" {
-					b.WriteString(v.Components)
-				} else {
-					b.WriteRune(rune(v.Codepoint))
-				}
-			}
-		case *Lang:
-			curlang = v.Lang
-			wordboundary = true
-		default:
-			wordboundary = true
-
-		}
-		e = e.Next()
-		if e == nil {
-			break
-		}
-	}
-	insertBreakpoints(curlang, &b, wordstart)
+	return sumwd
 }
 
 // Hpack returns a HList node with the node list as its list

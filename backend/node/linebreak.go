@@ -25,6 +25,7 @@ type Breakpoint struct {
 	from                                  *Breakpoint
 	next                                  *Breakpoint
 	Position                              Node
+	Pre                                   Node
 	Line                                  int
 	Fitness                               int
 	Width                                 bag.ScaledPoint
@@ -55,8 +56,11 @@ func newLinebreaker(hl Node, settings *LinebreakSettings) *linebreaker {
 func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 	// compute the adjustment ratio r from a to n
 	desiredLineWidth := lb.sumW - a.sumW
-	if penalty, ok := n.(*Penalty); ok {
-		desiredLineWidth += penalty.Width
+	switch t := n.(type) {
+	case *Penalty:
+		desiredLineWidth += t.Width
+	case *Disc:
+		desiredLineWidth += Dimensions(t.Pre)
 	}
 
 	r := 0.0
@@ -167,14 +171,17 @@ func (lb *linebreaker) mainLoop(n Node) {
 				onePlusBadnessSquared := int(math.Pow(1.0+badness, 2))
 				var curpenalty int
 				var curflagged bool
-				if p, ok := n.(*Penalty); ok {
-					curpenalty = p.Penalty
-					curflagged = p.Flagged
+				switch t := n.(type) {
+				case *Penalty:
+					curpenalty = t.Penalty
+				case *Disc:
+					curpenalty = lb.settings.Hyphenpenalty
+					curflagged = true
 				}
 				demerits := 0
 
-				if p, ok := active.Position.(*Penalty); ok {
-					if curflagged && p.Flagged {
+				if _, ok := active.Position.(*Disc); ok {
+					if curflagged {
 						demerits += lb.settings.DoublehyphenDemerits
 					}
 				}
@@ -230,14 +237,20 @@ func (lb *linebreaker) mainLoop(n Node) {
 			W, Y, Z, stretchFil, stretchFill, stretchFilll := lb.computeSum(n)
 
 			width := lb.sumW
-			if p, ok := n.(*Penalty); ok {
-				width += p.Width
+			var pre Node
+			switch v := n.(type) {
+			case *Penalty:
+				width += v.Width
+			case *Disc:
+				width += 5 * bag.Factor
+				pre = v.Pre
 			}
 
 			for c := 0; c < 4; c++ {
 				if dc[c] <= dmin+lb.settings.DemeritsFitness {
 					bp := &Breakpoint{
 						Position:     n,
+						Pre:          pre,
 						Line:         ac[c].Line + 1,
 						from:         ac[c],
 						next:         active,
@@ -301,6 +314,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			if t.Penalty < 10000 {
 				lb.mainLoop(t)
 			}
+		case *Disc:
+			prevItemBox = false
+			lb.mainLoop(t)
 		default:
 			prevItemBox = true
 			wd := getWidth(e)
@@ -322,7 +338,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			demerits = e.Demerits
 		}
 	}
-
+	var curPre Node
 	// Now lastNode has the fewest total demerits.
 	vl := NewVList()
 	for e := lastNode; e != nil; e = e.from {
@@ -330,6 +346,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		if startPos.Prev() != nil {
 			startPos = startPos.Next()
 		}
+		if curPre != nil {
+			InsertAfter(startPos, endNode.Prev(), curPre)
+		}
+		curPre = e.Pre
 		hl, _ := HPackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
 		hl.Height = lb.settings.LineHeight
 		vl.List = InsertBefore(vl.List, vl.List, hl)
@@ -339,8 +359,8 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	for i, j := 0, len(bps)-1; i < j; i, j = i+1, j-1 {
 		bps[i], bps[j] = bps[j], bps[i]
 	}
-
-	return vl, bps[1:]
+	var ret []*Breakpoint
+	return vl, ret
 }
 
 func getWidth(n Node) bag.ScaledPoint {
@@ -352,6 +372,8 @@ func getWidth(n Node) bag.ScaledPoint {
 	case *Penalty:
 		return t.Width
 	case *Lang:
+		return 0
+	case *Disc:
 		return 0
 	default:
 		bag.Logger.DPanicf("nyi: getWidth(%#v)", n)
