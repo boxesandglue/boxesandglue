@@ -35,6 +35,8 @@ const (
 	TypePenalty
 	// TypeRule is a Rule node.
 	TypeRule
+	// TypeStartStop marks the beginning and end of a something interesting.
+	TypeStartStop
 	// TypeVList is a VList node.
 	TypeVList
 )
@@ -103,7 +105,7 @@ func init() {
 // IsNode returns true if the argument is a Node.
 func IsNode(arg interface{}) bool {
 	switch arg.(type) {
-	case *Disc, *Glyph, *Glue, *Image, *HList, *Lang, *VList:
+	case *Disc, *Glyph, *Glue, *Image, *HList, *Lang, *StartStop, *VList:
 		return true
 	}
 	return false
@@ -578,6 +580,9 @@ func IsPenalty(elt Node) (*Penalty, bool) {
 // A Rule is a node represents a black box
 type Rule struct {
 	basenode
+	Pre    string
+	Post   string
+	Show   bool
 	Width  bag.ScaledPoint
 	Height bag.ScaledPoint
 	Depth  bag.ScaledPoint
@@ -643,6 +648,84 @@ func NewRule() *Rule {
 func IsRule(elt Node) (*Rule, bool) {
 	rule, ok := elt.(*Rule)
 	return rule, ok
+}
+
+// PDFDataOutput defines the location of inserted PDF data.
+type PDFDataOutput int
+
+const (
+	// PDFOutputHere inserts ET and moves to current position before inserting the PDF data.
+	PDFOutputHere PDFDataOutput = iota
+	// PDFOutputDirect inserts the PDF data without leaving the text mode with ET.
+	PDFOutputDirect
+	// PDFOutputPage inserts ET before writing the PDF data.
+	PDFOutputPage
+	// PDFOutputLowerLeft moves to the lower left corner before inserting the PDF data.
+	PDFOutputLowerLeft
+)
+
+// StartStopFunc is the type of the callback when this node is encountered in the
+// node list.
+type StartStopFunc func(thisnode Node) string
+
+// A StartStop is a hyphenation point.
+type StartStop struct {
+	basenode
+	Position PDFDataOutput
+	Callback StartStopFunc
+	Value    interface{}
+}
+
+func (d *StartStop) String() string {
+	return "start"
+}
+
+// NewStartStop creates an initialized Start node
+func NewStartStop() *StartStop {
+	n := &StartStop{}
+	n.ID = <-ids
+	return n
+}
+
+// Next returns the following node or nil if no such node exists.
+func (d *StartStop) Next() Node {
+	return d.next
+}
+
+// Prev returns the node preceeding this node or nil if no such node exists.
+func (d *StartStop) Prev() Node {
+	return d.prev
+}
+
+// SetNext sets the following node.
+func (d *StartStop) SetNext(n Node) {
+	d.next = n
+}
+
+// SetPrev sets the preceeding node.
+func (d *StartStop) SetPrev(n Node) {
+	d.prev = n
+}
+
+// GetID returns the node id
+func (d *StartStop) GetID() int {
+	return d.ID
+}
+
+// Name returns the name of the node
+func (d *StartStop) Name() string {
+	return "start"
+}
+
+// Type returns the type of the node
+func (d *StartStop) Type() Type {
+	return TypeStartStop
+}
+
+// Copy creates a deep copy of the node.
+func (d *StartStop) Copy() Node {
+	n := NewStartStop()
+	return n
 }
 
 // A VList is a horizontal list.

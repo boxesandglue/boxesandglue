@@ -25,9 +25,13 @@ func debugNode(n Node, level int) {
 		case *Disc:
 			color.HiBlack("disc (%d)", v.ID)
 		case *Glyph:
-			color.HiGreen("glyph (%d): %s wd: %s cp: %d", v.ID, v.Components, v.Width, v.Codepoint)
+			var fontid int
+			if fnt := v.Font; fnt != nil {
+				fontid = fnt.Face.FaceID
+			}
+			color.HiGreen("glyph (%d): %s wd: %s cp: %d face %d", v.ID, v.Components, v.Width, v.Codepoint, fontid)
 		case *Glue:
-			color.HiMagenta("glue (%d): %spt plus %spt minus %spt", v.ID, v.Width, v.Stretch, v.Shrink)
+			color.HiMagenta("glue (%d): %spt plus %spt minus %spt stretch order %d shrink order %d", v.ID, v.Width, v.Stretch, v.Shrink, v.StretchOrder, v.ShrinkOrder)
 		case *Image:
 			var filename string
 			if v.Img != nil && v.Img.ImageFile != nil {
@@ -48,10 +52,10 @@ func debugNode(n Node, level int) {
 			color.HiMagenta("peanlty (%d): %d wd: %spt", v.ID, v.Penalty, v.Width)
 		case *Rule:
 			color.HiBlack("rule (%d)", v.ID)
-
+		case *StartStop:
+			color.HiCyan("start/stop (%d)", v.ID)
 		default:
 			color.HiRed("Unhandled token %v", v)
 		}
 	}
-
 }

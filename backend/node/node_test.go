@@ -198,3 +198,37 @@ favor|ite play|thing.`
 		}
 	}
 }
+
+func TestLinebreakOneWord(t *testing.T) {
+	str := `Hello`
+	widths := map[rune]int{
+		'e': 8,
+		'l': 5,
+		'o': 9,
+		'H': 13,
+	}
+
+	var cur, head Node
+	sumwd := bag.ScaledPoint(0)
+
+	for _, r := range str {
+		g := NewGlyph()
+		g.Width = bag.ScaledPoint(widths[r]) * bag.Factor
+		sumwd += g.Width
+		g.Components = string(r)
+		head = InsertAfter(head, cur, g)
+		cur = g
+	}
+	AppendLineEndAfter(cur)
+
+	settings := NewLinebreakSettings()
+	settings.HSize = 390 * bag.Factor
+	settings.LineHeight = 12 * bag.Factor
+	settings.Hyphenpenalty = 50
+
+	_, bps := Linebreak(head, settings)
+	if len(bps) != 0 {
+		// TODO: better check
+		t.Error()
+	}
+}

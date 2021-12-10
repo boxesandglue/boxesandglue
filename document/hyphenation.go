@@ -29,7 +29,6 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 
 			disc.Pre = hyphen
 			node.InsertBefore(wordstart, cur, disc)
-			cur = cur.Next()
 		}
 	}
 }

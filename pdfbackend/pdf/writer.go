@@ -129,8 +129,13 @@ func (pw *PDF) writeStream(st *Stream) (Objectnumber, error) {
 
 func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 	var err error
+	usedFaces := make(map[*Face]bool)
+	usedImages := make(map[*Imagefile]bool)
 	// Write all page streams:
 	for _, page := range pw.pages.pages {
+		for _, img := range page.Images {
+			usedImages[img] = true
+		}
 		page.onum, err = pw.writeStream(page.stream)
 		if err != nil {
 			return 0, err
@@ -144,7 +149,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 	//  We need to know in advance where the parent object is written (/Pages)
 	pagesObj := pw.NewObject()
 	// write out all images to the PDF
-	for _, img := range pw.ImageFiles {
+	for img := range usedImages {
 		img.finish()
 	}
 
@@ -167,6 +172,9 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 
 		resHash := Dict{}
 		if len(page.Faces) > 0 {
+			for _, face := range page.Faces {
+				usedFaces[face] = true
+			}
 			resHash["/Font"] = strings.Join(res, " ")
 		}
 		if len(page.Images) > 0 {
@@ -223,7 +231,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 	catalog.Save()
 
 	// write out all font descriptors and files into the PDF
-	for _, fnt := range pw.Faces {
+	for fnt := range usedFaces {
 		fnt.finish()
 	}
 

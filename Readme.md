@@ -1,3 +1,5 @@
+[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/speedata/boxesandglue)&nbsp;[![Fund the development](https://img.shields.io/badge/Sponsor-Fund%20development-yellow)](https://github.com/sponsors/speedata)
+
 # Boxes and Glue
 
 This is a repository for experiments with TeX's algorithms. It might serve as a typesetting backend.
@@ -30,7 +32,6 @@ Patrick Gundlach, <gundlach@speedata.de>
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
@@ -38,6 +39,15 @@ import (
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/document"
 )
+
+var str = `In olden times when wishing still helped one, there lived a king whose daughters
+were all beautiful; and the youngest was so beautiful that the sun itself, which
+has seen so much, was astonished whenever it shone in her face.
+Close by the king's castle lay a great dark forest, and under an old lime-tree in the forest
+was a well, and when the day was very warm, the king's child went out into the
+forest and sat down by the side of the cool fountain; and when she was bored she
+took a golden ball, and threw it up on high and caught it; and this ball was her
+favorite plaything.`
 
 func dothings() error {
 	outfilename := "sample.pdf"
@@ -47,71 +57,38 @@ func dothings() error {
 	}
 	d := document.NewDocument(w)
 	d.Filename = outfilename
-	face, err := d.LoadFace("fonts/CrimsonPro-Regular.ttf", 0)
-	if err != nil {
+	if d.DefaultLanguage, err = d.LoadPatternFile("hyphenationpatterns/hyph-en-us.pat.txt"); err != nil {
 		return err
 	}
-	font := d.CreateFont(face, 10*bag.Factor)
-	indent := node.NewGlue()
-	indent.Width = 18 * bag.Factor
 
-	var head, cur node.Node
-	head = indent
-	cur = head
+	// Load a font, define a font family, and add this font to the family.
+	cpr := &document.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"}
+	ff := d.NewFontFamily("text")
+	ff.AddMember(cpr, document.FontWeight400, document.FontStyleNormal)
 
-	str := `In olden times when wishing still helped one, there lived a king whose daughters
-	were all beautiful; and the youngest was so beautiful that the sun itself, which
-	has seen so much, was astonished whenever it shone in her face.
-	Close by the king's castle lay a great dark forest, and under an old lime-tree in the forest
-	was a well, and when the day was very warm, the king's child went out into the
-	forest and sat down by the side of the cool fountain; and when she was bored she
-	took a golden ball, and threw it up on high and caught it; and this ball was her
-	favorite plaything.`
-
-	var lastglue node.Node
-	for _, r := range font.Shape(str) {
-		if r.Glyph == 32 {
-			if lastglue == nil {
-				g := node.NewGlue()
-				g.Width = font.Space
-				g.Stretch = font.SpaceStretch
-				g.Shrink = font.SpaceShrink
-				node.InsertAfter(head, cur, g)
-				cur = g
-				lastglue = g
-			}
-		} else {
-			n := node.NewGlyph()
-			n.Hyphenate = r.Hyphenate
-			n.Codepoint = r.Codepoint
-			n.Components = r.Components
-			n.Font = font
-			n.Width = r.Advance
-			node.InsertAfter(head, cur, n)
-			cur = n
-			lastglue = nil
-		}
+	// Create a recursive data structure for typesetting and create nodes.
+	te := &document.TypesettingElement{
+		Settings: document.TypesettingSettings{document.SettingFontFamily: ff.ID},
+		Items:    []interface{}{str},
 	}
-	if lastglue != nil && lastglue.Prev() != nil {
-		p := lastglue.Prev()
-		p.SetNext(nil)
-		lastglue.SetPrev(nil)
+	var nl, tail node.Node
+	if nl, tail, err = d.Mknodes(te); err != nil {
+		return err
 	}
 
-	node.AppendLineEndAfter(cur)
+	// Hyphenation is optional
+	d.Hyphenate(nl)
+	node.AppendLineEndAfter(tail)
+
+	// Break into lines
 	settings := node.NewLinebreakSettings()
-	settings.HSize = 200 * bag.Factor
+	settings.HSize = 130 * bag.Factor
 	settings.LineHeight = 12 * bag.Factor
-	vlist, info := node.Linebreak(head, settings)
-	// information about the line breaks, not strictly necessary:
-	for _, line := range info {
-		fmt.Println(line.Line, line.Demerits, line.R)
-	}
+	vlist, _ := node.Linebreak(nl, settings)
 
+	// output the text and finish the page and the PDF file
 	d.OutputAt(bag.MustSp("1cm"), bag.MustSp("26cm"), vlist)
-
 	d.CurrentPage.Shipout()
-
 	if err = d.Finish(); err != nil {
 		return err
 	}

@@ -10,8 +10,9 @@ import (
 
 // An Atom contains size information about the glyphs as a result of Shape
 type Atom struct {
-	Glyph      int
+	Glyph      rune
 	Advance    bag.ScaledPoint
+	IsSpace    bool
 	Components string
 	Codepoint  int
 	Hyphenate  bool
@@ -48,13 +49,14 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 	return fnt
 }
 
-// Shape transforms the text into a slice of codepoints.
+// Shape transforms the text into a slice of code points.
 func (f *Font) Shape(text string) []Atom {
 	glyphs := make([]Atom, 0, len(text))
 	for _, r := range text {
 		if unicode.IsSpace(r) {
 			glyphs = append(glyphs, Atom{
-				Glyph:      32,
+				Glyph:      r,
+				IsSpace:    true,
 				Advance:    f.Size,
 				Components: " ",
 			})
@@ -64,7 +66,7 @@ func (f *Font) Shape(text string) []Atom {
 				fmt.Println(err)
 			}
 			glyphs = append(glyphs, Atom{
-				Glyph:      int(r),
+				Glyph:      r,
 				Advance:    adv,
 				Hyphenate:  unicode.IsLetter(r),
 				Components: string(r),
@@ -75,7 +77,7 @@ func (f *Font) Shape(text string) []Atom {
 	return glyphs
 }
 
-// AdvanceX returns the advance in horiontal direction
+// AdvanceX returns the advance in horizontal direction
 func (f *Font) AdvanceX(r rune) (bag.ScaledPoint, error) {
 	idx, err := f.Face.GetIndex(r)
 	if err != nil {

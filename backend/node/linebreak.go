@@ -332,6 +332,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	// demerits, as we do not specify a loosenes parameter yet.
 	demerits := math.MaxInt
 	lastNode := lb.activeNodesA
+	if lastNode == nil {
+		lastNode = lb.inactiveNodesP
+	}
+
 	for e := lb.activeNodesA; e != nil; e = e.next {
 		if e.Demerits < demerits {
 			lastNode = e
@@ -371,12 +375,12 @@ func getWidth(n Node) bag.ScaledPoint {
 		return t.Width
 	case *Penalty:
 		return t.Width
-	case *Lang:
-		return 0
-	case *Disc:
+	case *Rule:
+		return t.Width
+	case *StartStop, *Disc, *Lang:
 		return 0
 	default:
-		bag.Logger.DPanicf("nyi: getWidth(%#v)", n)
+		bag.Logger.DPanicf("getWidth: unknown node type %t", n)
 	}
 	return 0
 }

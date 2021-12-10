@@ -108,6 +108,7 @@ func Dimensions(n Node) bag.ScaledPoint {
 // Hpack returns a HList node with the node list as its list
 func Hpack(firstNode Node) *HList {
 	sumwd := bag.ScaledPoint(0)
+	maxht := bag.ScaledPoint(0)
 	glues := []Node{}
 	sumglue := 0
 
@@ -118,6 +119,9 @@ func Hpack(firstNode Node) *HList {
 		switch v := e.(type) {
 		case *Glyph:
 			sumwd = sumwd + v.Width
+			if v.Height > maxht {
+				maxht = v.Height
+			}
 		case *Glue:
 			sumwd = sumwd + v.Width
 			sumglue = sumglue + int(v.Width)
@@ -127,13 +131,22 @@ func Hpack(firstNode Node) *HList {
 			sumwd += v.Width
 		case *Rule:
 			sumwd += v.Width
+			if v.Height > maxht {
+				maxht = v.Height
+			}
+		case *Image:
+			sumwd += v.Width
+			if v.Height > maxht {
+				maxht = v.Height
+			}
 		default:
-			bag.Logger.DPanic(v)
+			bag.Logger.DPanicf("Hpack: unknown node %v", v)
 		}
 	}
 	hl := NewHList()
 	hl.List = firstNode
 	hl.Width = sumwd
+	hl.Height = maxht
 	return hl
 }
 

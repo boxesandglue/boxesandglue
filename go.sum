@@ -21,6 +21,8 @@ github.com/speedata/gofpdi v1.0.15 h1:PLFmzHTAdhgvCDMsWgvL/njaDFzTmvsYewqgw3UUEg
 github.com/speedata/gofpdi v1.0.15/go.mod h1:aRZ6VjhFbzJWwCoHeKOdbUjImuf4GMVCJpwS9+bCYuM=
 github.com/speedata/gootf v0.0.0-20211102101716-062a89e3221e h1:NHpP15eopboLD2vKal/0qQ3IuXYa+ohenSH9+2YjDKs=
 github.com/speedata/gootf v0.0.0-20211102101716-062a89e3221e/go.mod h1:W9eH+4fle8N24D52HYisQ4hJcp050D2lkx6QZ0e4xUs=
+github.com/speedata/gootf v0.0.0-20211207074951-f4a725db4ae3 h1:BZEXquUjQtJZlAUBp88bltxdGNczckwNtahNOJbAD2A=
+github.com/speedata/gootf v0.0.0-20211207074951-f4a725db4ae3/go.mod h1:W9eH+4fle8N24D52HYisQ4hJcp050D2lkx6QZ0e4xUs=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
 github.com/speedata/hyphenation v1.0.1/go.mod h1:vwrKKvBvJWFll0sVZw99hyWS/+r4YlMI7MAYjnje0nM=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
