@@ -252,7 +252,7 @@ type CallbackShipout func(page *Page)
 
 // Document contains all references to a document
 type Document struct {
-	Languages          []*lang.Lang
+	Languages          map[string]*lang.Lang
 	Faces              []*pdf.Face
 	Images             []*pdf.Imagefile
 	FontFamilies       []*FontFamily
@@ -276,16 +276,17 @@ func NewDocument(w io.Writer) *Document {
 	d.DefaultPageWidth = bag.MustSp("210mm")
 	d.pdf = pdf.NewPDFWriter(w)
 	d.colors = csscolors
+	d.Languages = make(map[string]*lang.Lang)
 	return d
 }
 
 // LoadPatternFile loads a hyphenation pattern file.
-func (d *Document) LoadPatternFile(filename string) (*lang.Lang, error) {
-	l, err := lang.Load(filename)
+func (d *Document) LoadPatternFile(filename string, langname string) (*lang.Lang, error) {
+	l, err := lang.LoadPatternFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	d.Languages = append(d.Languages, l)
+	d.Languages[langname] = l
 	return l, nil
 }
 

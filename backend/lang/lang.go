@@ -1,39 +1,22 @@
 package lang
 
 import (
+	"io"
 	"os"
 
 	"github.com/speedata/hyphenation"
 )
 
-var (
-	nextid chan int
-)
-
-func genIntegerSequence(nextid chan int) {
-	i := int(0)
-	for {
-		nextid <- i
-		i++
-	}
-}
-
-func init() {
-	nextid = make(chan int)
-	go genIntegerSequence(nextid)
-}
-
 // Lang represents a language for for hyphenation
 type Lang struct {
-	ID             int
 	Lefthyphenmin  int
 	Righthyphenmin int
 	Name           string
 	lang           *hyphenation.Lang
 }
 
-// Load loads the hyphenation patterns with the given file name
-func Load(fn string) (*Lang, error) {
+// LoadPatternFile loads the hyphenation patterns with the given file name
+func LoadPatternFile(fn string) (*Lang, error) {
 	r, err := os.Open(fn)
 	if err != nil {
 		return nil, err
@@ -46,7 +29,18 @@ func Load(fn string) (*Lang, error) {
 		return nil, err
 	}
 
-	l := &Lang{lang: hl, ID: <-nextid, Lefthyphenmin: 2, Righthyphenmin: 3}
+	l := &Lang{lang: hl, Lefthyphenmin: 2, Righthyphenmin: 3}
+
+	return l, nil
+}
+
+// NewFromReader returns a Lang object from the reader r which points to hyphenation patterns.
+func NewFromReader(r io.Reader) (*Lang, error) {
+	hl, err := hyphenation.New(r)
+	if err != nil {
+		return nil, err
+	}
+	l := &Lang{lang: hl, Lefthyphenmin: 2, Righthyphenmin: 3}
 
 	return l, nil
 }

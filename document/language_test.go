@@ -1,6 +1,7 @@
 package document
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
 	"unicode"
@@ -8,6 +9,34 @@ import (
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/node"
 )
+
+func TestLoadLang(t *testing.T) {
+	var dummy bytes.Buffer
+	d := NewDocument(&dummy)
+
+	testdata := []struct {
+		req  string
+		want string
+	}{
+		{"en", "en"},
+		{"en_US", "en_US"},
+		{"de", "de"},
+		{"de_DE", "de_DE"},
+	}
+
+	for _, tc := range testdata {
+		l, err := d.GetLanguage(tc.req)
+		if err != nil {
+			t.Error(err)
+		}
+		if l == nil {
+			t.Errorf("d.GetLanguage(%q) = nil, want lang", tc.req)
+		}
+		if l.Name != tc.want {
+			t.Errorf("d.GetLanguage(%q) Name = %q, want %q", tc.req, l.Name, tc.want)
+		}
+	}
+}
 
 func TestHyphenate(t *testing.T) {
 	str := ` computer.`
@@ -29,8 +58,9 @@ func TestHyphenate(t *testing.T) {
 		}
 	}
 
-	doc := &Document{}
-	l, err := doc.LoadPatternFile(filepath.Join("testdata/hyph-en-us.pat.txt"))
+	var dummy bytes.Buffer
+	doc := NewDocument(&dummy)
+	l, err := doc.LoadPatternFile(filepath.Join("testdata/hyph-en-us.pat.txt"), "dummylang")
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}

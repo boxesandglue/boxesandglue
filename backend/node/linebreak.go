@@ -7,8 +7,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/bag"
 )
 
-// inspired by github.com/tdewolff/fuzz/canvas pdf package
-
 var (
 	positiveInf = math.Inf(1.0)
 )

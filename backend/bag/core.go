@@ -37,7 +37,7 @@ func ScaledPointFromFloat(f float64) ScaledPoint {
 }
 
 // String converts the scaled point into a string, like Sprintf("%.3f")
-// but with trailing zeroes (and possibly ".") removed (from gopdf)
+// but with trailing zeroes (and possibly ".") removed.
 func (s ScaledPoint) String() string {
 	const precisionFactor = 100.0
 	rounded := math.Round(precisionFactor*float64(s)/float64(Factor)) / precisionFactor
