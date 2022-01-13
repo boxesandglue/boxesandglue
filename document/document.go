@@ -22,12 +22,13 @@ type Object struct {
 
 // A Page struct represents a page in a PDF file.
 type Page struct {
-	document *Document
-	Height   bag.ScaledPoint
-	Width    bag.ScaledPoint
-	Objects  []Object
-	Userdata map[interface{}]interface{}
-	Finished bool
+	document   *Document
+	Height     bag.ScaledPoint
+	Width      bag.ScaledPoint
+	Background []Object
+	Objects    []Object
+	Userdata   map[interface{}]interface{}
+	Finished   bool
 }
 
 const (
@@ -88,20 +89,25 @@ func (p *Page) Shipout() {
 			}
 		}
 	}
-	for _, obj := range p.Objects {
+	objs := make([]Object, 0, len(p.Background)+len(p.Objects))
+	objs = append(objs, p.Background...)
+	objs = append(objs, p.Objects...)
+	for _, obj := range objs {
 		sumV := bag.ScaledPoint(0)
 		vlist := obj.Vlist
-		for vl := vlist.List; vl != nil; vl = vl.Next() {
+		// horizontal elements
+		for hElt := vlist.List; hElt != nil; hElt = hElt.Next() {
 			var glueString string
 			var shiftX bag.ScaledPoint
 			sumx := bag.ScaledPoint(0)
-			switch v := vl.(type) {
+			switch v := hElt.(type) {
 			case *node.HList:
 				// The first hlist: move cursor down
-				if vl == vlist.List {
+				if hElt == vlist.List {
 					sumV += v.Height
 				}
 				hlist := v
+
 				for itm := hlist.List; itm != nil; itm = itm.Next() {
 					switch n := itm.(type) {
 					case *node.Glyph:
@@ -204,7 +210,7 @@ func (p *Page) Shipout() {
 						bag.Logger.DPanicf("Shipout: unknown node %v", itm)
 					}
 				}
-				sumV += hlist.Height
+				sumV += hlist.Height + hlist.Depth
 				if textmode < 3 {
 					gotoTextMode(3)
 				}
@@ -229,6 +235,19 @@ func (p *Page) Shipout() {
 					fmt.Fprintf(&s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
 				}
 				fmt.Fprintf(&s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
+			case *node.Glue:
+				// Let's assume that the glue ratio has been determined and the
+				// natural width is in v.Width for now.
+				sumV += v.Width
+			case *node.Rule:
+				posX := obj.X + sumx
+				posY := obj.Y - sumV
+				fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", posX, posY)
+				fmt.Fprint(&s, v.Pre)
+				fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", -posX, -posY)
+
+			default:
+				bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
 			}
 		}
 		gotoTextMode(4)

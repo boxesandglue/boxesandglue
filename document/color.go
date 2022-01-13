@@ -3,6 +3,7 @@ package document
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -22,8 +23,20 @@ type Color struct {
 	A     float64
 }
 
+func (col Color) String() string {
+	switch col.Space {
+	case ColorNone:
+		return "-"
+	case ColorRGB:
+		alphaStr := strconv.FormatFloat(col.A, 'f', -1, 64)
+		return fmt.Sprintf("rgba(%d,%d,%d,%s)", int(col.R*255), int(col.G*255), int(col.B*255), alphaStr)
+	}
+	return ""
+}
+
 var (
 	csscolors = map[string]*Color{
+		"-":                    {Space: ColorNone},
 		"aliceblue":            {Space: ColorRGB, R: 0.941, G: 0.973, B: 1, A: 1},
 		"antiquewhite":         {Space: ColorRGB, R: 0.98, G: 0.922, B: 0.843, A: 1},
 		"aqua":                 {Space: ColorRGB, R: 0, G: 1, B: 1, A: 1},
@@ -177,8 +190,10 @@ var (
 type ColorSpace int
 
 const (
+	// ColorNone represents an undefined color space
+	ColorNone ColorSpace = iota
 	// ColorRGB represents a color in RGB color space
-	ColorRGB ColorSpace = iota
+	ColorRGB
 	// ColorCMYK represents a color in CMYK color space
 	ColorCMYK
 	// ColorGray represents a gray scale color.
@@ -190,16 +205,20 @@ func (d *Document) DefineColor(name string, col *Color) {
 	d.colors[name] = col
 }
 
+var rgbmatcher = regexp.MustCompile(`rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*([0-9.-]*)?\s*\)`)
+
 // GetColor returns a color. The string can be a predefined color name or an
 // HTML / CSS color definition such as #FAF or rgb(0.5.,0.5,0.5).
 func (d *Document) GetColor(s string) *Color {
 	if col, ok := d.colors[s]; ok {
 		return col
 	}
+	var r, g, b int
+	var alpha float64
+	var err error
 	col := &Color{}
 	if strings.HasPrefix(s, "#") {
 		col.Space = ColorRGB
-		var r, g, b, alpha int
 		switch len(s) {
 		case 7:
 			fmt.Sscanf(s, "#%2x%2x%2x", &r, &g, &b)
@@ -211,21 +230,50 @@ func (d *Document) GetColor(s string) *Color {
 		col.R = math.Round(100.0*float64(r)/float64(255)) / 100.0
 		col.G = math.Round(100.0*float64(g)/float64(255)) / 100.0
 		col.B = math.Round(100.0*float64(b)/float64(255)) / 100.0
-		col.A = math.Round(100.0*float64(alpha)/float64(255)) / 100.0
 		return col
+	} else if strings.HasPrefix(s, "rgb") {
+		col.Space = ColorRGB
+		colorvalues := rgbmatcher.FindAllStringSubmatch(s, -1)
+
+		if len(colorvalues) == 1 {
+			if len(colorvalues[0]) > 3 {
+				// TODO: percentage
+				if r, err = strconv.Atoi(colorvalues[0][1]); err != nil {
+					return nil
+				}
+				if g, err = strconv.Atoi(colorvalues[0][2]); err != nil {
+					return nil
+				}
+				if b, err = strconv.Atoi(colorvalues[0][3]); err != nil {
+					return nil
+				}
+				col.R = math.Round(100.0*float64(r)/float64(255)) / 100.0
+				col.G = math.Round(100.0*float64(g)/float64(255)) / 100.0
+				col.B = math.Round(100.0*float64(b)/float64(255)) / 100.0
+				if alpha, err = strconv.ParseFloat(colorvalues[0][4], 64); err == nil {
+					col.A = alpha
+				}
+				return col
+			}
+		}
 	}
 	return nil
 }
 
 func (col *Color) getPDFColorSuffix(fg bool) string {
 	if fg {
-		return []string{"rg", "k", "g"}[col.Space]
+		return []string{"", "rg", "k", "g"}[col.Space]
 	}
-	return []string{"RG", "K", "G"}[col.Space]
+	return []string{"", "RG", "K", "G"}[col.Space]
 }
 
 func (col *Color) getPDFColorValues() string {
+	if col == nil {
+		return ""
+	}
 	switch col.Space {
+	case ColorNone:
+		return ""
 	case ColorRGB:
 		return fmt.Sprintf("%s %s %s ", strconv.FormatFloat(col.R, 'f', -1, 64), strconv.FormatFloat(col.G, 'f', -1, 64), strconv.FormatFloat(col.B, 'f', -1, 64))
 	case ColorCMYK:

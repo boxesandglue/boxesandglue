@@ -153,6 +153,8 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 			n.Components = r.Components
 			n.Font = fnt
 			n.Width = r.Advance
+			n.Height = r.Height
+			n.Depth = r.Depth
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil

@@ -192,6 +192,9 @@ favor|ite play|thing.`
 	_, bps := Linebreak(head, settings)
 
 	data := []float64{0.8571428571428571, 0, 0.28, 1, 0.06666666666666667, -0.2777777777777778, 0.5357142857142857, -0.16666666666666666, 0.7, -0.17647058823529413, 0.35714285714285715, 0}
+	if len(bps) != len(data) {
+		t.Errorf("len(bps) = %d, want %d", len(bps), len(data))
+	}
 	for i, bp := range bps {
 		if bp.R != data[i] {
 			t.Errorf("Line %d r = %f, want %f", i, bp.R, data[i])
@@ -227,8 +230,11 @@ func TestLinebreakOneWord(t *testing.T) {
 	settings.Hyphenpenalty = 50
 
 	_, bps := Linebreak(head, settings)
-	if len(bps) != 0 {
-		// TODO: better check
-		t.Error()
+	if len(bps) != 1 {
+		t.Errorf("want 1 breakpoint, got %d", len(bps))
+	} else {
+		if bps[0].R != 0 {
+			t.Errorf("breakpoint 0.R = %f, want 0", bps[0].R)
+		}
 	}
 }

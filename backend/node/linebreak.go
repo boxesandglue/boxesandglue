@@ -2,7 +2,6 @@ package node
 
 import (
 	"math"
-	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 )
@@ -112,27 +111,6 @@ compute:
 		}
 	}
 	return w, y, z, stretchFil, stretchFill, stretchFilll
-}
-
-func showWordBefore(n Node) string {
-	var start Node
-	for e := n.Prev(); e != nil; e = e.Prev() {
-		if _, ok := e.(*Glue); ok {
-			start = e
-			break
-		}
-	}
-	if start == nil {
-		return ""
-	}
-	var str []string
-
-	for e := start; e != n; e = e.Next() {
-		if g, ok := e.(*Glyph); ok {
-			str = append(str, g.Components)
-		}
-	}
-	return strings.Join(str, "")
 }
 
 func (lb *linebreaker) mainLoop(n Node) {
@@ -322,7 +300,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		}
 		endNode = e
 	}
-
+	// The order of the breakpoints is from last breakpoint to first breakpoint.
 	var bps []*Breakpoint
 
 	// There might be several nodes in here which end at the last glue with
@@ -340,11 +318,14 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			demerits = e.Demerits
 		}
 	}
+
 	var curPre Node
 	// Now lastNode has the fewest total demerits.
-	vl := NewVList()
+	var vert Node
+	bps = append(bps, lastNode)
 	for e := lastNode; e != nil; e = e.from {
 		startPos := e.Position
+		// startPos.Prev() is nil at paragraph start
 		if startPos.Prev() != nil {
 			startPos = startPos.Next()
 		}
@@ -352,35 +333,28 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			InsertAfter(startPos, endNode.Prev(), curPre)
 		}
 		curPre = e.Pre
-		hl, _ := HPackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
-		hl.Height = lb.settings.LineHeight
-		vl.List = InsertBefore(vl.List, vl.List, hl)
-		endNode = e.Position
-		bps = append(bps, e)
+		if startPos != nil {
+			hl, _ := HPackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
+			vert = InsertBefore(vert, vert, hl)
+			// insert vertical glue if necessary
+			if e.next != nil {
+				lineskip := NewGlue()
+				if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
+					lineskip.Width = settings.LineHeight - totalHeightHL
+				}
+				vert = InsertBefore(vert, vert, lineskip)
+				endNode = e.Position
+				bps = append(bps, e)
+			}
+		}
 	}
+
 	for i, j := 0, len(bps)-1; i < j; i, j = i+1, j-1 {
 		bps[i], bps[j] = bps[j], bps[i]
 	}
-	var ret []*Breakpoint
-	return vl, ret
-}
 
-func getWidth(n Node) bag.ScaledPoint {
-	switch t := n.(type) {
-	case *Glue:
-		return t.Width
-	case *Glyph:
-		return t.Width
-	case *Penalty:
-		return t.Width
-	case *Rule:
-		return t.Width
-	case *StartStop, *Disc, *Lang:
-		return 0
-	default:
-		bag.Logger.DPanicf("getWidth: unknown node type %t", n)
-	}
-	return 0
+	vl := Vpack(vert)
+	return vl, bps
 }
 
 // AppendLineEndAfter adds a penalty 10000, glue 0pt plus 1fil, penalty -10000

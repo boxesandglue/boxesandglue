@@ -31,6 +31,27 @@ func TestSimple(t *testing.T) {
 	}
 }
 
+func TestParseColors(t *testing.T) {
+	var w bytes.Buffer
+	d := NewDocument(&w)
+
+	testdata := []struct {
+		colorvalue string
+		expected   string
+	}{
+		{"rgba(0,255,0)", "rgba(0,255,0,0)"},
+		{"rgb(0,255,0)", "rgba(0,255,0,0)"},
+		{"rgb(0,255,0,1.0)", "rgba(0,255,0,1)"},
+		{"rgb(0,255,0,1)", "rgba(0,255,0,1)"},
+	}
+	for _, tc := range testdata {
+		col := d.GetColor(tc.colorvalue)
+		if got := col.String(); got != tc.expected {
+			t.Errorf("col.String() = %q, want %q", got, tc.expected)
+		}
+	}
+}
+
 func TestHTMLColors(t *testing.T) {
 	var w bytes.Buffer
 	d := NewDocument(&w)

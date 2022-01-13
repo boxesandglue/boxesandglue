@@ -17,10 +17,10 @@ func debugNode(n Node, level int) {
 		fmt.Print(strings.Repeat(" | ", level))
 		switch v := e.(type) {
 		case *VList:
-			color.Cyan("vlist (%d) wd: %s ht %s", v.ID, v.Width, v.Height)
+			color.Cyan("vlist (%d) wd: %s, ht %s, dp %s", v.ID, v.Width, v.Height, v.Depth)
 			debugNode(v.List, level+1)
 		case *HList:
-			color.HiBlue("hlist (%d) wd: %s ht: %s", v.ID, v.Width, v.Height)
+			color.HiBlue("hlist (%d) wd: %s ht: %s dp: %s", v.ID, v.Width, v.Height, v.Depth)
 			debugNode(v.List, level+1)
 		case *Disc:
 			color.HiBlack("disc (%d)", v.ID)
@@ -29,7 +29,7 @@ func debugNode(n Node, level int) {
 			if fnt := v.Font; fnt != nil {
 				fontid = fnt.Face.FaceID
 			}
-			color.HiGreen("glyph (%d): %s wd: %s cp: %d face %d", v.ID, v.Components, v.Width, v.Codepoint, fontid)
+			color.HiGreen("glyph (%d): %s wd: %s ht: %s, dp: %s, cp: %d face %d", v.ID, v.Components, v.Width, v.Height, v.Depth, v.Codepoint, fontid)
 		case *Glue:
 			color.HiMagenta("glue (%d): %spt plus %spt minus %spt stretch order %d shrink order %d", v.ID, v.Width, v.Stretch, v.Shrink, v.StretchOrder, v.ShrinkOrder)
 		case *Image:

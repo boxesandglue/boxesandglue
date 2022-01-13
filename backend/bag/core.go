@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	unitRE *regexp.Regexp
+	unitRE = regexp.MustCompile("(.*?)(mm|cm|in|pt|px|pc|m)")
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
 	// Logger is a zap lgger which can be overridden from other packages
@@ -20,7 +20,6 @@ var (
 )
 
 func init() {
-	unitRE = regexp.MustCompile("(.*?)(mm|cm|in|pt|px|pc|m)")
 	logger, _ := zap.NewProduction()
 	Logger = logger.Sugar()
 }
@@ -98,7 +97,6 @@ func MustSp(unit string) ScaledPoint {
 	if err != nil {
 		if errors.Is(err, ErrConversion) {
 			Logger.Error(err.Error())
-			fmt.Println(errors.Unwrap(err))
 		}
 		panic(err)
 	}

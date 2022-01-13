@@ -28,7 +28,8 @@ func NewLinebreakSettings() *LinebreakSettings {
 	return ls
 }
 
-// InsertAfter inserts the node insert right after cur. If cur is nil then insert is the new head. This method retuns the head node.
+// InsertAfter inserts the node insert right after cur. If cur is nil then
+// insert is the new head. This method retuns the head node.
 func InsertAfter(head, cur, insert Node) Node {
 	if cur == nil {
 		return insert
@@ -46,7 +47,8 @@ func InsertAfter(head, cur, insert Node) Node {
 	return head
 }
 
-// InsertBefore inserts the node insert before the current not cur. It returns the (perhaps) new head node.
+// InsertBefore inserts the node insert before the current not cur. It returns
+// the (perhaps) new head node.
 func InsertBefore(head, cur, insert Node) Node {
 	if head == nil {
 		return insert
@@ -109,23 +111,20 @@ func Dimensions(n Node) bag.ScaledPoint {
 func Hpack(firstNode Node) *HList {
 	sumwd := bag.ScaledPoint(0)
 	maxht := bag.ScaledPoint(0)
-	glues := []Node{}
-	sumglue := 0
+	maxdp := bag.ScaledPoint(0)
 
 	for e := firstNode; e != nil; e = e.Next() {
-		if e == nil {
-			break
-		}
 		switch v := e.(type) {
 		case *Glyph:
 			sumwd = sumwd + v.Width
 			if v.Height > maxht {
 				maxht = v.Height
 			}
+			if v.Depth > maxdp {
+				maxdp = v.Depth
+			}
 		case *Glue:
 			sumwd = sumwd + v.Width
-			sumglue = sumglue + int(v.Width)
-			glues = append(glues, e)
 		case *Lang:
 		case *Penalty:
 			sumwd += v.Width
@@ -133,6 +132,9 @@ func Hpack(firstNode Node) *HList {
 			sumwd += v.Width
 			if v.Height > maxht {
 				maxht = v.Height
+			}
+			if v.Depth > maxdp {
+				maxdp = v.Depth
 			}
 		case *Image:
 			sumwd += v.Width
@@ -147,6 +149,7 @@ func Hpack(firstNode Node) *HList {
 	hl.List = firstNode
 	hl.Width = sumwd
 	hl.Height = maxht
+	hl.Depth = maxdp
 	return hl
 }
 
@@ -162,6 +165,9 @@ func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HLis
 	glues := []*Glue{}
 
 	sumwd := bag.ScaledPoint(0)
+	maxht := bag.ScaledPoint(0)
+	maxdp := bag.ScaledPoint(0)
+
 	nonGlueSumWd := bag.ScaledPoint(0) // used for real width calculation
 
 	totalStretchability := [4]bag.ScaledPoint{0, 0, 0, 0}
@@ -174,6 +180,23 @@ func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HLis
 			totalStretchability[v.StretchOrder] += v.Stretch
 			totalShrinkability[v.StretchOrder] += v.Shrink
 			glues = append(glues, v)
+		case *Glyph:
+			nonGlueSumWd = nonGlueSumWd + v.Width
+			if v.Height > maxht {
+				maxht = v.Height
+			}
+			if v.Depth > maxdp {
+				maxdp = v.Depth
+			}
+		case *Rule:
+			nonGlueSumWd = nonGlueSumWd + v.Width
+			if v.Height > maxht {
+				maxht = v.Height
+			}
+			if v.Depth > maxdp {
+				maxdp = v.Depth
+			}
+
 		default:
 			nonGlueSumWd += getWidth(v)
 		}
@@ -247,6 +270,81 @@ func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HLis
 	hl := NewHList()
 	hl.List = firstNode
 	hl.Width = sumwd
+	hl.Depth = maxdp
+	hl.Height = maxht
 	hl.GlueSet = r
 	return hl, badness
+}
+
+// Vpack creates a list
+func Vpack(firstNode Node) *VList {
+	sumht := bag.ScaledPoint(0)
+	maxwd := bag.ScaledPoint(0)
+
+	var lastNode Node
+	for e := firstNode; e != nil; e = e.Next() {
+		sumht += getHeight(e)
+		if wd := getWidth(e); wd > maxwd {
+			maxwd = wd
+		}
+		lastNode = e
+	}
+	vl := NewVList()
+	vl.List = firstNode
+	vl.Depth = getDepth(lastNode)
+	vl.Height = sumht
+	vl.Width = maxwd
+	return vl
+}
+
+func getWidth(n Node) bag.ScaledPoint {
+	switch t := n.(type) {
+	case *Glue:
+		return t.Width
+	case *Glyph:
+		return t.Width
+	case *Penalty:
+		return t.Width
+	case *Rule:
+		return t.Width
+	case *HList:
+		return t.Width
+	case *StartStop, *Disc, *Lang:
+		return 0
+	default:
+		bag.Logger.DPanicf("getWidth: unknown node type %T", n)
+	}
+	return 0
+}
+
+func getHeight(n Node) bag.ScaledPoint {
+	switch t := n.(type) {
+	case *HList:
+		return t.Height
+	case *Glyph:
+		return t.Height
+	case *Rule:
+		return t.Height
+	case *StartStop, *Disc, *Lang, *Glue, *Penalty:
+		return 0
+	default:
+		bag.Logger.DPanicf("getHeight: unknown node type %T", n)
+	}
+	return 0
+}
+
+func getDepth(n Node) bag.ScaledPoint {
+	switch t := n.(type) {
+	case *HList:
+		return t.Depth
+	case *Glyph:
+		return t.Depth
+	case *Rule:
+		return t.Depth
+	case *StartStop, *Disc, *Lang, *Glue, *Penalty:
+		return 0
+	default:
+		bag.Logger.DPanicf("getDepth: unknown node type %T", n)
+	}
+	return 0
 }

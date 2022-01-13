@@ -12,6 +12,8 @@ import (
 type Atom struct {
 	Glyph      rune
 	Advance    bag.ScaledPoint
+	Height     bag.ScaledPoint
+	Depth      bag.ScaledPoint
 	IsSpace    bool
 	Components string
 	Codepoint  int
@@ -24,6 +26,7 @@ type Font struct {
 	SpaceStretch bag.ScaledPoint
 	SpaceShrink  bag.ScaledPoint
 	Size         bag.ScaledPoint
+	Depth        bag.ScaledPoint
 	Face         *pdf.Face
 	Hyphenchar   Atom
 	Mag          int
@@ -40,6 +43,7 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Size:         size,
 		Face:         face,
 		Mag:          mag,
+		Depth:        bag.ScaledPoint(face.Font.OS2.STypoDescender) * bag.ScaledPoint(mag) * -1,
 	}
 
 	atoms := fnt.Shape("-")
@@ -68,6 +72,8 @@ func (f *Font) Shape(text string) []Atom {
 			glyphs = append(glyphs, Atom{
 				Glyph:      r,
 				Advance:    adv,
+				Height:     f.Size - f.Depth,
+				Depth:      f.Depth,
 				Hyphenate:  unicode.IsLetter(r),
 				Components: string(r),
 				Codepoint:  f.Face.ToGlyphIndex[r],
