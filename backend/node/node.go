@@ -653,27 +653,44 @@ func IsRule(elt Node) (*Rule, bool) {
 // PDFDataOutput defines the location of inserted PDF data.
 type PDFDataOutput int
 
+// ActionType represents a start/stop action such as a PDF link.
+type ActionType int
+
 const (
-	// PDFOutputHere inserts ET and moves to current position before inserting the PDF data.
-	PDFOutputHere PDFDataOutput = iota
+	// PDFOutputNone ignores any movement commands.
+	PDFOutputNone PDFDataOutput = iota
+	// PDFOutputHere inserts ET and moves to current position before inserting
+	// the PDF data.
+	PDFOutputHere
 	// PDFOutputDirect inserts the PDF data without leaving the text mode with ET.
 	PDFOutputDirect
 	// PDFOutputPage inserts ET before writing the PDF data.
 	PDFOutputPage
-	// PDFOutputLowerLeft moves to the lower left corner before inserting the PDF data.
+	// PDFOutputLowerLeft moves to the lower left corner before inserting the
+	// PDF data.
 	PDFOutputLowerLeft
+)
+
+const (
+	// ActionNone represesents no special action
+	ActionNone ActionType = iota
+	// ActionHyperlink represents a hyperlink.
+	ActionHyperlink
 )
 
 // StartStopFunc is the type of the callback when this node is encountered in the
 // node list.
 type StartStopFunc func(thisnode Node) string
 
-// A StartStop is a hyphenation point.
+// A StartStop is a paired node type used for color switches, hyperlinks and
+// such.
 type StartStop struct {
 	basenode
-	Position PDFDataOutput
-	Callback StartStopFunc
-	Value    interface{}
+	Action    ActionType
+	StartNode *StartStop
+	Position  PDFDataOutput
+	Callback  StartStopFunc
+	Value     interface{}
 }
 
 func (d *StartStop) String() string {

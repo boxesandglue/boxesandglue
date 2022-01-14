@@ -22,13 +22,14 @@ type Object struct {
 
 // A Page struct represents a page in a PDF file.
 type Page struct {
-	document   *Document
-	Height     bag.ScaledPoint
-	Width      bag.ScaledPoint
-	Background []Object
-	Objects    []Object
-	Userdata   map[interface{}]interface{}
-	Finished   bool
+	document    *Document
+	Height      bag.ScaledPoint
+	Width       bag.ScaledPoint
+	Background  []Object
+	Objects     []Object
+	Userdata    map[interface{}]interface{}
+	Finished    bool
+	Annotations []pdf.Annotation
 }
 
 const (
@@ -95,6 +96,7 @@ func (p *Page) Shipout() {
 	for _, obj := range objs {
 		sumV := bag.ScaledPoint(0)
 		vlist := obj.Vlist
+
 		// horizontal elements
 		for hElt := vlist.List; hElt != nil; hElt = hElt.Next() {
 			var glueString string
@@ -138,7 +140,6 @@ func (p *Page) Shipout() {
 						if textmode == 1 {
 							// Single glue at end should not be printed. Therefore we save it for later.
 							glueString = fmt.Sprintf(" %d ", -1*1000*n.Width/currentFont.Size)
-						} else {
 						}
 						sumx += n.Width
 					case *node.Rule:
@@ -175,10 +176,40 @@ func (p *Page) Shipout() {
 						}
 						fmt.Fprintf(&s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
 					case *node.StartStop:
+						isStartNode := true
+						action := n.Action
+
+						var startNode *node.StartStop
+						if n.StartNode != nil {
+							// a stop node which has a link to a start node
+							isStartNode = false
+							startNode = n.StartNode
+							action = startNode.Action
+						} else {
+							startNode = n
+						}
+
 						if textmode == 1 && glueString != "" {
 							gotoTextMode(2)
 							fmt.Fprint(&s, glueString)
 							glueString = ""
+						}
+
+						if action == node.ActionHyperlink {
+							posX := obj.X + sumx
+							posY := obj.Y - sumV - currentFont.Depth
+							hyperlink := startNode.Value.(*Hyperlink)
+							if isStartNode {
+								hyperlink.startposX = posX
+								hyperlink.startposY = posY
+							} else {
+								a := pdf.Annotation{
+									Rect:    [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, hyperlink.startposX + 50*bag.Factor, posY + hlist.Height + currentFont.Depth},
+									Subtype: "Link",
+									URI:     hyperlink.URI,
+								}
+								p.Annotations = append(p.Annotations, a)
+							}
 						}
 						switch n.Position {
 						case node.PDFOutputPage:
@@ -194,14 +225,15 @@ func (p *Page) Shipout() {
 							gotoTextMode(4)
 						}
 						glueString = ""
-						fmt.Fprint(&s, n.Callback(n))
+						if n.Callback != nil {
+							fmt.Fprint(&s, n.Callback(n))
+						}
 						switch n.Position {
 						case node.PDFOutputHere:
 							posX := obj.X + sumx
 							posY := obj.Y - sumV
 							fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", -posX, -posY)
 						}
-
 					case *node.Lang, *node.Penalty:
 						// ignore
 					case *node.Disc:
@@ -252,10 +284,11 @@ func (p *Page) Shipout() {
 		}
 		gotoTextMode(4)
 	}
+
 	st := pdf.NewStream([]byte(s.String()))
 	// st.SetCompression()
 	page := p.document.pdf.AddPage(st)
-
+	page.Annotations = p.Annotations
 	page.Width = p.Width
 	page.Height = p.Height
 	for f := range usedFaces {

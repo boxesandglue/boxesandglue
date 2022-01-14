@@ -9,6 +9,14 @@ import (
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
+// A Hyperlink represents a clickable thing in the PDF.
+type Hyperlink struct {
+	URI         string
+	Annotations []pdf.Annotation
+	startposX   bag.ScaledPoint
+	startposY   bag.ScaledPoint
+}
+
 // SettingType represents a setting such as font weight or color.
 type SettingType int
 
@@ -59,9 +67,11 @@ const (
 	SettingFontFamily
 	// SettingSize sets the font size.
 	SettingSize
+	// SettingHyperlink defines an external hypherlink.
+	SettingHyperlink
 )
 
-// TypesettingSettings is a hash of glyph attributes the values.
+// TypesettingSettings is a hash of glyph attributes to values.
 type TypesettingSettings map[SettingType]interface{}
 
 // TypesettingElement associates all items with the given settings. Items can be
@@ -76,7 +86,9 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
 	fontsize := 12 * bag.Factor
-	color := ""
+	var color string
+	var hyperlink Hyperlink
+	var hasColor, hasHyperlink bool
 
 	for k, v := range ts {
 		switch k {
@@ -88,8 +100,12 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 			fontsize = v.(bag.ScaledPoint)
 		case SettingColor:
 			color = v.(string)
+			hasColor = true
+		case SettingHyperlink:
+			hyperlink = v.(Hyperlink)
+			hasHyperlink = true
 		default:
-			bag.Logger.DPanicf("Unknown setting %s", k)
+			bag.Logger.DPanicf("Unknown setting %v", k)
 		}
 	}
 
@@ -118,14 +134,29 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 	}
 
 	var head, cur node.Node
-	hasColor := false
-	if color != "" {
+	var hyperlinkStart, hyperlinkStop *node.StartStop
+	if hasHyperlink {
+		if false {
+			fmt.Println(hyperlink)
+		}
+		hyperlinkStart = node.NewStartStop()
+		hyperlinkStart.Action = node.ActionHyperlink
+		hyperlinkStart.Value = &hyperlink
+		if head != nil {
+			head = node.InsertAfter(head, head, hyperlinkStart)
+		}
+		head = hyperlinkStart
+	}
+
+	if hasColor {
 		if col := d.GetColor(color); col != nil {
-			hasColor = true
 			colStart := node.NewStartStop()
 			colStart.Position = node.PDFOutputPage
 			colStart.Callback = func(n node.Node) string {
 				return col.PDFStringFG() + " "
+			}
+			if head != nil {
+				head = node.InsertAfter(head, head, colStart)
 			}
 			head = colStart
 		} else {
@@ -167,6 +198,13 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 			return "0 0 0 RG 0 0 0 rg "
 		}
 		node.InsertAfter(head, cur, stop)
+		cur = stop
+	}
+	if hasHyperlink {
+		hyperlinkStop = node.NewStartStop()
+		hyperlinkStop.StartNode = hyperlinkStart
+		head = node.InsertAfter(head, cur, hyperlinkStop)
+		cur = hyperlinkStop
 	}
 
 	return head, nil

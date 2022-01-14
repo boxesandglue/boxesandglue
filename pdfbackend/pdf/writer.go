@@ -29,15 +29,25 @@ type Pages struct {
 	dictnum Objectnumber
 }
 
-// Page contains information about a single page
+// An Annotation is a PDF element that is additional to the text, such as a
+// hyperlink or a note.
+type Annotation struct {
+	Subtype string
+	Border  []int
+	Rect    [4]bag.ScaledPoint
+	URI     string
+}
+
+// Page contains information about a single page.
 type Page struct {
-	onum    Objectnumber
-	dictnum Objectnumber
-	Faces   []*Face
-	Images  []*Imagefile
-	stream  *Stream
-	Width   bag.ScaledPoint
-	Height  bag.ScaledPoint
+	onum        Objectnumber
+	dictnum     Objectnumber
+	Annotations []Annotation
+	Faces       []*Face
+	Images      []*Imagefile
+	stream      *Stream
+	Width       bag.ScaledPoint
+	Height      bag.ScaledPoint
 }
 
 // PDF is the central point of writing a PDF file.
@@ -89,6 +99,7 @@ func (pw *PDF) Printf(format string, a ...interface{}) error {
 // AddPage adds a page to the PDF file. The stream must be complete.
 func (pw *PDF) AddPage(pagestream *Stream) *Page {
 	pg := &Page{}
+
 	pg.stream = pagestream
 	pw.pages.pages = append(pw.pages.pages, pg)
 	return pg
@@ -200,7 +211,31 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		resHash["/ExtGState"] = "<< >> "
 
 		if len(resHash) > 0 {
-			pageHash["/Resources"] = hashToString(resHash, 1)
+			pageHash["/Resources"] = HashToString(resHash, 1)
+		}
+
+		annotationObjectNumbers := make([]string, len(page.Annotations))
+		for i, annot := range page.Annotations {
+			annotObj := pw.NewObject()
+			actionDict := Dict{
+				"/Type": "/Action",
+				"/S":    "/URI",
+				"/URI":  "(" + annot.URI + ")",
+			}
+			annotDict := Dict{
+				"/Type":    "/Annot",
+				"/Subtype": "/Link",
+				"/A":       HashToString(actionDict, 1),
+				"/Rect":    fmt.Sprintf("[%s %s %s %s]", annot.Rect[0], annot.Rect[1], annot.Rect[2], annot.Rect[3]),
+			}
+			annotObj.Dict(annotDict)
+			if err := annotObj.Save(); err != nil {
+				return 0, err
+			}
+			annotationObjectNumbers[i] = annotObj.ObjectNumber.Ref()
+		}
+		if len(annotationObjectNumbers) > 0 {
+			pageHash["/Annots"] = "[" + strings.Join(annotationObjectNumbers, " ") + "]"
 		}
 		obj.Dict(pageHash)
 		obj.Save()
@@ -290,7 +325,9 @@ func (pw *PDF) Size() int64 {
 	return pw.pos
 }
 
-func hashToString(h Dict, level int) string {
+// HashToString converts a PDF dictionary to a string including the paired angle
+// brackets (<< ... >>).
+func HashToString(h Dict, level int) string {
 	var b bytes.Buffer
 	b.WriteString(strings.Repeat("  ", level))
 	b.WriteString("<<\n")
@@ -303,7 +340,7 @@ func hashToString(h Dict, level int) string {
 }
 
 func (pw *PDF) outHash(h Dict) {
-	pw.Printf(hashToString(h, 0))
+	pw.Printf(HashToString(h, 0))
 }
 
 // Write an end of line (EOL) marker to the file if it is not on a EOL already.

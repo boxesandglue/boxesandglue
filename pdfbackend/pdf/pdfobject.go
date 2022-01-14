@@ -90,7 +90,7 @@ func (obj *Object) Save() error {
 	}
 
 	obj.pdfwriter.startObject(obj.ObjectNumber)
-	n, err := fmt.Fprint(obj.pdfwriter.outfile, hashToString(obj.Dictionary, 0))
+	n, err := fmt.Fprint(obj.pdfwriter.outfile, HashToString(obj.Dictionary, 0))
 	if err != nil {
 		return err
 	}
