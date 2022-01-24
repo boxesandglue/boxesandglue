@@ -185,11 +185,11 @@ func (imgf *Imagefile) finish() error {
 		size := len(imgf.pal)/3 - 1
 		palStr := NewStream(imgf.pal)
 		palStr.SetCompression()
-		strOnum, err := imgf.pw.writeStream(palStr)
+		strObj, err := imgf.pw.writeStream(palStr, nil)
 		if err != nil {
 			return err
 		}
-		d["/ColorSpace"] = fmt.Sprintf("[/Indexed /DeviceRGB %d %s]", size, strOnum.Ref())
+		d["/ColorSpace"] = fmt.Sprintf("[/Indexed /DeviceRGB %d %s]", size, strObj.ObjectNumber.Ref())
 		if imgf.decodeParms != "" {
 			d["/DecodeParms"] = fmt.Sprintf("<<%s>>", imgf.decodeParms)
 		}

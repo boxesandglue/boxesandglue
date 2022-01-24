@@ -182,11 +182,11 @@ func (face *Face) finish() error {
 	if fnt.IsCFF {
 		fontstream.dict["/Subtype"] = "/CIDFontType0C"
 	}
-	fontstreamOnum, err := face.pw.writeStream(fontstream)
+	fontstreamObj, err := face.pw.writeStream(fontstream, nil)
 	if err != nil {
 		return err
 	}
-
+	fontstreamOnum := fontstreamObj.ObjectNumber
 	fontDescriptor := Dict{
 		"/Type":        "/FontDescriptor",
 		"/FontName":    fnt.PDFName(),
@@ -211,7 +211,7 @@ func (face *Face) finish() error {
 
 	cmap := fnt.CMap()
 	cmapStream := NewStream([]byte(cmap))
-	cmapOnum, err := face.pw.writeStream(cmapStream)
+	cmapObj, err := face.pw.writeStream(cmapStream, nil)
 	if err != nil {
 		return err
 	}
@@ -223,6 +223,7 @@ func (face *Face) finish() error {
 		"/Subtype":        "/CIDFontType2",
 		"/Type":           "/Font",
 		"/W":              fnt.Widths(),
+		"/CIDToGIDMap":    "/Identity",
 	}
 
 	if fnt.IsCFF {
@@ -240,7 +241,7 @@ func (face *Face) finish() error {
 		"/DescendantFonts": fmt.Sprintf("[%s]", cidFontType2Obj.ObjectNumber.Ref()),
 		"/Encoding":        "/Identity-H",
 		"/Subtype":         "/Type0",
-		"/ToUnicode":       cmapOnum.Ref(),
+		"/ToUnicode":       cmapObj.ObjectNumber.Ref(),
 		"/Type":            "/Font",
 	})
 	fontObj.Save()

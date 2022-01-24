@@ -40,20 +40,22 @@ type Annotation struct {
 
 // Page contains information about a single page.
 type Page struct {
-	onum        Objectnumber
-	dictnum     Objectnumber
+	Obj         *Object
+	Dictnum     Objectnumber
 	Annotations []Annotation
 	Faces       []*Face
 	Images      []*Imagefile
 	stream      *Stream
 	Width       bag.ScaledPoint
 	Height      bag.ScaledPoint
+	Dict        Dict
 }
 
 // PDF is the central point of writing a PDF file.
 type PDF struct {
 	outfile           io.Writer
 	nextobject        Objectnumber
+	Catalog           Dict
 	DefaultPageWidth  bag.ScaledPoint
 	DefaultPageHeight bag.ScaledPoint
 	objectlocations   map[Objectnumber]int64
@@ -99,8 +101,9 @@ func (pw *PDF) Printf(format string, a ...interface{}) error {
 // AddPage adds a page to the PDF file. The stream must be complete.
 func (pw *PDF) AddPage(pagestream *Stream) *Page {
 	pg := &Page{}
-
+	pg.Obj = pw.NewObject()
 	pg.stream = pagestream
+	pg.Dictnum = pw.NextObject()
 	pw.pages.pages = append(pw.pages.pages, pg)
 	return pg
 }
@@ -111,9 +114,12 @@ func (pw *PDF) NextObject() Objectnumber {
 	return pw.nextobject - 1
 }
 
-// writeStream writes a new stream object with the data and extra dictionary entries. writeStream returns the object number of the stream.
-func (pw *PDF) writeStream(st *Stream) (Objectnumber, error) {
-	obj := pw.NewObject()
+// writeStream writes a new stream object with the data and extra dictionary
+// entries. writeStream returns the object number of the stream.
+func (pw *PDF) writeStream(st *Stream, obj *Object) (*Object, error) {
+	if obj == nil {
+		obj = pw.NewObject()
+	}
 	if st.compress {
 		st.dict["/Filter"] = "/FlateDecode"
 		var b bytes.Buffer
@@ -131,11 +137,11 @@ func (pw *PDF) writeStream(st *Stream) (Objectnumber, error) {
 	var err error
 
 	if _, err = obj.Data.Write(st.data); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	obj.Save()
-	return obj.ObjectNumber, nil
+	return obj, nil
 }
 
 func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
@@ -147,7 +153,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		for _, img := range page.Images {
 			usedImages[img] = true
 		}
-		page.onum, err = pw.writeStream(page.stream)
+		page.Obj, err = pw.writeStream(page.stream, page.Obj)
 		if err != nil {
 			return 0, err
 		}
@@ -168,9 +174,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		return 0, fmt.Errorf("no pages in document")
 	}
 	for _, page := range pw.pages.pages {
-		obj := pw.NewObject()
-		onum := obj.ObjectNumber
-		page.dictnum = onum
+		obj := pw.NewObjectWithNumber(page.Dictnum)
 
 		var res []string
 		if len(page.Faces) > 0 {
@@ -200,9 +204,10 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 			sb.WriteString(">>")
 			resHash["/XObject"] = sb.String()
 		}
+
 		pageHash := Dict{
 			"/Type":     "/Page",
-			"/Contents": page.onum.Ref(),
+			"/Contents": page.Obj.ObjectNumber.Ref(),
 			"/Parent":   pagesObj.ObjectNumber.Ref(),
 			"/MediaBox": fmt.Sprintf("[0 0 %s %s]", page.Width, page.Height),
 		}
@@ -237,6 +242,9 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		if len(annotationObjectNumbers) > 0 {
 			pageHash["/Annots"] = "[" + strings.Join(annotationObjectNumbers, " ") + "]"
 		}
+		for k, v := range page.Dict {
+			pageHash[k] = v
+		}
 		obj.Dict(pageHash)
 		obj.Save()
 	}
@@ -244,7 +252,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 	// The pages object
 	kids := make([]string, len(pw.pages.pages))
 	for i, v := range pw.pages.pages {
-		kids[i] = v.dictnum.Ref()
+		kids[i] = v.Dictnum.Ref()
 	}
 
 	pagesObj.comment = "The pages object"
@@ -259,10 +267,14 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 
 	catalog := pw.NewObject()
 	catalog.comment = "Catalog"
-	catalog.Dict(Dict{
+	dictCatalog := Dict{
 		"/Type":  "/Catalog",
 		"/Pages": pw.pages.dictnum.Ref(),
-	})
+	}
+	for k, v := range pw.Catalog {
+		dictCatalog[k] = v
+	}
+	catalog.Dict(dictCatalog)
 	catalog.Save()
 
 	// write out all font descriptors and files into the PDF
@@ -279,26 +291,43 @@ func (pw *PDF) Finish() error {
 	if err != nil {
 		return err
 	}
-
 	// XRef section
-	xrefpos := pw.pos
-	pw.Println("xref")
-	pw.Printf("0 %d\n", pw.nextobject)
-	n, err := fmt.Fprintln(pw.outfile, "0000000000 65535 f ")
-	if err != nil {
-		return err
+	type chunk struct {
+		startOnum Objectnumber
+		positions []int64
 	}
-	pw.pos += int64(n)
-	var str strings.Builder
-	for i := Objectnumber(1); i < pw.nextobject; i++ {
+	objectChunks := []chunk{}
+	var curchunk *chunk
+	for i := Objectnumber(1); i <= pw.nextobject; i++ {
 		if loc, ok := pw.objectlocations[i]; ok {
-			_, err = fmt.Fprintf(&str, "%010d 00000 n \n", loc)
-			if err != nil {
-				return err
+			if curchunk == nil {
+				curchunk = &chunk{
+					startOnum: i,
+				}
 			}
+			curchunk.positions = append(curchunk.positions, loc)
+		} else {
+			objectChunks = append(objectChunks, *curchunk)
+			curchunk = nil
+		}
+	}
+	var str strings.Builder
+
+	for _, chunk := range objectChunks {
+		if chunk.startOnum == 1 {
+			fmt.Fprintf(&str, "0 %d\n", len(chunk.positions)+1)
+			fmt.Fprintln(&str, "0000000000 65535 f ")
+		} else {
+			fmt.Fprintf(&str, "%d %d\n", chunk.startOnum, len(chunk.positions))
+		}
+		for _, pos := range chunk.positions {
+			fmt.Fprintf(&str, "%010d 00000 n \n", pos)
+
 		}
 	}
 
+	xrefpos := pw.pos
+	pw.Println("xref")
 	pw.Print(str.String())
 	sum := fmt.Sprintf("%X", md5.Sum([]byte(str.String())))
 

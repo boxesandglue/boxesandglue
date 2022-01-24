@@ -4,7 +4,20 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"strings"
+	"unicode/utf16"
 )
+
+// StringToPDF returns an escaped string suitable to be used as a PDF object.
+func StringToPDF(str string) string {
+	var out strings.Builder
+	out.WriteString("<feff")
+	for _, i := range utf16.Encode([]rune(str)) {
+		out.WriteString(fmt.Sprintf("%04x", i))
+	}
+	out.WriteRune('>')
+	return out.String()
+}
 
 // Object has information about a specific PDF object
 type Object struct {

@@ -9,6 +9,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/fatih/color v1.13.0 h1:8LOYc1KYPPmyKMuN8QV2DNRWNbLo6LZ0iLs8+mlH53w=
 github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYFFOfk=
+github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
+github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
@@ -25,8 +27,8 @@ github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553 h1:L9Sqi5S7G4
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553/go.mod h1:uF4+EGySaBnGeZpXZ0boh/oR6P0vNiYfQ2MAJXCU9hE=
 github.com/speedata/gofpdi v1.0.15 h1:PLFmzHTAdhgvCDMsWgvL/njaDFzTmvsYewqgw3UUEg4=
 github.com/speedata/gofpdi v1.0.15/go.mod h1:aRZ6VjhFbzJWwCoHeKOdbUjImuf4GMVCJpwS9+bCYuM=
-github.com/speedata/gootf v0.0.0-20220106201647-e47854c09cc1 h1:ISPb6BPtv5xZ2Q2Ncu9SKhnqG6v7EZ/ZSKtALlvmOJo=
-github.com/speedata/gootf v0.0.0-20220106201647-e47854c09cc1/go.mod h1:W9eH+4fle8N24D52HYisQ4hJcp050D2lkx6QZ0e4xUs=
+github.com/speedata/gootf v0.0.0-20220123191322-61352bb5ace4 h1:3CZzWKeAdbzYJqWjUhkbq77iDxgXRgcubkzjQaHb00E=
+github.com/speedata/gootf v0.0.0-20220123191322-61352bb5ace4/go.mod h1:W9eH+4fle8N24D52HYisQ4hJcp050D2lkx6QZ0e4xUs=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
 github.com/speedata/hyphenation v1.0.1/go.mod h1:vwrKKvBvJWFll0sVZw99hyWS/+r4YlMI7MAYjnje0nM=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

@@ -86,6 +86,9 @@ func Tail(nl Node) Node {
 
 // CopyList makes a deep copy of the list starting at nl.
 func CopyList(nl Node) Node {
+	if nl == nil {
+		return nil
+	}
 	var copied, tail Node
 	copied = nl.Copy()
 	tail = copied

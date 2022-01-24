@@ -24,7 +24,8 @@ This repository is not usable for any serious purpose yet. It is used for experi
 
 ## Contact
 
-Patrick Gundlach, <gundlach@speedata.de>
+Patrick Gundlach, <gundlach@speedata.de><br>
+[@speedata](https://twitter.com/speedata), [@boxesandglue](https://twitter.com/boxesandglue)
 
 ## Sample code
 
@@ -32,22 +33,26 @@ Patrick Gundlach, <gundlach@speedata.de>
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/document"
 )
 
-var str = `In olden times when wishing still helped one, there lived a king whose daughters
-were all beautiful; and the youngest was so beautiful that the sun itself, which
-has seen so much, was astonished whenever it shone in her face.
-Close by the king's castle lay a great dark forest, and under an old lime-tree in the forest
-was a well, and when the day was very warm, the king's child went out into the
-forest and sat down by the side of the cool fountain; and when she was bored she
-took a golden ball, and threw it up on high and caught it; and this ball was her
-favorite plaything.`
+var (
+	str = `In olden times when wishing still helped one, there lived a king whose daughters
+	were all beautiful; and the youngest was so beautiful that the sun itself, which
+	has seen so much, was astonished whenever it shone in her face.
+	Close by the king's castle lay a great dark forest, and under an old lime-tree in the forest
+	was a well, and when the day was very warm, the king's child went out into the
+	forest and sat down by the side of the cool fountain; and when she was bored she
+	took a golden ball, and threw it up on high and caught it; and this ball was her
+	favorite plaything.`
+)
 
 func dothings() error {
 	outfilename := "sample.pdf"
@@ -56,8 +61,9 @@ func dothings() error {
 		return err
 	}
 	d := document.NewDocument(w)
+	d.Title = "The frog king"
 	d.Filename = outfilename
-	if d.DefaultLanguage, err = d.LoadPatternFile("hyphenationpatterns/hyph-en-us.pat.txt"); err != nil {
+	if d.DefaultLanguage, err = d.GetLanguage("en"); err != nil {
 		return err
 	}
 
@@ -65,25 +71,27 @@ func dothings() error {
 	cpr := &document.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"}
 	ff := d.NewFontFamily("text")
 	ff.AddMember(cpr, document.FontWeight400, document.FontStyleNormal)
-
 	// Create a recursive data structure for typesetting and create nodes.
 	te := &document.TypesettingElement{
-		Settings: document.TypesettingSettings{document.SettingFontFamily: ff.ID},
-		Items:    []interface{}{str},
+		Settings: document.TypesettingSettings{
+			document.SettingFontFamily: ff,
+			document.SettingSize:       12 * bag.Factor,
+		},
+		Items: []interface{}{str},
 	}
 	var nl, tail node.Node
 	if nl, tail, err = d.Mknodes(te); err != nil {
 		return err
 	}
 
-	// Hyphenation is optional
+	// Hyphenation is optional.
 	d.Hyphenate(nl)
 	node.AppendLineEndAfter(tail)
 
 	// Break into lines
 	settings := node.NewLinebreakSettings()
 	settings.HSize = 130 * bag.Factor
-	settings.LineHeight = 12 * bag.Factor
+	settings.LineHeight = 14 * bag.Factor
 	vlist, _ := node.Linebreak(nl, settings)
 
 	// output the text and finish the page and the PDF file
@@ -92,14 +100,37 @@ func dothings() error {
 	if err = d.Finish(); err != nil {
 		return err
 	}
+
 	w.Close()
 	return nil
 }
 
 func main() {
+	starttime := time.Now()
 	err := dothings()
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println("finished in ", time.Now().Sub(starttime))
 }
 ```
+
+
+To get a PDF/UA (universal accessibility) document, insert the following lines before `d.OutputAt...`
+
+```go
+	p := &document.StructureElement{
+		Role:       "P",
+		ActualText: strings.Join(strings.Fields(str), " "),
+	}
+
+	doc := &document.StructureElement{
+		Role:     "Document",
+		Children: []*document.StructureElement{p},
+	}
+	p.Parent = doc
+
+	d.RootStructureElement = doc
+	vlist.Attibutes = node.H{"tag": p}
+```
+
