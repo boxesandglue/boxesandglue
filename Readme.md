@@ -2,25 +2,32 @@
 
 # Boxes and Glue
 
-This is a repository for experiments with TeX's algorithms. It might serve as a typesetting backend.
+This is a PDF typesetting library/backend in the spirit of TeX's algorithms. TeX is a typesetting system which is well known for its superb output quality.
 
-TeX has each unit (glyph, image, heading, ...) in a rectangular box which can be packed into other rectangular boxes. A variable length called “glue” can be between each of these rectangles. This is why this repository is called “boxes and glue”.
+TeX packs each unit (glyph, image, heading, ...) in a rectangular box which can be packed into other rectangular boxes.
+A variable length called “glue” can be between each of these rectangles.
+This is why this repository is called “boxes and glue”.
 
-Within this repository you will find functions to create and manipulate these boxes.
-The smallest unit is a `Node` which can be chained together in linked lists, a `Nodelist`.
+## API
 
-There are several types of nodes:
+The API has two layers, a high level frontend and a low level backend. Each layer is useful when using the library. I suggest to start using the high level API and switch to the backend when you need more control over the typesetting output.
 
-* Glyphs contain one or more visual entities such as the character `H` or a ligature `ﬁ`.
-* Vertical lists point to a node list of vertically arranged elements (typically lines in a paragraph).
-* Horizontal lists of items arranged next to each other.
-* Glue nodes are spaces with a fixed width which can stretch or shrink.
-* Discretionary nodes contain information about hyphenation points
-* Language nodes contain information about the language to be used for hyphenation
+
+![bagstructure](https://user-images.githubusercontent.com/209434/150811091-1432ac91-ef3d-44be-9953-7556ce254874.png)
+
+### Frontend
+
+The frontend has high level methods to create a PDF document, load fonts, insert text which can be broken into lines and output objects at exact positions.
+
+### Backend
+
+The backend has the small building blocks that are used to create documents. These building blocks are called “nodes” which can be chained together in linked lists, a node list.
+
+See the [architecture overview](https://github.com/speedata/boxesandglue/discussions/2) for a more detailled description.
 
 ## Status
 
-This repository is not usable for any serious purpose yet. It is used for experiments for a successor of LuaTeX as a backend for the [speedata Publisher](https://github.com/speedata/publisher/).
+This library is still under development.
 
 ## Contact
 
@@ -119,18 +126,18 @@ func main() {
 To get a PDF/UA (universal accessibility) document, insert the following lines before `d.OutputAt...`
 
 ```go
+	d.RootStructureElement = &document.StructureElement{
+		Role: "Document",
+	}
+
 	p := &document.StructureElement{
 		Role:       "P",
 		ActualText: strings.Join(strings.Fields(str), " "),
 	}
 
-	doc := &document.StructureElement{
-		Role:     "Document",
-		Children: []*document.StructureElement{p},
+	d.RootStructureElement.AddChild(p)
+
+	vlist.Attibutes = node.H{
+		"tag": p,
 	}
-	p.Parent = doc
-
-	d.RootStructureElement = doc
-	vlist.Attibutes = node.H{"tag": p}
-```
-
+	```
