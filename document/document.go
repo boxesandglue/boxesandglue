@@ -362,9 +362,16 @@ type StructureElement struct {
 	ID         int
 	Role       string
 	ActualText string
-	Children   []*StructureElement
+	children   []*StructureElement
 	Parent     *StructureElement
 	Obj        *pdf.Object
+}
+
+// AddChild adds a child element (such as a span in a paragraph) to the element
+// given with se. AddChild sets the parent pointer of the child.
+func (se *StructureElement) AddChild(cld *StructureElement) {
+	se.children = append(se.children, cld)
+	cld.Parent = se
 }
 
 // pdfStructureObject holds information about the PDF/UA structures for each
@@ -505,7 +512,7 @@ func (d *Document) Finish() error {
 			poStr.WriteString(fmt.Sprintf("%d [%s]", po.id, po.refs))
 		}
 		childObjectNumbers := []string{}
-		for _, childSe := range se.Children {
+		for _, childSe := range se.children {
 			childObjectNumbers = append(childObjectNumbers, childSe.Obj.ObjectNumber.Ref())
 		}
 		structRoot := d.pdf.NewObject()
