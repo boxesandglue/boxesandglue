@@ -1,14 +1,12 @@
-package document
+package frontend
 
 import (
-	"bytes"
 	"testing"
 )
 
 func TestSimple(t *testing.T) {
-	var w bytes.Buffer
-	d := NewDocument(&w)
-	d.DefineColor("mycolor", &Color{Space: ColorCMYK, C: 1, M: 0, Y: 0, K: 1})
+	f := Frontend{}
+	f.DefineColor("mycolor", &Color{Space: ColorCMYK, C: 1, M: 0, Y: 0, K: 1})
 	testdata := []struct {
 		colorname  string
 		result     string
@@ -18,7 +16,7 @@ func TestSimple(t *testing.T) {
 		{"mycolor", "1 0 0 1 K", false},
 	}
 	for _, tc := range testdata {
-		col := d.GetColor(tc.colorname)
+		col := f.GetColor(tc.colorname)
 		if tc.foreground {
 			if got, want := col.PDFStringFG(), tc.result; got != want {
 				t.Errorf("col.PDFStringFG() = %s, want %s", got, want)
@@ -32,8 +30,7 @@ func TestSimple(t *testing.T) {
 }
 
 func TestParseColors(t *testing.T) {
-	var w bytes.Buffer
-	d := NewDocument(&w)
+	f := Frontend{}
 
 	testdata := []struct {
 		colorvalue string
@@ -45,7 +42,7 @@ func TestParseColors(t *testing.T) {
 		{"rgb(0,255,0,1)", "rgba(0,255,0,1)"},
 	}
 	for _, tc := range testdata {
-		col := d.GetColor(tc.colorvalue)
+		col := f.GetColor(tc.colorvalue)
 		if got := col.String(); got != tc.expected {
 			t.Errorf("col.String() = %q, want %q", got, tc.expected)
 		}
@@ -53,8 +50,7 @@ func TestParseColors(t *testing.T) {
 }
 
 func TestHTMLColors(t *testing.T) {
-	var w bytes.Buffer
-	d := NewDocument(&w)
+	f := Frontend{}
 
 	testdata := []struct {
 		colorvalue string
@@ -65,7 +61,7 @@ func TestHTMLColors(t *testing.T) {
 		{"#000", "0 0 0 "},
 	}
 	for _, tc := range testdata {
-		col := d.GetColor(tc.colorvalue)
+		col := f.GetColor(tc.colorvalue)
 		if got, want := col.getPDFColorValues(), tc.result; got != want {
 			t.Errorf("col.getPDFColorValues = %q, want %q", got, want)
 		}

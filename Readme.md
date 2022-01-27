@@ -42,12 +42,12 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/node"
-	"github.com/speedata/boxesandglue/document"
+	"github.com/speedata/boxesandglue/frontend"
 )
 
 var (
@@ -62,53 +62,54 @@ var (
 )
 
 func dothings() error {
-	outfilename := "sample.pdf"
-	w, err := os.Create(outfilename)
+	// normalize space of the string above
+	str = strings.Join(strings.Fields(str), " ")
+	f, err := frontend.CreateFile("sample.pdf")
 	if err != nil {
 		return err
 	}
-	d := document.NewDocument(w)
-	d.Title = "The frog king"
-	d.Filename = outfilename
-	if d.DefaultLanguage, err = d.GetLanguage("en"); err != nil {
+
+	f.Doc.Title = "The frog king"
+
+	if f.Doc.DefaultLanguage, err = frontend.GetLanguage("en"); err != nil {
 		return err
 	}
 
 	// Load a font, define a font family, and add this font to the family.
-	cpr := &document.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"}
-	ff := d.NewFontFamily("text")
-	ff.AddMember(cpr, document.FontWeight400, document.FontStyleNormal)
+	fontsource := &frontend.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"}
+	ff := f.NewFontFamily("text")
+	ff.AddMember(fontsource, frontend.FontWeight400, frontend.FontStyleNormal)
+
 	// Create a recursive data structure for typesetting and create nodes.
-	te := &document.TypesettingElement{
-		Settings: document.TypesettingSettings{
-			document.SettingFontFamily: ff,
-			document.SettingSize:       12 * bag.Factor,
+	te := &frontend.TypesettingElement{
+		Settings: frontend.TypesettingSettings{
+			frontend.SettingFontFamily: ff,
+			frontend.SettingSize:       bag.MustSp("12pt"),
 		},
 		Items: []interface{}{str},
 	}
 	var nl, tail node.Node
-	if nl, tail, err = d.Mknodes(te); err != nil {
+	if nl, tail, err = f.Mknodes(te); err != nil {
 		return err
 	}
 
 	// Hyphenation is optional.
-	d.Hyphenate(nl)
+	frontend.Hyphenate(nl, f.Doc.DefaultLanguage)
 	node.AppendLineEndAfter(tail)
 
 	// Break into lines
 	settings := node.NewLinebreakSettings()
-	settings.HSize = 130 * bag.Factor
-	settings.LineHeight = 14 * bag.Factor
+	settings.HSize = bag.MustSp("125pt")
+	settings.LineHeight = bag.MustSp("14pt")
 	vlist, _ := node.Linebreak(nl, settings)
 
 	// output the text and finish the page and the PDF file
-	d.OutputAt(bag.MustSp("1cm"), bag.MustSp("26cm"), vlist)
-	d.CurrentPage.Shipout()
-	if err = d.Finish(); err != nil {
+	p := f.Doc.NewPage()
+	p.OutputAt(bag.MustSp("1cm"), bag.MustSp("26cm"), vlist)
+	p.Shipout()
+	if err = f.Doc.Finish(); err != nil {
 		return err
 	}
-
-	w.Close()
 	return nil
 }
 
@@ -126,16 +127,15 @@ func main() {
 To get a PDF/UA (universal accessibility) document, insert the following lines before `d.OutputAt...`
 
 ```go
-	d.RootStructureElement = &document.StructureElement{
+	f.Doc.RootStructureElement = &document.StructureElement{
 		Role: "Document",
 	}
 
 	p := &document.StructureElement{
 		Role:       "P",
-		ActualText: strings.Join(strings.Fields(str), " "),
+		ActualText: str,
 	}
-
-	d.RootStructureElement.AddChild(p)
+	f.Doc.RootStructureElement.AddChild(p)
 
 	vlist.Attibutes = node.H{
 		"tag": p,

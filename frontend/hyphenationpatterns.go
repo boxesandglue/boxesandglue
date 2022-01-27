@@ -1,6 +1,6 @@
 // Generated from go generate. Do not edit.
 
-package document
+package frontend
 
 var hyphenationpatterns = map[string]string{
 	"bg": `

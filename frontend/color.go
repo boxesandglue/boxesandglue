@@ -1,4 +1,4 @@
-package document
+package frontend
 
 import (
 	"fmt"
@@ -201,7 +201,7 @@ const (
 )
 
 // DefineColor associates a color with a name for later use.
-func (d *Document) DefineColor(name string, col *Color) {
+func (d *Frontend) DefineColor(name string, col *Color) {
 	d.colors[name] = col
 }
 
@@ -209,7 +209,7 @@ var rgbmatcher = regexp.MustCompile(`rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,
 
 // GetColor returns a color. The string can be a predefined color name or an
 // HTML / CSS color definition such as #FAF or rgb(0.5.,0.5,0.5).
-func (d *Document) GetColor(s string) *Color {
+func (d *Frontend) GetColor(s string) *Color {
 	if col, ok := d.colors[s]; ok {
 		return col
 	}

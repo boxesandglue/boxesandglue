@@ -20,6 +20,14 @@ type Object struct {
 	Vlist *node.VList
 }
 
+// A Hyperlink represents a clickable thing in the PDF.
+type Hyperlink struct {
+	URI         string
+	Annotations []pdf.Annotation
+	startposX   bag.ScaledPoint
+	startposY   bag.ScaledPoint
+}
+
 // A Page struct represents a page in a PDF file.
 type Page struct {
 	document          *Document
@@ -392,7 +400,6 @@ type Document struct {
 	Languages            map[string]*lang.Lang
 	Faces                []*pdf.Face
 	Images               []*pdf.Imagefile
-	FontFamilies         []*FontFamily
 	DefaultPageWidth     bag.ScaledPoint
 	DefaultPageHeight    bag.ScaledPoint
 	DefaultLanguage      *lang.Lang
@@ -403,8 +410,6 @@ type Document struct {
 	Title                string
 	pdf                  *pdf.PDF
 	tracing              VTrace
-	usedFonts            map[*pdf.Face]map[bag.ScaledPoint]*font.Font
-	colors               map[string]*Color
 	RootStructureElement *StructureElement
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   CallbackShipout
@@ -417,7 +422,6 @@ func NewDocument(w io.Writer) *Document {
 	d.DefaultPageWidth = bag.MustSp("210mm")
 	d.pdf = pdf.NewPDFWriter(w)
 	d.Title = "document"
-	d.colors = csscolors
 	d.Languages = make(map[string]*lang.Lang)
 	return d
 }
@@ -438,17 +442,13 @@ func (d *Document) SetDefaultLanguage(l *lang.Lang) {
 }
 
 // LoadFace loads a font from a TrueType or OpenType collection.
-func (d *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
-	bag.Logger.Debugf("LoadFace %s", fs)
-	if fs.face != nil {
-		return fs.face, nil
-	}
+func (d *Document) LoadFace(filename string, index int) (*pdf.Face, error) {
+	bag.Logger.Debugf("LoadFace %s", filename)
 
-	f, err := pdf.LoadFace(d.pdf, fs.Source, fs.Index)
+	f, err := pdf.LoadFace(d.pdf, filename, index)
 	if err != nil {
 		return nil, err
 	}
-	fs.face = f
 	d.Faces = append(d.Faces, f)
 	return f, nil
 }
@@ -471,7 +471,8 @@ func (d *Document) CreateImage(imgfile *pdf.Imagefile) *image.Image {
 	return img
 }
 
-// NewPage creates a new Page object and adds it to the page list in the document.
+// NewPage creates a new Page object and adds it to the page list in the
+// document. The CurrentPage field of the document is set to the page.
 func (d *Document) NewPage() *Page {
 	d.CurrentPage = &Page{
 		document: d,
@@ -480,14 +481,6 @@ func (d *Document) NewPage() *Page {
 	}
 	d.Pages = append(d.Pages, d.CurrentPage)
 	return d.CurrentPage
-}
-
-// OutputAt places the nodelist at the position.
-func (d *Document) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VList) {
-	if d.CurrentPage == nil {
-		d.CurrentPage = d.NewPage()
-	}
-	d.CurrentPage.OutputAt(x, y, vlist)
 }
 
 // CreateFont returns a new Font object for this face at a given size.

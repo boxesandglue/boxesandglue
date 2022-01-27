@@ -1,4 +1,4 @@
-package document
+package frontend
 
 import (
 	"bytes"
@@ -7,13 +7,11 @@ import (
 	"unicode"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/node"
 )
 
 func TestLoadLang(t *testing.T) {
-	var dummy bytes.Buffer
-	d := NewDocument(&dummy)
-
 	testdata := []struct {
 		req  string
 		want string
@@ -25,7 +23,7 @@ func TestLoadLang(t *testing.T) {
 	}
 
 	for _, tc := range testdata {
-		l, err := d.GetLanguage(tc.req)
+		l, err := GetLanguage(tc.req)
 		if err != nil {
 			t.Error(err)
 		}
@@ -59,13 +57,12 @@ func TestHyphenate(t *testing.T) {
 	}
 
 	var dummy bytes.Buffer
-	doc := NewDocument(&dummy)
+	doc := document.NewDocument(&dummy)
 	l, err := doc.LoadPatternFile(filepath.Join("testdata/hyph-en-us.pat.txt"), "dummylang")
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}
-	doc.SetDefaultLanguage(l)
-	doc.Hyphenate(head)
+	Hyphenate(head, l)
 	data := []node.Type{
 		node.TypeGlue, node.TypeGlyph, node.TypeGlyph, node.TypeGlyph, node.TypeDisc, node.TypeGlyph, node.TypeGlyph, node.TypeGlyph, node.TypeGlyph, node.TypeGlyph,
 	}

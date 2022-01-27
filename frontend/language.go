@@ -1,4 +1,4 @@
-package document
+package frontend
 
 import (
 	"fmt"
@@ -63,7 +63,7 @@ var codeVarname = map[string]bool{
 }
 
 // GetLanguage returns a language object for the language.
-func (d *Document) GetLanguage(langname string) (*lang.Lang, error) {
+func GetLanguage(langname string) (*lang.Lang, error) {
 	newLangname := strings.ToLower(langname)
 	var r io.Reader
 	if _, ok := codeVarname[newLangname]; ok {
@@ -84,7 +84,6 @@ func (d *Document) GetLanguage(langname string) (*lang.Lang, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.Languages[langname] = l
 	l.Name = langname
 	return l, nil
 }
@@ -115,10 +114,10 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 }
 
 // Hyphenate inserts hyphenation points in to the list.
-func (d *Document) Hyphenate(nodelist node.Node) {
+func Hyphenate(nodelist node.Node, defaultLang *lang.Lang) {
 	// hyphenation points should be inserted when a language changes or when
 	// the word ends (with a comma or a space for example).
-	curlang := d.DefaultLanguage
+	curlang := defaultLang
 	var wordboundary bool
 
 	var wordstart node.Node

@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -75,14 +74,14 @@ func createPatterns() error {
 
 	sort.Strings(languagesSorted)
 
-	out, err := os.Create("document/hyphenationpatterns.go")
+	out, err := os.Create("frontend/hyphenationpatterns.go")
 	if err != nil {
 		return err
 	}
 
 	fmt.Fprintln(out, "// Generated from go generate. Do not edit.")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "package document")
+	fmt.Fprintln(out, "package frontend")
 	fmt.Fprintln(out, "")
 
 	fmt.Fprintln(out, "var hyphenationpatterns = map[string]string{")
@@ -100,10 +99,6 @@ func createPatterns() error {
 		}
 		defer resp.Body.Close()
 
-		r, err := os.Open(filepath.Join("playground", "hyphenationpatterns", "hyph-"+filename+".pat.txt"))
-		if err != nil {
-			return err
-		}
 		fmt.Fprintf(out, "\t%q: ", langNameToVarName(langname))
 		fmt.Fprintln(out, "`")
 		_, err = io.Copy(out, resp.Body)
@@ -111,8 +106,6 @@ func createPatterns() error {
 			return err
 		}
 		fmt.Fprintln(out, "`,")
-
-		r.Close()
 	}
 	fmt.Fprintln(out, "}")
 	return out.Close()

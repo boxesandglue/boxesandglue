@@ -1,34 +1,51 @@
-package document
+package frontend
 
 import (
 	"fmt"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
 var (
 	// ErrEmptyFF is returned when requesting a font from an empty font family.
 	ErrEmptyFF = fmt.Errorf("no face defined in the font family yet")
-	// ErrUnfulfilledFamilyRequest is returned when the GetFace method does cannot find the exact family member but has to chose another member.
+	// ErrUnfulfilledFamilyRequest is returned when the GetFace method does
+	// cannot find the exact family member but has to chose another member.
 	ErrUnfulfilledFamilyRequest = fmt.Errorf("the font family does not have the exact requested member")
 )
 
 // NewFontFamily creates a new font family for bundling fonts.
-func (d *Document) NewFontFamily(name string) *FontFamily {
+func (fe *Frontend) NewFontFamily(name string) *FontFamily {
 	ff := &FontFamily{
-		ID:   len(d.FontFamilies),
+		ID:   len(fe.FontFamilies),
 		Name: name,
 	}
-	d.FontFamilies = append(d.FontFamilies, ff)
+	fe.FontFamilies = append(fe.FontFamilies, ff)
 	return ff
 }
 
 // GetFontFamily returns the font family with the given id.
-func (d *Document) GetFontFamily(id int) *FontFamily {
-	if id >= len(d.FontFamilies) {
+func (fe *Frontend) GetFontFamily(id int) *FontFamily {
+	if id >= len(fe.FontFamilies) {
 		return nil
 	}
-	return d.FontFamilies[id]
+	return fe.FontFamilies[id]
+}
+
+// LoadFace loads a font from a TrueType or OpenType collection.
+func (fe *Frontend) LoadFace(fs *FontSource) (*pdf.Face, error) {
+	bag.Logger.Debugf("LoadFace %s", fs)
+	if fs.face != nil {
+		return fs.face, nil
+	}
+
+	f, err := fe.Doc.LoadFace(fs.Source, fs.Index)
+	if err != nil {
+		return nil, err
+	}
+	fs.face = f
+	return f, nil
 }
 
 // FontSource defines a mapping of name to a font source including the font features.

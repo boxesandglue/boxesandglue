@@ -1,21 +1,14 @@
-package document
+package frontend
 
 import (
 	"fmt"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
-
-// A Hyperlink represents a clickable thing in the PDF.
-type Hyperlink struct {
-	URI         string
-	Annotations []pdf.Annotation
-	startposX   bag.ScaledPoint
-	startposY   bag.ScaledPoint
-}
 
 // SettingType represents a setting such as font weight or color.
 type SettingType int
@@ -81,13 +74,13 @@ type TypesettingElement struct {
 	Items    []interface{}
 }
 
-func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
+func (fe *Frontend) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
 	fontsize := 12 * bag.Factor
 	var color string
-	var hyperlink Hyperlink
+	var hyperlink document.Hyperlink
 	var hasColor, hasHyperlink bool
 
 	for k, v := range ts {
@@ -102,7 +95,7 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 			color = v.(string)
 			hasColor = true
 		case SettingHyperlink:
-			hyperlink = v.(Hyperlink)
+			hyperlink = v.(document.Hyperlink)
 			hasHyperlink = true
 		default:
 			bag.Logger.DPanicf("Unknown setting %v", k)
@@ -117,20 +110,20 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}
-	if face, err = d.LoadFace(fs); err != nil {
+	if face, err = fe.LoadFace(fs); err != nil {
 		return nil, err
 	}
-	if d.usedFonts[face] == nil {
-		d.usedFonts = make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font)
+	if fe.usedFonts[face] == nil {
+		fe.usedFonts = make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font)
 	}
-	if d.usedFonts[face][fontsize] == nil {
-		d.usedFonts[face] = make(map[bag.ScaledPoint]*font.Font)
+	if fe.usedFonts[face][fontsize] == nil {
+		fe.usedFonts[face] = make(map[bag.ScaledPoint]*font.Font)
 	}
 
 	var found bool
-	if fnt, found = d.usedFonts[face][fontsize]; !found {
-		fnt = d.CreateFont(face, fontsize)
-		d.usedFonts[face][fontsize] = fnt
+	if fnt, found = fe.usedFonts[face][fontsize]; !found {
+		fnt = fe.Doc.CreateFont(face, fontsize)
+		fe.usedFonts[face][fontsize] = fnt
 	}
 
 	var head, cur node.Node
@@ -149,7 +142,7 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 	}
 
 	if hasColor {
-		if col := d.GetColor(color); col != nil {
+		if col := fe.GetColor(color); col != nil {
 			colStart := node.NewStartStop()
 			colStart.Position = node.PDFOutputPage
 			colStart.Callback = func(n node.Node) string {
@@ -211,7 +204,7 @@ func (d *Document) buildNodelistFromString(ts TypesettingSettings, str string) (
 }
 
 // Mknodes creates a list of nodes which which can be formatted to a given width.
-func (d *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error) {
+func (fe *Frontend) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error) {
 	var newSettings = make(TypesettingSettings)
 	var head, cur, nl, end node.Node
 	var err error
@@ -221,7 +214,7 @@ func (d *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error)
 	for _, itm := range ts.Items {
 		switch t := itm.(type) {
 		case string:
-			nl, err = d.buildNodelistFromString(newSettings, t)
+			nl, err = fe.buildNodelistFromString(newSettings, t)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -233,7 +226,7 @@ func (d *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error)
 					t.Settings[k] = v
 				}
 			}
-			nl, end, err = d.Mknodes(t)
+			nl, end, err = fe.Mknodes(t)
 			if err != nil {
 				return nil, nil, err
 			}
