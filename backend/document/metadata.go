@@ -31,7 +31,7 @@ func (d *Document) getMetadata() string {
 		<xmp:CreatorTool>%s</xmp:CreatorTool>
 	 </rdf:Description>
 	 <rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
-	   <pdf:Producer>speedata Publisher</pdf:Producer>
+	   <pdf:Producer>speedata/xts</pdf:Producer>
 	 </rdf:Description>
 	 <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
 	   <dc:title>
@@ -50,6 +50,6 @@ func (d *Document) getMetadata() string {
 	<pdfuaid:part>1</pdfuaid:part>
 </rdf:Description>`
 	}
-	return fmt.Sprintf(str, "\xEF\xBB\xBF", docID, instanceID, pdfuaident, isoformatted, isoformatted, isoformatted, "speedata Publisher", xmlescape.Replace(d.Title))
+	return fmt.Sprintf(str, "\xEF\xBB\xBF", docID, instanceID, pdfuaident, isoformatted, isoformatted, isoformatted, "speedata/xts", xmlescape.Replace(d.Title))
 
 }

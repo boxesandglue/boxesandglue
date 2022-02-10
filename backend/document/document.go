@@ -61,13 +61,13 @@ func (p *Page) Shipout() {
 		return
 	}
 	p.Finished = true
+	var s strings.Builder
 	if cb := p.document.preShipoutCallback; cb != nil {
 		cb(p)
 	}
 	usedFaces := make(map[*pdf.Face]bool)
 	usedImages := make(map[*pdf.Imagefile]bool)
 	var currentFont *font.Font
-	var s strings.Builder
 	bleedamount := p.document.Bleed
 	textmode := 4
 	var tag *StructureElement

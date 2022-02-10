@@ -11,7 +11,7 @@ require (
 	github.com/speedata/gofpdi v1.0.15
 	github.com/speedata/gootf v0.0.0-20220123191322-61352bb5ace4
 	github.com/speedata/hyphenation v1.0.1
-	go.uber.org/zap v1.20.0
-	golang.org/x/net v0.0.0-20220127074510-2fabfed7e28f
-	golang.org/x/sys v0.0.0-20220114195835-da31bd327af9 // indirect
+	go.uber.org/zap v1.21.0
+	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd
+	golang.org/x/sys v0.0.0-20220209214540-3681064d5158 // indirect
 )
