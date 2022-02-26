@@ -61,8 +61,6 @@ type PDF struct {
 	objectlocations   map[Objectnumber]int64
 	pages             *Pages
 	lastEOL           int64
-	Faces             []*Face
-	ImageFiles        []*Imagefile
 	pos               int64
 }
 

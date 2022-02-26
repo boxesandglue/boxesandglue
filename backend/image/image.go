@@ -1,12 +1,15 @@
 package image
 
 import (
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
 // Image represents a PDF file for inclusion.
 type Image struct {
-	PageNumber int
+	PageNumber int // Requested page number
+	Width      bag.ScaledPoint
+	Height     bag.ScaledPoint
 	ImageFile  *pdf.Imagefile
 	Used       bool
 }

@@ -399,7 +399,6 @@ func (d *Document) newPDFStructureObject() *pdfStructureObject {
 type Document struct {
 	Languages            map[string]*lang.Lang
 	Faces                []*pdf.Face
-	Images               []*pdf.Imagefile
 	DefaultPageWidth     bag.ScaledPoint
 	DefaultPageHeight    bag.ScaledPoint
 	DefaultLanguage      *lang.Lang
@@ -413,6 +412,7 @@ type Document struct {
 	RootStructureElement *StructureElement
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   CallbackShipout
+	usedPDFImages        map[string]*pdf.Imagefile
 }
 
 // NewDocument creates an empty document.
@@ -423,6 +423,7 @@ func NewDocument(w io.Writer) *Document {
 	d.pdf = pdf.NewPDFWriter(w)
 	d.Title = "document"
 	d.Languages = make(map[string]*lang.Lang)
+	d.usedPDFImages = make(map[string]*pdf.Imagefile)
 	return d
 }
 
@@ -456,18 +457,33 @@ func (d *Document) LoadFace(filename string, index int) (*pdf.Face, error) {
 // LoadImageFile loads an image file. Images that should be placed in the PDF
 // file must be derived from the file.
 func (d *Document) LoadImageFile(filename string) (*pdf.Imagefile, error) {
-	img, err := pdf.LoadImageFile(d.pdf, filename)
+	if imgf, ok := d.usedPDFImages[filename]; ok {
+		return imgf, nil
+	}
+	imgf, err := pdf.LoadImageFile(d.pdf, filename)
 	if err != nil {
 		return nil, err
 	}
-	d.Images = append(d.Images, img)
-	return img, nil
+	d.usedPDFImages[filename] = imgf
+	return imgf, nil
 }
 
-// CreateImage returns a new Image derived from the image file.
-func (d *Document) CreateImage(imgfile *pdf.Imagefile) *image.Image {
+// CreateImage returns a new Image derived from the image file. The parameter
+// pagenumber is honored only in PDF files.
+func (d *Document) CreateImage(imgfile *pdf.Imagefile, pagenumber int) *image.Image {
 	img := &image.Image{}
 	img.ImageFile = imgfile
+	img.PageNumber = pagenumber
+	switch img.ImageFile.Format {
+	case "pdf":
+		thisPageSizes := imgfile.PageSizes[pagenumber]
+		mb := thisPageSizes["/MediaBox"]
+		img.Width = bag.ScaledPointFromFloat(mb["w"])
+		img.Height = bag.ScaledPointFromFloat(mb["h"])
+	case "jpeg", "png":
+		img.Width = bag.ScaledPoint(imgfile.W) * bag.Factor
+		img.Height = bag.ScaledPoint(imgfile.H) * bag.Factor
+	}
 	return img
 }
 
@@ -542,8 +558,6 @@ func (d *Document) Finish() error {
 		return err
 	}
 	d.pdf.Catalog["/Metadata"] = rdf.ObjectNumber.Ref()
-	d.pdf.Faces = d.Faces
-	d.pdf.ImageFiles = d.Images
 	d.pdf.DefaultPageWidth = d.DefaultPageWidth
 	d.pdf.DefaultPageHeight = d.DefaultPageHeight
 	if err = d.pdf.Finish(); err != nil {

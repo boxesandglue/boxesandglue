@@ -136,9 +136,13 @@ func tryParsePDF(pw *PDF, r io.ReadSeeker, filename string) (*Imagefile, error) 
 	if err != nil {
 		return nil, err
 	}
+	imgf.PageSizes = ps
 	box := ps[1]["/MediaBox"]
 	imgf.ScaleX = float64(box["w"])
 	imgf.ScaleY = float64(box["h"])
+	if imgf.NumberOfPages, err = imgf.pdfimporter.GetNumPages(); err != nil {
+		return nil, err
+	}
 	return imgf, nil
 }
 

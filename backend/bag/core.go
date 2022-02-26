@@ -24,11 +24,15 @@ func init() {
 	Logger = logger.Sugar()
 }
 
+// A ScaledPoint is a 65535th of a DTP point
+type ScaledPoint int
+
 // Factor is the multiplier to get DTP points from scaled points.
 const Factor ScaledPoint = 0xffff
 
-// A ScaledPoint is a 65535th of a DTP point
-type ScaledPoint int
+// MaxSP is the largest dimension. Approx. 50,000,000 km on 64bit architecture.
+// On 32bit architecture still about 11.5 meters.
+const MaxSP = ScaledPoint(math.MaxInt)
 
 // ScaledPointFromFloat converts the DTP point f to a ScaledPoint
 func ScaledPointFromFloat(f float64) ScaledPoint {
