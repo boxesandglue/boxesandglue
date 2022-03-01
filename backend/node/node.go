@@ -360,6 +360,7 @@ type HList struct {
 	Width    bag.ScaledPoint
 	Height   bag.ScaledPoint
 	Depth    bag.ScaledPoint
+	Badness  int
 	GlueSet  float64
 	GlueSign uint8
 	Shift    bag.ScaledPoint

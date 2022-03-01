@@ -49,17 +49,20 @@ func (td testdata) String() string {
 
 func TestHpack(t *testing.T) {
 	data := []testdata{
+		// stretch
+		{100 * bag.Factor, 0, []gluTestData{{4, 6, 0, 0, 0}, {4, 65536, 0, 1, 0}}},
+		{100 * bag.Factor, 0, []gluTestData{{4, 6, 0, 0, 0}, {4, 65536, 65536, 1, 2}}},
 		{8 * bag.Factor, 30, []gluTestData{{4, 6, 0, 0, 0}}},
-		{10 * bag.Factor, 10000, []gluTestData{{20, 6, 3, 0, 0}}},
 		{100 * bag.Factor, 10000, []gluTestData{{12, 4, 3, 0, 0}}},
+		{33 * bag.Factor, 10000, []gluTestData{{4, 6, 0, 0, 0}}},
 		{18 * bag.Factor, 338, []gluTestData{{12, 4, 0, 0, 0}}},
 		{9 * bag.Factor, 58, []gluTestData{{4, 6, 0, 0, 0}}},
 		{19 * bag.Factor, 1563, []gluTestData{{4, 6, 0, 0, 0}}},
-		{33 * bag.Factor, 10000, []gluTestData{{4, 6, 0, 0, 0}}},
-		{100 * bag.Factor, 0, []gluTestData{{4, 6, 0, 0, 0}, {4, 65536, 0, 1, 0}}},
-		{100 * bag.Factor, 0, []gluTestData{{4, 6, 0, 0, 0}, {4, 65536, 65536, 1, 2}}},
+		// squeeze
+		{20 * bag.Factor, 100, []gluTestData{{23, 6, 3, 0, 0}}},
+		{10 * bag.Factor, 1000000, []gluTestData{{20, 6, 3, 0, 0}}},
 	}
-	for _, d := range data {
+	for i, d := range data {
 		var head, cur Node
 		for _, g := range d.glues {
 			gluenode := NewGlue()
@@ -71,13 +74,13 @@ func TestHpack(t *testing.T) {
 			head = InsertAfter(head, cur, gluenode)
 			cur = gluenode
 		}
-		hl, badness := HpackTo(head, d.desiredWidth)
+		hl := HpackTo(head, d.desiredWidth)
 
 		if hl.Width != d.desiredWidth {
-			t.Errorf("hl.Width %d want %d (%s)", hl.Width, d.desiredWidth, d)
+			t.Errorf("hl.Width %d (%s) want %d (%s) tc %d", hl.Width, hl.Width, d.desiredWidth, d, i)
 		}
-		if badness != d.badness {
-			t.Errorf("badness = %d, want %d", badness, d.badness)
+		if hl.Badness != d.badness {
+			t.Errorf("badness = %d, want %d", hl.Badness, d.badness)
 		}
 	}
 }

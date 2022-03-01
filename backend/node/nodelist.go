@@ -156,15 +156,15 @@ func Hpack(firstNode Node) *HList {
 	return hl
 }
 
-// HpackTo returns a HList node with the node list as its list and the badness.
+// HpackTo returns a HList node with the node list as its list.
 // The width is the desired width.
-func HpackTo(firstNode Node, width bag.ScaledPoint) (*HList, int) {
+func HpackTo(firstNode Node, width bag.ScaledPoint) *HList {
 	return HPackToWithEnd(firstNode, Tail(firstNode), width)
 }
 
 // HPackToWithEnd returns a HList node with nl as its list. The width is the
 // desired width. The list stops at lastNode (including lastNode).
-func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HList, int) {
+func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList {
 	glues := []*Glue{}
 
 	sumwd := bag.ScaledPoint(0)
@@ -240,7 +240,10 @@ func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HLis
 	}
 
 	badness := 10000
-	if r >= -1 {
+	if r < -1 {
+		// Badness 1000000 for overfull boxes
+		badness = 1000000
+	} else if r >= -1 {
 		badness = int(math.Round(math.Pow(math.Abs(r), 3) * 100.0))
 		if badness > 10000 {
 			badness = 10000
@@ -249,21 +252,14 @@ func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HLis
 	if highestOrderShrink > 0 || highestOrderStretch > 0 {
 		badness = 0
 	}
+
 	// calculate the real width: non-glue widths + new glue widths
 	sumwd = nonGlueSumWd
 	for _, g := range glues {
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
-			if g.StretchOrder == 0 {
-				g.Width += bag.ScaledPoint(r * float64(g.Stretch))
-			} else {
-				g.Width += bag.ScaledPoint(r * float64(g.Stretch))
-			}
-		} else if r <= 0 && highestOrderShrink == g.ShrinkOrder {
-			if g.ShrinkOrder == 0 {
-				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
-			} else {
-				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
-			}
+			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
+		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
+			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 		}
 		sumwd += g.Width
 		g.Stretch = 0
@@ -272,11 +268,12 @@ func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) (*HLis
 
 	hl := NewHList()
 	hl.List = firstNode
-	hl.Width = sumwd
+	hl.Width = width
 	hl.Depth = maxdp
 	hl.Height = maxht
 	hl.GlueSet = r
-	return hl, badness
+	hl.Badness = badness
+	return hl
 }
 
 // Vpack creates a list

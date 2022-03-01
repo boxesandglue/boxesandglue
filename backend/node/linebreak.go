@@ -200,6 +200,10 @@ func (lb *linebreaker) mainLoop(n Node) {
 					if demerits < dmin {
 						dmin = demerits
 					}
+					// integer overflow
+					if dmin < 0 {
+						dmin = math.MaxInt
+					}
 				}
 			}
 			j := active.Line + 1
@@ -334,7 +338,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		}
 		curPre = e.Pre
 		if startPos != nil {
-			hl, _ := HPackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
+			hl := HPackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {
@@ -348,7 +352,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 		}
 	}
-
+	// reverse the order
 	for i, j := 0, len(bps)-1; i < j; i, j = i+1, j-1 {
 		bps[i], bps[j] = bps[j], bps[i]
 	}
