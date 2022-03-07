@@ -16,7 +16,7 @@ var (
 )
 
 // NewFontFamily creates a new font family for bundling fonts.
-func (fe *Frontend) NewFontFamily(name string) *FontFamily {
+func (fe *Document) NewFontFamily(name string) *FontFamily {
 	ff := &FontFamily{
 		ID:   len(fe.FontFamilies),
 		Name: name,
@@ -26,7 +26,7 @@ func (fe *Frontend) NewFontFamily(name string) *FontFamily {
 }
 
 // GetFontFamily returns the font family with the given id.
-func (fe *Frontend) GetFontFamily(id int) *FontFamily {
+func (fe *Document) GetFontFamily(id int) *FontFamily {
 	if id >= len(fe.FontFamilies) {
 		return nil
 	}
@@ -34,7 +34,7 @@ func (fe *Frontend) GetFontFamily(id int) *FontFamily {
 }
 
 // LoadFace loads a font from a TrueType or OpenType collection.
-func (fe *Frontend) LoadFace(fs *FontSource) (*pdf.Face, error) {
+func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	bag.Logger.Debugf("LoadFace %s", fs)
 	if fs.face != nil {
 		return fs.face, nil

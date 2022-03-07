@@ -10,7 +10,7 @@ import (
 
 var xmlescape = strings.NewReplacer("<", "&lt;", "&", "&amp;")
 
-func (d *Document) getMetadata() string {
+func (d *PDFDocument) getMetadata() string {
 	var dateFormat = time.RFC3339
 	pdfCreationdate := time.Now()
 	isoformatted := pdfCreationdate.Format(dateFormat)

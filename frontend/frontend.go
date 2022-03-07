@@ -9,21 +9,21 @@ import (
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
-// Frontend holds convenience functions.
-type Frontend struct {
+// Document holds convenience functions.
+type Document struct {
 	FontFamilies []*FontFamily
-	Doc          *document.Document
+	Doc          *document.PDFDocument
 	colors       map[string]*Color
 	usedFonts    map[*pdf.Face]map[bag.ScaledPoint]*font.Font
 }
 
-// CreateFile creates a new PDF file. After Doc.Finish() is called, the file is closed.
-func CreateFile(filename string) (*Frontend, error) {
+// New creates a new PDF file. After Doc.Finish() is called, the file is closed.
+func New(filename string) (*Document, error) {
 	w, err := os.Create(filename)
 	if err != nil {
 		return nil, err
 	}
-	fe := &Frontend{
+	fe := &Document{
 		Doc:       document.NewDocument(w),
 		colors:    csscolors,
 		usedFonts: make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),

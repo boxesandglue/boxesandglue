@@ -74,7 +74,7 @@ type TypesettingElement struct {
 	Items    []interface{}
 }
 
-func (fe *Frontend) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
+func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
@@ -204,7 +204,7 @@ func (fe *Frontend) buildNodelistFromString(ts TypesettingSettings, str string) 
 }
 
 // Mknodes creates a list of nodes which which can be formatted to a given width.
-func (fe *Frontend) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error) {
+func (fe *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error) {
 	var newSettings = make(TypesettingSettings)
 	var head, cur, nl, end node.Node
 	var err error

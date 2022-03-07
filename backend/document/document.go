@@ -30,7 +30,7 @@ type Hyperlink struct {
 
 // A Page struct represents a page in a PDF file.
 type Page struct {
-	document          *Document
+	document          *PDFDocument
 	Height            bag.ScaledPoint
 	Width             bag.ScaledPoint
 	ExtraOffset       bag.ScaledPoint
@@ -389,14 +389,14 @@ type pdfStructureObject struct {
 	refs string
 }
 
-func (d *Document) newPDFStructureObject() *pdfStructureObject {
+func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
 	po := &pdfStructureObject{}
 	po.id = len(d.pdfStructureObjects)
 	return po
 }
 
-// Document contains all references to a document
-type Document struct {
+// PDFDocument contains all references to a document
+type PDFDocument struct {
 	Languages            map[string]*lang.Lang
 	Faces                []*pdf.Face
 	DefaultPageWidth     bag.ScaledPoint
@@ -416,8 +416,8 @@ type Document struct {
 }
 
 // NewDocument creates an empty document.
-func NewDocument(w io.Writer) *Document {
-	d := &Document{}
+func NewDocument(w io.Writer) *PDFDocument {
+	d := &PDFDocument{}
 	d.DefaultPageHeight = bag.MustSp("297mm")
 	d.DefaultPageWidth = bag.MustSp("210mm")
 	d.pdf = pdf.NewPDFWriter(w)
@@ -428,7 +428,7 @@ func NewDocument(w io.Writer) *Document {
 }
 
 // LoadPatternFile loads a hyphenation pattern file.
-func (d *Document) LoadPatternFile(filename string, langname string) (*lang.Lang, error) {
+func (d *PDFDocument) LoadPatternFile(filename string, langname string) (*lang.Lang, error) {
 	l, err := lang.LoadPatternFile(filename)
 	if err != nil {
 		return nil, err
@@ -438,12 +438,12 @@ func (d *Document) LoadPatternFile(filename string, langname string) (*lang.Lang
 }
 
 // SetDefaultLanguage sets the document default language.
-func (d *Document) SetDefaultLanguage(l *lang.Lang) {
+func (d *PDFDocument) SetDefaultLanguage(l *lang.Lang) {
 	d.DefaultLanguage = l
 }
 
 // LoadFace loads a font from a TrueType or OpenType collection.
-func (d *Document) LoadFace(filename string, index int) (*pdf.Face, error) {
+func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
 	bag.Logger.Debugf("LoadFace %s", filename)
 
 	f, err := pdf.LoadFace(d.pdf, filename, index)
@@ -456,7 +456,7 @@ func (d *Document) LoadFace(filename string, index int) (*pdf.Face, error) {
 
 // LoadImageFile loads an image file. Images that should be placed in the PDF
 // file must be derived from the file.
-func (d *Document) LoadImageFile(filename string) (*pdf.Imagefile, error) {
+func (d *PDFDocument) LoadImageFile(filename string) (*pdf.Imagefile, error) {
 	if imgf, ok := d.usedPDFImages[filename]; ok {
 		return imgf, nil
 	}
@@ -470,7 +470,7 @@ func (d *Document) LoadImageFile(filename string) (*pdf.Imagefile, error) {
 
 // CreateImage returns a new Image derived from the image file. The parameter
 // pagenumber is honored only in PDF files.
-func (d *Document) CreateImage(imgfile *pdf.Imagefile, pagenumber int) *image.Image {
+func (d *PDFDocument) CreateImage(imgfile *pdf.Imagefile, pagenumber int) *image.Image {
 	img := &image.Image{}
 	img.ImageFile = imgfile
 	img.PageNumber = pagenumber
@@ -489,7 +489,7 @@ func (d *Document) CreateImage(imgfile *pdf.Imagefile, pagenumber int) *image.Im
 
 // NewPage creates a new Page object and adds it to the page list in the
 // document. The CurrentPage field of the document is set to the page.
-func (d *Document) NewPage() *Page {
+func (d *PDFDocument) NewPage() *Page {
 	d.CurrentPage = &Page{
 		document: d,
 		Width:    d.DefaultPageWidth,
@@ -500,13 +500,13 @@ func (d *Document) NewPage() *Page {
 }
 
 // CreateFont returns a new Font object for this face at a given size.
-func (d *Document) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
+func (d *PDFDocument) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
 	return font.NewFont(face, size)
 }
 
 // Finish writes all objects to the PDF and writes the XRef section. Finish does
 // not close the writer.
-func (d *Document) Finish() error {
+func (d *PDFDocument) Finish() error {
 	var err error
 	d.pdf.Catalog = pdf.Dict{}
 
@@ -581,7 +581,7 @@ const (
 )
 
 // RegisterCallback registers the callback in fn.
-func (d *Document) RegisterCallback(cb Callback, fn interface{}) {
+func (d *PDFDocument) RegisterCallback(cb Callback, fn interface{}) {
 	switch cb {
 	case CallbackPreShipout:
 		d.preShipoutCallback = fn.(func(page *Page))
