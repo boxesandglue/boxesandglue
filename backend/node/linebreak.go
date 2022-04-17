@@ -260,6 +260,9 @@ func (lb *linebreaker) mainLoop(n Node) {
 // Linebreak breaks the node list starting at n into lines. Returns a VList of
 // HLists and information about each line.
 func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
+	if n == nil {
+		return nil, nil
+	}
 	var prevItemBox bool
 	lb := newLinebreaker(n, settings)
 	lb.activeNodesA = &Breakpoint{Fitness: 1, Position: n}

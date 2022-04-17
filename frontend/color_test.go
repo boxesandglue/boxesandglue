@@ -5,7 +5,7 @@ import (
 )
 
 func TestSimple(t *testing.T) {
-	f := Document{}
+	f := initDocument()
 	f.DefineColor("mycolor", &Color{Space: ColorCMYK, C: 1, M: 0, Y: 0, K: 1})
 	testdata := []struct {
 		colorname  string
