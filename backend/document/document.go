@@ -49,6 +49,264 @@ const (
 	pdfOuterMode    = 4
 )
 
+// objectContext contains information about the current position of the cursor
+// and about the images and faces used in the object.
+type objectContext struct {
+	p           *Page
+	currentFont *font.Font
+	textmode    uint8
+	usedFaces   map[*pdf.Face]bool
+	usedImages  map[*pdf.Imagefile]bool
+	tag         *StructureElement
+	s           *strings.Builder
+	glueString  string
+	shiftX      bag.ScaledPoint
+	sumX        bag.ScaledPoint
+	sumV        bag.ScaledPoint
+	objX        bag.ScaledPoint
+	objY        bag.ScaledPoint
+}
+
+// gotoTextMode inserts PDF instructions to switch to a inner/outer text mode.
+// Textmode 1 is within collection of hexadecimal digits inside angle brackets
+// (< ... >), textmode 2 is inside square brackets ([ ... ]), textmode 3 is
+// within BT ... ET and textmode 4 is inside the page content stream.
+// gotoTextMode makes sure all necessary brackets are opened so you can write
+// the data you need.
+func (oc *objectContext) gotoTextMode(newMode uint8) {
+	if newMode > oc.textmode {
+		if oc.textmode == 1 {
+			fmt.Fprint(oc.s, ">")
+			oc.textmode = 2
+		}
+		if oc.textmode == 2 && oc.textmode < newMode {
+			fmt.Fprint(oc.s, "]TJ\n")
+			oc.textmode = 3
+		}
+		if oc.textmode == 3 && oc.textmode < newMode {
+			fmt.Fprint(oc.s, "ET\n")
+			if oc.tag != nil {
+				fmt.Fprint(oc.s, "EMC\n")
+				oc.tag = nil
+			}
+			oc.textmode = 4
+
+		}
+		return
+	}
+	if newMode < oc.textmode {
+		if oc.textmode == 4 {
+			if oc.tag != nil {
+				fmt.Fprintf(oc.s, "/%s<</MCID %d>>BDC ", oc.tag.Role, oc.tag.ID)
+			}
+			fmt.Fprint(oc.s, "BT ")
+			oc.textmode = 3
+		}
+		if oc.textmode == 3 && newMode < oc.textmode {
+			fmt.Fprint(oc.s, "[")
+			oc.textmode = 2
+		}
+		if oc.textmode == 2 && newMode < oc.textmode {
+			fmt.Fprint(oc.s, "<")
+			oc.textmode = 1
+		}
+	}
+}
+
+// outputHorizontalItem outputs a single horizontal item and advance the cursor.
+func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
+	switch n := itm.(type) {
+	case *node.Glyph:
+		if n.Font != oc.currentFont {
+			oc.gotoTextMode(3)
+			fmt.Fprintf(oc.s, "\n%s %s Tf ", n.Font.Face.InternalName(), n.Font.Size)
+			oc.usedFaces[n.Font.Face] = true
+			oc.currentFont = n.Font
+			oc.glueString = ""
+		}
+		if oc.textmode > 3 {
+			oc.gotoTextMode(3)
+		}
+		if oc.textmode > 2 {
+			fmt.Fprintf(oc.s, "\n1 0 0 1 %s %s Tm ", oc.objX+oc.shiftX+oc.sumX, (oc.objY - oc.sumV))
+			oc.shiftX = 0
+		}
+		n.Font.Face.RegisterChar(n.Codepoint)
+		if oc.glueString != "" {
+			oc.gotoTextMode(2)
+			fmt.Fprintf(oc.s, "%s", oc.glueString)
+			oc.glueString = ""
+		}
+		oc.gotoTextMode(1)
+		fmt.Fprintf(oc.s, "%04x", n.Codepoint)
+		oc.sumX += n.Width
+	case *node.Glue:
+		if oc.textmode == 1 {
+			// Single glue at end should not be printed. Therefore we save it for later.
+			oc.glueString = fmt.Sprintf(" %d ", -1*1000*n.Width/oc.currentFont.Size)
+		}
+		oc.sumX += n.Width
+	case *node.Rule:
+		if oc.textmode == 1 && oc.glueString != "" {
+			oc.gotoTextMode(2)
+			fmt.Fprint(oc.s, oc.glueString)
+			oc.glueString = ""
+		}
+		oc.gotoTextMode(4)
+		oc.glueString = ""
+		posX := oc.objX + oc.sumX
+		posY := oc.objY - oc.sumV
+		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+		fmt.Fprint(oc.s, n.Pre)
+		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
+	case *node.Image:
+		oc.gotoTextMode(4)
+		img := n.Img
+		if img.Used {
+			bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
+		} else {
+			img.Used = true
+		}
+		ifile := img.ImageFile
+		oc.usedImages[ifile] = true
+
+		scaleX := v.Width.ToPT() / ifile.ScaleX
+		scaleY := v.Height.ToPT() / ifile.ScaleY
+		ht := v.Height
+		y := oc.objY - ht
+		x := oc.objX
+		fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
+	case *node.StartStop:
+		isStartNode := true
+		action := n.Action
+
+		var startNode *node.StartStop
+		if n.StartNode != nil {
+			// a stop node which has a link to a start node
+			isStartNode = false
+			startNode = n.StartNode
+			action = startNode.Action
+		} else {
+			startNode = n
+		}
+
+		if oc.textmode == 1 && oc.glueString != "" {
+			oc.gotoTextMode(2)
+			fmt.Fprint(oc.s, oc.glueString)
+			oc.glueString = ""
+		}
+
+		if action == node.ActionHyperlink {
+			posX := oc.objX + oc.sumX
+			posY := oc.objY - oc.sumV - oc.currentFont.Depth
+			hyperlink := startNode.Value.(*Hyperlink)
+			if isStartNode {
+				hyperlink.startposX = posX
+				hyperlink.startposY = posY
+			} else {
+				a := pdf.Annotation{
+					Rect:    [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, hyperlink.startposX + 50*bag.Factor, posY + v.Height + oc.currentFont.Depth},
+					Subtype: "Link",
+					URI:     hyperlink.URI,
+				}
+				oc.p.Annotations = append(oc.p.Annotations, a)
+			}
+		}
+		switch n.Position {
+		case node.PDFOutputPage:
+			oc.gotoTextMode(4)
+		case node.PDFOutputDirect:
+			oc.gotoTextMode(3)
+		case node.PDFOutputHere:
+			oc.gotoTextMode(4)
+			posX := oc.objX + oc.sumX
+			posY := oc.objY - oc.sumV
+			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+		case node.PDFOutputLowerLeft:
+			oc.gotoTextMode(4)
+		}
+		oc.glueString = ""
+		if n.Callback != nil {
+			fmt.Fprint(oc.s, n.Callback(n))
+		}
+		switch n.Position {
+		case node.PDFOutputHere:
+			posX := oc.objX + oc.sumX
+			posY := oc.objY - oc.sumV
+			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
+		}
+	case *node.Lang, *node.Penalty:
+		// ignore
+	case *node.Disc:
+		// ignore
+	case *node.HList:
+		oc.outputHorizontalItem(n, n.List)
+	case *node.VList:
+		for vItem := v.List; vItem != nil; vItem = vItem.Next() {
+			oc.outputVerticalItem(n, vItem)
+		}
+	default:
+		bag.Logger.DPanicf("Shipout: unknown node %v", itm)
+	}
+}
+
+func (oc *objectContext) outputVerticalItem(vlist *node.VList, hElt node.Node) {
+	oc.sumX = 0
+	switch v := hElt.(type) {
+	case *node.HList:
+		// The first hlist: move cursor down
+		if hElt == vlist.List {
+			oc.sumV += v.Height
+		}
+
+		for itm := v.List; itm != nil; itm = itm.Next() {
+			oc.outputHorizontalItem(v, itm)
+		}
+		oc.sumV += v.Height + v.Depth
+		if oc.textmode < 3 {
+			oc.gotoTextMode(3)
+		}
+	case *node.Image:
+		img := v.Img
+		if img.Used {
+			bag.Logger.Warnf("image node already in use, id: %d", v.ID)
+		} else {
+			img.Used = true
+		}
+		ifile := img.ImageFile
+		oc.usedImages[ifile] = true
+		oc.gotoTextMode(4)
+
+		scaleX := v.Width.ToPT() / ifile.ScaleX
+		scaleY := v.Height.ToPT() / ifile.ScaleY
+
+		ht := v.Height
+		y := oc.objY - ht
+		x := oc.objX
+		if oc.p.document.IsTrace(VTraceImages) {
+			fmt.Fprintf(oc.s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
+		}
+		fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
+	case *node.Glue:
+		// Let's assume that the glue ratio has been determined and the
+		// natural width is in v.Width for now.
+		oc.sumV += v.Width
+	case *node.Rule:
+		posX := oc.objX + oc.sumX
+		posY := oc.objY - oc.sumV
+		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+		fmt.Fprint(oc.s, v.Pre)
+		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
+	case *node.VList:
+		for vItem := v.List; vItem != nil; vItem = vItem.Next() {
+			oc.outputVerticalItem(vlist, vItem)
+		}
+	default:
+		bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
+	}
+
+}
+
 // OutputAt places the nodelist at the position.
 func (p *Page) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VList) {
 	p.Objects = append(p.Objects, Object{x, y, vlist})
@@ -65,259 +323,51 @@ func (p *Page) Shipout() {
 	if cb := p.document.preShipoutCallback; cb != nil {
 		cb(p)
 	}
-	usedFaces := make(map[*pdf.Face]bool)
-	usedImages := make(map[*pdf.Imagefile]bool)
-	var currentFont *font.Font
 	bleedamount := p.document.Bleed
-	textmode := 4
-	var tag *StructureElement
-	gotoTextMode := func(newMode int) {
-		if newMode > textmode {
-			if textmode == 1 {
-				fmt.Fprint(&s, ">")
-				textmode = 2
-			}
-			if textmode == 2 && textmode < newMode {
-				fmt.Fprint(&s, "]TJ\n")
-				textmode = 3
-			}
-			if textmode == 3 && textmode < newMode {
-				fmt.Fprint(&s, "ET\n")
-				if tag != nil {
-					fmt.Fprint(&s, "EMC\n")
-					tag = nil
-				}
-				textmode = 4
 
-			}
-			return
-		}
-		if newMode < textmode {
-			if textmode == 4 {
-				if tag != nil {
-					fmt.Fprintf(&s, "/%s<</MCID %d>>BDC ", tag.Role, tag.ID)
-				}
-				fmt.Fprint(&s, "BT ")
-				textmode = 3
-			}
-			if textmode == 3 && newMode < textmode {
-				fmt.Fprint(&s, "[")
-				textmode = 2
-			}
-			if textmode == 2 && newMode < textmode {
-				fmt.Fprint(&s, "<")
-				textmode = 1
-			}
-		}
-	}
 	offsetX := bleedamount
 	offsetY := bleedamount
 
 	objs := make([]Object, 0, len(p.Background)+len(p.Objects))
 	objs = append(objs, p.Background...)
 	objs = append(objs, p.Objects...)
+	usedFaces := make(map[*pdf.Face]bool)
+	usedImages := make(map[*pdf.Imagefile]bool)
+
 	for _, obj := range objs {
-		objX := obj.X + offsetX
-		objY := obj.Y + offsetY
-		sumV := bag.ScaledPoint(0)
+		oc := &objectContext{
+			textmode:   4,
+			s:          &s,
+			usedFaces:  make(map[*pdf.Face]bool),
+			usedImages: make(map[*pdf.Imagefile]bool),
+			p:          p,
+			objX:       obj.X + offsetX,
+			objY:       obj.Y + offsetY,
+		}
+
 		vlist := obj.Vlist
 		if vlist.Attibutes != nil {
 			if r, ok := vlist.Attibutes["tag"]; ok {
-				tag = r.(*StructureElement)
-				tag.ID = len(p.StructureElements)
-				p.StructureElements = append(p.StructureElements, tag)
+				oc.tag = r.(*StructureElement)
+				oc.tag.ID = len(p.StructureElements)
+				p.StructureElements = append(p.StructureElements, oc.tag)
 			}
 		}
-		// horizontal elements
-		for hElt := vlist.List; hElt != nil; hElt = hElt.Next() {
-			var glueString string
-			var shiftX bag.ScaledPoint
-			sumx := bag.ScaledPoint(0)
-			switch v := hElt.(type) {
-			case *node.HList:
-				// The first hlist: move cursor down
-				if hElt == vlist.List {
-					sumV += v.Height
-				}
-				hlist := v
-
-				for itm := hlist.List; itm != nil; itm = itm.Next() {
-					switch n := itm.(type) {
-					case *node.Glyph:
-						if n.Font != currentFont {
-							gotoTextMode(3)
-							fmt.Fprintf(&s, "\n%s %s Tf ", n.Font.Face.InternalName(), n.Font.Size)
-							usedFaces[n.Font.Face] = true
-							currentFont = n.Font
-							glueString = ""
-						}
-						if textmode > 3 {
-							gotoTextMode(3)
-						}
-						if textmode > 2 {
-							fmt.Fprintf(&s, "\n1 0 0 1 %s %s Tm ", objX+shiftX+sumx, (objY - sumV))
-							shiftX = 0
-						}
-						n.Font.Face.RegisterChar(n.Codepoint)
-						if glueString != "" {
-							gotoTextMode(2)
-							fmt.Fprintf(&s, "%s", glueString)
-							glueString = ""
-						}
-						gotoTextMode(1)
-						fmt.Fprintf(&s, "%04x", n.Codepoint)
-						sumx += n.Width
-					case *node.Glue:
-						if textmode == 1 {
-							// Single glue at end should not be printed. Therefore we save it for later.
-							glueString = fmt.Sprintf(" %d ", -1*1000*n.Width/currentFont.Size)
-						}
-						sumx += n.Width
-					case *node.Rule:
-						if textmode == 1 && glueString != "" {
-							gotoTextMode(2)
-							fmt.Fprint(&s, glueString)
-							glueString = ""
-						}
-						gotoTextMode(4)
-						glueString = ""
-						posX := objX + sumx
-						posY := objY - sumV
-						fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", posX, posY)
-						fmt.Fprint(&s, n.Pre)
-						fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", -posX, -posY)
-					case *node.Image:
-						gotoTextMode(4)
-						img := n.Img
-						if img.Used {
-							bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
-						} else {
-							img.Used = true
-						}
-						ifile := img.ImageFile
-						usedImages[ifile] = true
-
-						scaleX := v.Width.ToPT() / ifile.ScaleX
-						scaleY := v.Height.ToPT() / ifile.ScaleY
-						ht := v.Height
-						y := objY - ht
-						x := objX
-						if p.document.IsTrace(VTraceImages) {
-							fmt.Fprintf(&s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
-						}
-						fmt.Fprintf(&s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
-					case *node.StartStop:
-						isStartNode := true
-						action := n.Action
-
-						var startNode *node.StartStop
-						if n.StartNode != nil {
-							// a stop node which has a link to a start node
-							isStartNode = false
-							startNode = n.StartNode
-							action = startNode.Action
-						} else {
-							startNode = n
-						}
-
-						if textmode == 1 && glueString != "" {
-							gotoTextMode(2)
-							fmt.Fprint(&s, glueString)
-							glueString = ""
-						}
-
-						if action == node.ActionHyperlink {
-							posX := objX + sumx
-							posY := objY - sumV - currentFont.Depth
-							hyperlink := startNode.Value.(*Hyperlink)
-							if isStartNode {
-								hyperlink.startposX = posX
-								hyperlink.startposY = posY
-							} else {
-								a := pdf.Annotation{
-									Rect:    [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, hyperlink.startposX + 50*bag.Factor, posY + hlist.Height + currentFont.Depth},
-									Subtype: "Link",
-									URI:     hyperlink.URI,
-								}
-								p.Annotations = append(p.Annotations, a)
-							}
-						}
-						switch n.Position {
-						case node.PDFOutputPage:
-							gotoTextMode(4)
-						case node.PDFOutputDirect:
-							gotoTextMode(3)
-						case node.PDFOutputHere:
-							gotoTextMode(4)
-							posX := objX + sumx
-							posY := objY - sumV
-							fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", posX, posY)
-						case node.PDFOutputLowerLeft:
-							gotoTextMode(4)
-						}
-						glueString = ""
-						if n.Callback != nil {
-							fmt.Fprint(&s, n.Callback(n))
-						}
-						switch n.Position {
-						case node.PDFOutputHere:
-							posX := objX + sumx
-							posY := objY - sumV
-							fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", -posX, -posY)
-						}
-					case *node.Lang, *node.Penalty:
-						// ignore
-					case *node.Disc:
-						// ignore
-					default:
-						bag.Logger.DPanicf("Shipout: unknown node %v", itm)
-					}
-				}
-				sumV += hlist.Height + hlist.Depth
-				if textmode < 3 {
-					gotoTextMode(3)
-				}
-			case *node.Image:
-				img := v.Img
-				if img.Used {
-					bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
-				} else {
-					img.Used = true
-				}
-				ifile := img.ImageFile
-				usedImages[ifile] = true
-				gotoTextMode(4)
-
-				scaleX := v.Width.ToPT() / ifile.ScaleX
-				scaleY := v.Height.ToPT() / ifile.ScaleY
-
-				ht := v.Height
-				y := objY - ht
-				x := objX
-				if p.document.IsTrace(VTraceImages) {
-					fmt.Fprintf(&s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
-				}
-				fmt.Fprintf(&s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
-			case *node.Glue:
-				// Let's assume that the glue ratio has been determined and the
-				// natural width is in v.Width for now.
-				sumV += v.Width
-			case *node.Rule:
-				posX := objX + sumx
-				posY := objY - sumV
-				fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", posX, posY)
-				fmt.Fprint(&s, v.Pre)
-				fmt.Fprintf(&s, " 1 0 0 1 %s %s cm ", -posX, -posY)
-
-			default:
-				bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
-			}
+		// output vertical items
+		for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
+			oc.outputVerticalItem(vlist, vItem)
 		}
-		gotoTextMode(4)
+		for k := range oc.usedFaces {
+			usedFaces[k] = true
+		}
+		for k := range oc.usedImages {
+			usedImages[k] = true
+		}
+		oc.gotoTextMode(4)
 	}
 
 	st := pdf.NewStream([]byte(s.String()))
-	// st.SetCompression()
+	st.SetCompression()
 	page := p.document.pdf.AddPage(st)
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
@@ -325,6 +375,7 @@ func (p *Page) Shipout() {
 	if bleedamount > 0 {
 		page.Dict["/TrimBox"] = fmt.Sprintf("[%s %s %s %s]", bleedamount, bleedamount, page.Width-bleedamount, page.Height-bleedamount)
 	}
+
 	for f := range usedFaces {
 		page.Faces = append(page.Faces, f)
 	}

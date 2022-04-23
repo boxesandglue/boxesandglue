@@ -283,7 +283,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 	return catalog.ObjectNumber, nil
 }
 
-// Finish writes the trailer and xref section but does not close the file
+// Finish writes the trailer and xref section but does not close the file.
 func (pw *PDF) Finish() error {
 	dc, err := pw.writeDocumentCatalog()
 	if err != nil {

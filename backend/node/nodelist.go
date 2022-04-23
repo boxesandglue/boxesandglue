@@ -128,8 +128,12 @@ func Hpack(firstNode Node) *HList {
 			}
 		case *Glue:
 			sumwd = sumwd + v.Width
+		case *HList:
+			sumwd = sumwd + v.Width
 		case *Lang:
 		case *Penalty:
+			sumwd += v.Width
+		case *VList:
 			sumwd += v.Width
 		case *Rule:
 			sumwd += v.Width
@@ -309,6 +313,8 @@ func getWidth(n Node) bag.ScaledPoint {
 		return t.Width
 	case *HList:
 		return t.Width
+	case *VList:
+		return t.Width
 	case *StartStop, *Disc, *Lang:
 		return 0
 	default:
@@ -322,6 +328,8 @@ func getHeight(n Node) bag.ScaledPoint {
 	case *HList:
 		return t.Height + t.Depth
 	case *Glyph:
+		return t.Height + t.Depth
+	case *VList:
 		return t.Height + t.Depth
 	case *Rule:
 		return t.Height
@@ -345,6 +353,8 @@ func getDepth(n Node) bag.ScaledPoint {
 		return t.Depth
 	case *StartStop, *Disc, *Lang, *Glue, *Penalty:
 		return 0
+	case *VList:
+		return t.Depth
 	default:
 		bag.Logger.DPanicf("getDepth: unknown node type %T", n)
 	}

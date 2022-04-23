@@ -64,7 +64,7 @@ var (
 func dothings() error {
 	// normalize space of the string above
 	str = strings.Join(strings.Fields(str), " ")
-	f, err := frontend.CreateFile("sample.pdf")
+	f, err := frontend.New("sample.pdf")
 	if err != nil {
 		return err
 	}
@@ -131,13 +131,13 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 		Role: "Document",
 	}
 
-	p := &document.StructureElement{
+	para := &document.StructureElement{
 		Role:       "P",
 		ActualText: str,
 	}
-	f.Doc.RootStructureElement.AddChild(p)
+	f.Doc.RootStructureElement.AddChild(para)
 
 	vlist.Attibutes = node.H{
-		"tag": p,
+		"tag": para,
 	}
 ```
