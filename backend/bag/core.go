@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	unitRE = regexp.MustCompile("(.*?)(mm|cm|in|pt|px|pc|m)")
+	unitRE = regexp.MustCompile("(.*?)(sp|mm|cm|in|pt|px|pc|m)")
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
 	// Logger is a zap lgger which can be overridden from other packages
@@ -52,6 +52,38 @@ func (s ScaledPoint) ToPT() float64 {
 	return float64(s) / float64(Factor)
 }
 
+// ToUnit returns the scaled points converted to the given unit. It raises an
+// ErrConversion in case it cannot convert to the given unit.
+func (s ScaledPoint) ToUnit(unit string) (float64, error) {
+	const precisionFactor = 100000.0
+	round := func(f float64) float64 {
+		rounded := math.Round(precisionFactor*float64(s)*float64(f)/float64(Factor)) / precisionFactor
+		return rounded
+	}
+
+	unit = strings.ToLower(unit)
+	switch unit {
+	case "sp":
+		return float64(s), nil
+	case "pt":
+		return round(1.0), nil
+	case "in":
+		return round(1.0 / 72), nil
+	case "mm":
+		return round(1.0 * 10 * 2.54 / 72), nil
+	case "cm":
+		return round(1.0 * 2.54 / 72), nil
+	case "m":
+		return round(1.0 / 100 * 2.54 / 72), nil
+	case "px":
+		return round(1.0 / 96 * 72), nil
+	case "pc":
+		return round(1.0 / 12), nil
+	default:
+		return 0, ErrConversion
+	}
+}
+
 // Sp return the unit converted to ScaledPoint. Unit can be a string like "1cm"
 // or "12.5in". The units which are interpreted are pt, in, mm, cm, m, px and
 // pc. A (wrapped) ErrConversion is returned in case of an error.
@@ -72,6 +104,8 @@ func Sp(unit string) (ScaledPoint, error) {
 	unitstring := m[0][2]
 
 	switch unitstring {
+	case "sp":
+		return ScaledPoint(l), nil
 	case "pt":
 		return ScaledPoint(l * float64(Factor)), nil
 	case "in":
