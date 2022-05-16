@@ -9,11 +9,12 @@ import (
 	"github.com/speedata/css/scanner"
 )
 
+// ParseCSSString converts a CSS string to a Tokenstream
 func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 	var tokens Tokenstream
 	var err error
 	c.dirstack = append(c.dirstack, "")
-	tokens = parseCSSString(css)
+	tokens = ParseCSSString(css)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +62,7 @@ func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 	return finalTokens, nil
 }
 
+// ParseCSSFile converts a CSS file into a Tokenstream
 func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 	if filename == "" {
 		return nil, fmt.Errorf("parseCSSFile: no filename given")
@@ -141,7 +143,8 @@ func parseCSSBody(filename string) (Tokenstream, error) {
 	return tokens, nil
 }
 
-func parseCSSString(contents string) Tokenstream {
+// ParseCSSString converts a string into a Tokenstream
+func ParseCSSString(contents string) Tokenstream {
 	var tokens Tokenstream
 
 	s := scanner.New(contents)

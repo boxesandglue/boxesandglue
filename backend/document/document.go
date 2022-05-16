@@ -40,6 +40,7 @@ type Page struct {
 	Finished          bool
 	StructureElements []*StructureElement
 	Annotations       []pdf.Annotation
+	Spotcolors        []*Color
 }
 
 const (
@@ -367,7 +368,7 @@ func (p *Page) Shipout() {
 	}
 
 	st := pdf.NewStream([]byte(s.String()))
-	st.SetCompression()
+	// st.SetCompression()
 	page := p.document.pdf.AddPage(st)
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
@@ -411,6 +412,10 @@ func (p *Page) Shipout() {
 		page.Dict["/StructParents"] = fmt.Sprintf("%d", po.id)
 		p.document.pdfStructureObjects = append(p.document.pdfStructureObjects, po)
 	}
+	for _, s := range p.document.Spotcolors {
+		p.Spotcolors = append(p.Spotcolors, s)
+	}
+
 }
 
 // CallbackShipout gets called before the shipout process starts.
@@ -458,9 +463,11 @@ type PDFDocument struct {
 	Filename             string
 	Bleed                bag.ScaledPoint
 	Title                string
+	Spotcolors           []*Color
 	pdf                  *pdf.PDF
 	tracing              VTrace
 	RootStructureElement *StructureElement
+	ColorProfile         *ColorProfile
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   CallbackShipout
 	usedPDFImages        map[string]*pdf.Imagefile
@@ -468,13 +475,14 @@ type PDFDocument struct {
 
 // NewDocument creates an empty document.
 func NewDocument(w io.Writer) *PDFDocument {
-	d := &PDFDocument{}
-	d.DefaultPageHeight = bag.MustSp("297mm")
-	d.DefaultPageWidth = bag.MustSp("210mm")
-	d.pdf = pdf.NewPDFWriter(w)
-	d.Title = "document"
-	d.Languages = make(map[string]*lang.Lang)
-	d.usedPDFImages = make(map[string]*pdf.Imagefile)
+	d := &PDFDocument{
+		DefaultPageWidth:  bag.MustSp("210mm"),
+		DefaultPageHeight: bag.MustSp("297mm"),
+		Title:             "document",
+		Languages:         make(map[string]*lang.Lang),
+		pdf:               pdf.NewPDFWriter(w),
+		usedPDFImages:     make(map[string]*pdf.Imagefile),
+	}
 	return d
 }
 
@@ -560,6 +568,43 @@ func (d *PDFDocument) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Fon
 func (d *PDFDocument) Finish() error {
 	var err error
 	d.pdf.Catalog = pdf.Dict{}
+	if d.ColorProfile != nil {
+		cp := d.pdf.NewObject()
+		cp.Data.Write(d.ColorProfile.data)
+		cp.Dictionary = pdf.Dict{
+			"/N": fmt.Sprintf("%d", d.ColorProfile.Colors),
+		}
+		if err = cp.Save(); err != nil {
+			return err
+		}
+		for _, col := range d.Spotcolors {
+			sep := pdf.Separation{}
+			sep.ICCProfile = cp.ObjectNumber
+			sep.C = col.C
+			sep.M = col.M
+			sep.Y = col.Y
+			sep.K = col.K
+			sep.Name = col.Basecolor
+			sep.ID = fmt.Sprintf("/CS%d", col.Spotcolorid)
+
+			sepObj := d.pdf.NewObject()
+			sepObj.Array = []interface{}{
+				"/Separation",
+				pdf.Name(col.Basecolor),
+				pdf.Array{"/ICCBased", cp.ObjectNumber},
+				pdf.Dict{
+					"/C0":           pdf.ArrayToString(pdf.Array{0, 0, 0, 0}),
+					"/C1":           pdf.ArrayToString(pdf.Array{sep.C, sep.M, sep.Y, sep.K}),
+					"/Domain":       "[ 0 1 ]",
+					"/FunctionType": "2",
+					"/N":            "1",
+				},
+			}
+			sepObj.Save()
+			sep.Obj = sepObj.ObjectNumber
+			d.pdf.Colorspaces = append(d.pdf.Colorspaces, &sep)
+		}
+	}
 
 	if se := d.RootStructureElement; se != nil {
 		if se.Obj == nil {

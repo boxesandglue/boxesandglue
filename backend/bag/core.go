@@ -88,6 +88,9 @@ func (s ScaledPoint) ToUnit(unit string) (float64, error) {
 // or "12.5in". The units which are interpreted are pt, in, mm, cm, m, px and
 // pc. A (wrapped) ErrConversion is returned in case of an error.
 func Sp(unit string) (ScaledPoint, error) {
+	if unit == "0" {
+		return ScaledPoint(0), nil
+	}
 	unit = strings.ToLower(unit)
 	m := unitRE.FindAllStringSubmatch(unit, -1)
 	if len(m) != 1 {

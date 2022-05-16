@@ -20,8 +20,33 @@ func (o Objectnumber) Ref() string {
 	return fmt.Sprintf("%d 0 R", o)
 }
 
+// String returns a reference to the object number
+func (o Objectnumber) String() string {
+	return fmt.Sprintf("%d 0 R", o)
+}
+
 // Dict is a string - string dictionary
 type Dict map[string]string
+
+func (d Dict) String() string {
+	return HashToString(d, 0)
+}
+
+// Array is a list of anything
+type Array []interface{}
+
+func (ary Array) String() string {
+	return ArrayToString(ary)
+}
+
+// Name represents a PDF name such as Adobe Green. The String() method prepends
+// a / (slash) to the name.
+type Name string
+
+func (n Name) String() string {
+	a := strings.NewReplacer(" ", "#20")
+	return "/" + a.Replace(string(n))
+}
 
 // Pages is the parent page structure
 type Pages struct {
@@ -36,6 +61,18 @@ type Annotation struct {
 	Border  []int
 	Rect    [4]bag.ScaledPoint
 	URI     string
+}
+
+// Separation repressents a spot color
+type Separation struct {
+	Obj        Objectnumber
+	ID         string
+	Name       string
+	ICCProfile Objectnumber
+	C          float64
+	M          float64
+	Y          float64
+	K          float64
 }
 
 // Page contains information about a single page.
@@ -58,6 +95,7 @@ type PDF struct {
 	Catalog           Dict
 	DefaultPageWidth  bag.ScaledPoint
 	DefaultPageHeight bag.ScaledPoint
+	Colorspaces       []*Separation
 	objectlocations   map[Objectnumber]int64
 	pages             *Pages
 	lastEOL           int64
@@ -142,7 +180,7 @@ func (pw *PDF) writeStream(st *Stream, obj *Object) (*Object, error) {
 	return obj, nil
 }
 
-func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
+func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	var err error
 	usedFaces := make(map[*Face]bool)
 	usedImages := make(map[*Imagefile]bool)
@@ -190,6 +228,14 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 			}
 			resHash["/Font"] = strings.Join(res, " ")
 		}
+		if len(pw.Colorspaces) > 0 {
+			colorspace := Dict{}
+
+			for _, cs := range pw.Colorspaces {
+				colorspace[cs.ID] = cs.Obj.String()
+			}
+			resHash["/ColorSpace"] = HashToString(colorspace, 0)
+		}
 		if len(page.Images) > 0 {
 			var sb strings.Builder
 			sb.WriteString("<<")
@@ -211,7 +257,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 		}
 		// do we really need the procset?
 		// resHash["/ProcSet"] = "[ /PDF /Text /ImageB /ImageC /ImageI ]"
-		resHash["/ExtGState"] = "<< >> "
+		// resHash["/ExtGState"] = "<< >> "
 
 		if len(resHash) > 0 {
 			pageHash["/Resources"] = HashToString(resHash, 1)
@@ -285,7 +331,7 @@ func (pw *PDF) writeDocumentCatalog() (Objectnumber, error) {
 
 // Finish writes the trailer and xref section but does not close the file.
 func (pw *PDF) Finish() error {
-	dc, err := pw.writeDocumentCatalog()
+	dc, err := pw.writeDocumentCatalogAndPages()
 	if err != nil {
 		return err
 	}
@@ -330,7 +376,7 @@ func (pw *PDF) Finish() error {
 	sum := fmt.Sprintf("%X", md5.Sum([]byte(str.String())))
 
 	trailer := Dict{
-		"/Size": fmt.Sprint(pw.nextobject),
+		"/Size": fmt.Sprint(int(pw.nextobject)),
 		"/Root": dc.Ref(),
 		"/ID":   fmt.Sprintf("[<%s> <%s>]", sum, sum),
 	}
@@ -402,8 +448,6 @@ func (pw *PDF) ImportImage(imp *gofpdi.Importer, pagenumber int) (Objectnumber, 
 	if pagenumber == 0 {
 		pagenumber = 1
 	}
-	fmt.Println(imp.ImportPage(pagenumber, "/MediaBox"))
-	fmt.Println(imp.PutFormXobjects())
 	for i, str := range imp.GetImportedObjects() {
 		bb := bytes.NewBuffer(str)
 		if i == 1 {

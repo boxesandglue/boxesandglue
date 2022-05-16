@@ -1,14 +1,16 @@
 package csshtml
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/css/scanner"
 	"golang.org/x/net/html"
 )
 
+// Tokenstream is a list of CSS tokens
 type Tokenstream []*scanner.Token
 
 type qrule struct {
@@ -16,11 +18,12 @@ type qrule struct {
 	Value Tokenstream
 }
 
-type sBlock struct {
+// SBlock is a block with a selector
+type SBlock struct {
 	Name            string      // only set if this is an at-rule
 	ComponentValues Tokenstream // the "selector"
-	ChildAtRules    []*sBlock   // the block's at-rules, if any
-	Blocks          []*sBlock   // the at-rule's blocks, if any
+	ChildAtRules    []*SBlock   // the block's at-rules, if any
+	Blocks          []*SBlock   // the at-rule's blocks, if any
 	Rules           []qrule     // the key-value pairs
 }
 
@@ -32,39 +35,32 @@ type cssPage struct {
 
 // CSS has all the information
 type CSS struct {
-	dirstack     []string
-	document     *goquery.Document
-	Stylesheet   []sBlock
-	Fontfamilies map[string]FontFamily
-	Pages        map[string]cssPage
+	FrontendDocument *frontend.Document
+	dirstack         []string
+	document         *goquery.Document
+	Stylesheet       []SBlock
+	Pages            map[string]cssPage
 }
 
-// FontSource has URL/file names for fonts
-type FontSource struct {
-	Local string
-	URL   string
-}
+// // FontSource has URL/file names for fonts
+// type FontSource struct {
+// 	Local string
+// 	URL   string
+// }
 
-func (f FontSource) String() string {
-	ret := []string{}
-	if f.Local != "" {
-		ret = append(ret, fmt.Sprintf(`["local"] = %q`, f.Local))
-	}
-	if f.URL != "" {
-		ret = append(ret, fmt.Sprintf("url = %q", f.URL))
-	}
-	return "{" + strings.Join(ret, ",") + "}"
-}
+// func (f FontSource) String() string {
+// 	ret := []string{}
+// 	if f.Local != "" {
+// 		ret = append(ret, fmt.Sprintf(`["local"] = %q`, f.Local))
+// 	}
+// 	if f.URL != "" {
+// 		ret = append(ret, fmt.Sprintf("url = %q", f.URL))
+// 	}
+// 	return "{" + strings.Join(ret, ",") + "}"
+// }
 
-// A FontFamily consists of the four standard shapes: regular, bold, italic, bolditalic
-type FontFamily struct {
-	Regular    FontSource
-	Bold       FontSource
-	Italic     FontSource
-	BoldItalic FontSource
-}
-
-var cssdefaults = `
+// CSSdefaults contains browser-like styling of some elements.
+var CSSdefaults = `
 a               { text-decoration: underline; color: blue; }
 li              { display: list-item; padding-inline-start: 40pt; }
 head            { display: none }
@@ -180,12 +176,12 @@ func trimSpace(toks Tokenstream) Tokenstream {
 
 // ConsumeBlock get the contents of a block. The name (in case of an at-rule)
 // and the selector will be added later on
-func ConsumeBlock(toks Tokenstream, inblock bool) sBlock {
+func ConsumeBlock(toks Tokenstream, inblock bool) SBlock {
 	// This is the whole block between the opening { and closing }
 	if len(toks) <= 1 {
-		return sBlock{}
+		return SBlock{}
 	}
-	b := sBlock{}
+	b := SBlock{}
 	i := 0
 	// we might start with whitespace, skip it
 	for {
@@ -220,7 +216,7 @@ func ConsumeBlock(toks Tokenstream, inblock bool) sBlock {
 				colon = 0
 				start = i + 1
 			case "{":
-				var nb sBlock
+				var nb SBlock
 				// l is the length of the sub block
 				l := findClosingBrace(toks[i+1:])
 				if l == 1 {
@@ -263,8 +259,10 @@ func ConsumeBlock(toks Tokenstream, inblock bool) sBlock {
 }
 
 func (c *CSS) doFontFace(ff []qrule) {
-	var fontfamily, fontstyle, fontweight string
-	var fontsource FontSource
+	var fontweight frontend.FontWeight = 400
+	var fontstyle frontend.FontStyle = frontend.FontStyleNormal
+	var fontfamily string
+	var fontsource frontend.FontSource
 	for _, rule := range ff {
 		key := strings.TrimSpace(rule.Key.String())
 		value := strings.TrimSpace(rule.Value.String())
@@ -272,37 +270,57 @@ func (c *CSS) doFontFace(ff []qrule) {
 		case "font-family":
 			fontfamily = value
 		case "font-style":
-			fontstyle = value
+			switch value {
+			case "normal":
+				fontstyle = frontend.FontStyleNormal
+			case "italic":
+				fontstyle = frontend.FontStyleItalic
+			case "oblique":
+				fontstyle = frontend.FontStyleOblique
+			}
 		case "font-weight":
-			fontweight = value
+			if i, err := strconv.Atoi(value); err == nil {
+				fontweight = frontend.FontWeight(i)
+			} else {
+				switch value {
+				case "Thin", "Hairline":
+					fontweight = 100
+				case "Extra Light", "Ultra Light":
+					fontweight = 200
+				case "Light":
+					fontweight = 300
+				case "Normal":
+					fontweight = 400
+				case "Medium":
+					fontweight = 500
+				case "Semi Bold", "Demi Bold":
+					fontweight = 600
+				case "Bold":
+					fontweight = 700
+				case "Extra Bold", "Ultra Bold":
+					fontweight = 800
+				case "Black", "Heavy":
+					fontweight = 900
+				}
+			}
 		case "src":
 			for _, v := range rule.Value {
 				if v.Type == scanner.URI {
-					fontsource.URL = v.Value
+					fontsource.Source = c.FrontendDocument.FindFile(v.Value)
 				} else if v.Type == scanner.Local {
-					fontsource.Local = v.Value
+					fontsource.Source = c.FrontendDocument.FindFile(v.Value)
 				}
 			}
 		}
 	}
-	fam := c.Fontfamilies[fontfamily]
-	if fontweight == "bold" {
-		if fontstyle == "italic" {
-			fam.BoldItalic = fontsource
-		} else {
-			fam.Bold = fontsource
-		}
-	} else {
-		if fontstyle == "italic" {
-			fam.Italic = fontsource
-		} else {
-			fam.Regular = fontsource
-		}
+	fam := c.FrontendDocument.FindFontFamily(fontfamily)
+	if fam == nil {
+		fam = c.FrontendDocument.NewFontFamily(fontfamily)
 	}
-	c.Fontfamilies[fontfamily] = fam
+	fam.AddMember(&fontsource, fontweight, fontstyle)
 }
 
-func (c *CSS) doPage(block *sBlock) {
+func (c *CSS) doPage(block *SBlock) {
 	selector := block.ComponentValues.String()
 	pg := c.Pages[selector]
 	if pg.pagearea == nil {
@@ -324,7 +342,6 @@ func (c *CSS) doPage(block *sBlock) {
 }
 
 func (c *CSS) processAtRules() {
-	c.Fontfamilies = make(map[string]FontFamily)
 	c.Pages = make(map[string]cssPage)
 	for _, stylesheet := range c.Stylesheet {
 		for _, atrule := range stylesheet.ChildAtRules {
@@ -339,22 +356,24 @@ func (c *CSS) processAtRules() {
 	}
 }
 
+// Findfunc is called when loading a resource
 type Findfunc func(string) (string, error)
 
-func NewCssParser() *CSS {
+// NewCSSParser returns a new CSS object
+func NewCSSParser() *CSS {
 	return &CSS{}
 }
 
 // ParseHTMLFragment takes the HTML text and the CSS text and returns a
 // Lua table as a string and perhaps an error.
 func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*goquery.Selection, error) {
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(parseCSSString(cssdefaults), false))
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(parseCSSString(csstext), false))
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(csstext), false))
 	err := c.ReadHTMLChunk(htmltext)
 	if err != nil {
 		return nil, err
 	}
 	c.processAtRules()
-	return c.dumpTree()
+	return c.ApplyCSS()
 
 }

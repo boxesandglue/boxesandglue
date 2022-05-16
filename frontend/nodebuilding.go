@@ -16,29 +16,67 @@ type SettingType int
 // FontWeight is the type which represents different font weights.
 type FontWeight int
 
-// FontStyle is the type which represents different font styles such as italic or oblique.
-type FontStyle int
+func (fw FontWeight) String() string {
+	switch fw {
+	case 100:
+		return "Thin"
+	case 200:
+		return "Extra Light"
+	case 300:
+		return "Light"
+	case 400:
+		return "Normal"
+	case 500:
+		return "Medium"
+	case 600:
+		return "SemiBold"
+	case 700:
+		return "Bold"
+	case 800:
+		return "Ultra Bold"
+	case 900:
+		return "Black"
+	default:
+		return fmt.Sprintf("fontweight %d", fw)
+	}
+}
 
 const (
 	// FontWeight100 is commonly named “Thin”.
 	FontWeight100 FontWeight = 100
 	// FontWeight200 is commonly named “Extra Light”.
-	FontWeight200 = 200
+	FontWeight200 FontWeight = 200
 	// FontWeight300 is commonly named “Light”.
-	FontWeight300 = 300
+	FontWeight300 FontWeight = 300
 	// FontWeight400 is commonly named “Normal”.
-	FontWeight400 = 400
+	FontWeight400 FontWeight = 400
 	// FontWeight500 is commonly named “Medium”.
-	FontWeight500 = 500
+	FontWeight500 FontWeight = 500
 	// FontWeight600 is commonly named “Semi Bold”.
-	FontWeight600 = 600
-	// FontWeight700 is commonly named “Semi Bold”.
-	FontWeight700 = 700
+	FontWeight600 FontWeight = 600
+	// FontWeight700 is commonly named Bold”.
+	FontWeight700 FontWeight = 700
 	// FontWeight800 is commonly named “Ultra Bold”.
-	FontWeight800 = 800
+	FontWeight800 FontWeight = 800
 	// FontWeight900 is commonly named “Black”.
-	FontWeight900 = 900
+	FontWeight900 FontWeight = 900
 )
+
+// FontStyle is the type which represents different font styles such as italic or oblique.
+type FontStyle int
+
+func (fs FontStyle) String() string {
+	switch fs {
+	case FontStyleNormal:
+		return "normal"
+	case FontStyleItalic:
+		return "italic"
+	case FontStyleOblique:
+		return "oblique"
+	default:
+		return "???"
+	}
+}
 
 const (
 	// FontStyleNormal is an upright font.
@@ -62,6 +100,14 @@ const (
 	SettingSize
 	// SettingHyperlink defines an external hypherlink.
 	SettingHyperlink
+	// SettingMarginLeft sets the left margin
+	SettingMarginLeft
+	// SettingMarginRight sets the right margin
+	SettingMarginRight
+	// SettingMarginBottom sets the bottom margin
+	SettingMarginBottom
+	// SettingMarginTop sets the top margin
+	SettingMarginTop
 )
 
 // TypesettingSettings is a hash of glyph attributes to values.
@@ -86,7 +132,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	for k, v := range ts {
 		switch k {
 		case SettingFontWeight:
-			fontweight = v.(int)
+			fontweight = v.(FontWeight)
 		case SettingFontFamily:
 			fontfamily = v.(*FontFamily)
 		case SettingSize:
@@ -97,6 +143,10 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingHyperlink:
 			hyperlink = v.(document.Hyperlink)
 			hasHyperlink = true
+		case SettingStyle:
+			fontstyle = v.(FontStyle)
+		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
+			// ignore
 		default:
 			bag.Logger.DPanicf("Unknown setting %v", k)
 		}

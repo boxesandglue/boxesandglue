@@ -2,6 +2,8 @@ package frontend
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
@@ -31,6 +33,17 @@ func (fe *Document) GetFontFamily(id int) *FontFamily {
 		return nil
 	}
 	return fe.FontFamilies[id]
+}
+
+// FindFontFamily returns the font family with the given name or nil if there is
+// no font family with this name.
+func (fe *Document) FindFontFamily(name string) *FontFamily {
+	for _, ff := range fe.FontFamilies {
+		if ff.Name == name {
+			return ff
+		}
+	}
+	return nil
 }
 
 // LoadFace loads a font from a TrueType or OpenType collection.
@@ -67,13 +80,13 @@ func (fs *FontSource) String() string {
 type FontFamily struct {
 	ID           int
 	Name         string
-	familyMember map[int]map[FontStyle]*FontSource
+	familyMember map[FontWeight]map[FontStyle]*FontSource
 }
 
 // AddMember adds a member to the font family.
-func (ff *FontFamily) AddMember(fontsource *FontSource, weight int, style FontStyle) {
+func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) {
 	if ff.familyMember == nil {
-		ff.familyMember = make(map[int]map[FontStyle]*FontSource)
+		ff.familyMember = make(map[FontWeight]map[FontStyle]*FontSource)
 	}
 	if ff.familyMember[weight] == nil {
 		ff.familyMember[weight] = make(map[FontStyle]*FontSource)
@@ -82,18 +95,109 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight int, style FontSt
 }
 
 // GetFontSource tries to get the face closest to the requested face.
-func (ff *FontFamily) GetFontSource(weight int, style FontStyle) (*FontSource, error) {
+func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
 	if ff.familyMember == nil {
 		return nil, ErrEmptyFF
 	}
 	if ff.familyMember[weight] == nil {
-		// todo: implement algorithm as described in CSS/font-weight
+		if weight >= 400 && weight <= 500 {
+			for i := weight; i <= 500; i++ {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+			for i := weight; i > 0; i-- {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+			for i := weight; i < 1000; i++ {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+		} else if weight < 400 {
+			for i := weight; i > 0; i-- {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+			for i := weight; i < 1000; i++ {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+		} else {
+			for i := weight; i < 1000; i++ {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+			for i := weight; i > 0; i-- {
+				if ff.familyMember[i] != nil {
+					weight = i
+					goto found
+				}
+			}
+		}
 		return nil, ErrUnfulfilledFamilyRequest
 	}
+found:
 	if ff.familyMember[weight][style] == nil {
 		// todo: implement algorithm to get different style?
 		return nil, ErrUnfulfilledFamilyRequest
 	}
 	return ff.familyMember[weight][style], nil
+}
 
+// ResolveFontWeight returns a FontWeight based on the string fw. For example
+// bold is convertert to font weight 700.
+func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
+	switch strings.ToLower(fw) {
+	case "thin", "hairline":
+		return FontWeight100
+	case "extra light", "ultra light":
+		return FontWeight200
+	case "light":
+		return FontWeight300
+	case "normal":
+		return FontWeight400
+	case "medium":
+		return FontWeight500
+	case "semi bold", "demi bold":
+		return FontWeight600
+	case "bold":
+		return FontWeight700
+	case "extra bold", "ultra bold":
+		return FontWeight800
+	case "black", "heavy":
+		return FontWeight900
+	}
+
+	i, err := strconv.Atoi(fw)
+	if err != nil {
+		bag.Logger.Errorf("resolve font size: cannot convert %s to int", fw)
+		return FontWeight400
+	}
+
+	return FontWeight(i)
+
+}
+
+func (ff FontFamily) String() string {
+	ret := []string{}
+	ret = append(ret, fmt.Sprintf("id:%d, name: %s, ", ff.ID, ff.Name))
+	for a, fm := range ff.familyMember {
+		for b, f := range fm {
+			ret = append(ret, fmt.Sprintf("%s/%s(%s)", a, b, f))
+
+		}
+	}
+	return strings.Join(ret, "")
 }

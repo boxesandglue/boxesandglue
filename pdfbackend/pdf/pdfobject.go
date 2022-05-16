@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 )
@@ -19,11 +20,35 @@ func StringToPDF(str string) string {
 	return out.String()
 }
 
+// ArrayToString converts the objects in ary to a string including the opening and closing bracket
+func ArrayToString(ary []interface{}) string {
+	ret := []string{"["}
+	for _, elt := range ary {
+		switch t := elt.(type) {
+		case string:
+			ret = append(ret, t)
+		case Array:
+			ret = append(ret, ArrayToString(t))
+		case int:
+			ret = append(ret, fmt.Sprintf("%d", t))
+		case float64:
+			ret = append(ret, strconv.FormatFloat(t, 'f', -1, 64))
+		case Dict:
+			ret = append(ret, fmt.Sprintf("%s", t))
+		default:
+			ret = append(ret, fmt.Sprintf("%s", t))
+		}
+	}
+	ret = append(ret, "]")
+	return strings.Join(ret, " ")
+}
+
 // Object has information about a specific PDF object
 type Object struct {
 	ObjectNumber Objectnumber
 	Data         *bytes.Buffer
 	Dictionary   Dict
+	Array        []interface{}
 	pdfwriter    *PDF
 	compress     bool // for streams
 	comment      string
@@ -103,11 +128,19 @@ func (obj *Object) Save() error {
 	}
 
 	obj.pdfwriter.startObject(obj.ObjectNumber)
-	n, err := fmt.Fprint(obj.pdfwriter.outfile, HashToString(obj.Dictionary, 0))
-	if err != nil {
-		return err
+	if len(obj.Dictionary) > 0 {
+		n, err := fmt.Fprint(obj.pdfwriter.outfile, HashToString(obj.Dictionary, 0))
+		if err != nil {
+			return err
+		}
+		obj.pdfwriter.pos += int64(n)
+	} else if len(obj.Array) > 0 {
+		n, err := fmt.Fprint(obj.pdfwriter.outfile, ArrayToString(obj.Array))
+		if err != nil {
+			return err
+		}
+		obj.pdfwriter.pos += int64(n)
 	}
-	obj.pdfwriter.pos += int64(n)
 	if obj.Data.Len() > 0 {
 		n, err := fmt.Fprintln(obj.pdfwriter.outfile, "\nstream")
 		if err != nil {

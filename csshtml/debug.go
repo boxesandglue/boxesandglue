@@ -17,7 +17,7 @@ func indent(s string) string {
 	return strings.Join(ret, "\n")
 }
 
-func (b sBlock) String() string {
+func (b SBlock) String() string {
 	ret := []string{}
 	var firstline string
 	if b.Name != "" {
@@ -48,13 +48,13 @@ func (t Tokenstream) String() string {
 
 func (c *CSS) dump() {
 	w("CSS +++++++")
-	for name, ff := range c.Fontfamilies {
-		w(" Font family", name)
-		w("    Regular: ", ff.Regular)
-		w("    Italic: ", ff.Italic)
-		w("    Bold: ", ff.Bold)
-		w("    BoldItalic: ", ff.BoldItalic)
-	}
+	// for name, ff := range c.Fontfamilies {
+	// 	w(" Font family", name)
+	// 	w("    Regular: ", ff.Regular)
+	// 	w("    Italic: ", ff.Italic)
+	// 	w("    Bold: ", ff.Bold)
+	// 	w("    BoldItalic: ", ff.BoldItalic)
+	// }
 	for name, pg := range c.Pages {
 		w(" Page", name)
 		w("   Size", pg.papersize)

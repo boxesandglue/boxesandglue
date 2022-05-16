@@ -8,17 +8,19 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-func (c *CSS) openHTMLFile(filename string) error {
+// OpenHTMLFile opens an HTML file
+func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	dir, fn := filepath.Split(filename)
 	c.dirstack = append(c.dirstack, dir)
 	dirs := strings.Join(c.dirstack, "")
 	r, err := os.Open(filepath.Join(dirs, fn))
 	if err != nil {
-		return err
+		return nil, err
 	}
+	defer r.Close()
 	c.document, err = goquery.NewDocumentFromReader(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var errcond error
 	c.document.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
@@ -31,5 +33,13 @@ func (c *CSS) openHTMLFile(filename string) error {
 			c.Stylesheet = append(c.Stylesheet, parsedStyles)
 		}
 	})
-	return errcond
+	if errcond != nil {
+		return nil, errcond
+	}
+	c.processAtRules()
+	_, err = c.ApplyCSS()
+	if err != nil {
+		return nil, err
+	}
+	return c.document, nil
 }
