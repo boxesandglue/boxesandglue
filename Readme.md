@@ -8,6 +8,13 @@ TeX packs each unit (glyph, image, heading, ...) in a rectangular box which can 
 A variable length called “glue” can be between each of these rectangles.
 This is why this repository is called “boxes and glue”.
 
+## Features
+
+* High speed (“Ludicrous mode”). A simple document is created within 10ms on a macBook. This includes loading an OpenType font, typesetting text and writing the PDF file.
+* High output quality. Boxes and glue uses TeX's line breaking algorithm to create the optimal line breaks.
+* Extensibility: See the API section below. Boxes and glue is split into a high level frontend and a low level backend to provide the API you need.
+* OpenType features and font shaping with harfbuzz. Harfbuzz is well known for its awesome language support.
+
 ## API
 
 The API has two layers, a high level frontend and a low level backend. Each layer is useful when using the library. I suggest to start using the high level API and switch to the backend when you need more control over the typesetting output.
@@ -27,7 +34,7 @@ See the [architecture overview](https://github.com/speedata/boxesandglue/discuss
 
 ## Status
 
-This library is still under development.
+This library is still under development. Expect API changes.
 
 ## Contact
 
