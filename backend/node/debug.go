@@ -40,6 +40,8 @@ func debugNode(n Node, level int) {
 				filename = "(image object not set)"
 			}
 			color.Magenta("image (%d): %s", v.ID, filename)
+		case *Kern:
+			color.Blue("kern (%d): %s", v.ID, v.Kern)
 		case *Lang:
 			var langname string
 			if v.Lang != nil {

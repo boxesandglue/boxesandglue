@@ -6,7 +6,9 @@ import (
 	"os"
 
 	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/gootf/opentype"
+	"github.com/speedata/textlayout/fonts"
+	"github.com/speedata/textlayout/fonts/truetype"
+	"github.com/speedata/textlayout/harfbuzz"
 )
 
 var (
@@ -35,12 +37,13 @@ func newInternalFontName() string {
 // To get the dimensions of a font, you need to create a Font object with a given size
 type Face struct {
 	FaceID       int
-	Font         *opentype.Font
+	Font         *harfbuzz.Font
 	UnitsPerEM   int32
 	filename     string
-	ToRune       map[int]rune
-	ToGlyphIndex map[rune]int
+	ToRune       map[fonts.GID]rune
+	ToGlyphIndex map[rune]fonts.GID
 	usedChar     map[int]bool
+	cmap         fonts.Cmap
 	FontFile     Objectnumber // TODO used?
 	fontobject   *Object
 	pw           *PDF
@@ -62,19 +65,21 @@ func (face *Face) RegisterChar(codepoint int) {
 	face.usedChar[codepoint] = true
 }
 
-func fillFaceObject(id string, fnt *opentype.Font) (*Face, error) {
-	err := fnt.ReadTables()
-	if err != nil {
-		return nil, err
-	}
+func fillFaceObject(id string, fnt harfbuzz.Face) (*Face, error) {
+	// err := fnt.ReadTables()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	cm, _ := fnt.Cmap()
 	face := Face{
 		FaceID:       <-ids,
-		UnitsPerEM:   int32(fnt.UnitsPerEM),
-		Font:         fnt,
+		UnitsPerEM:   int32(fnt.Upem()),
+		Font:         harfbuzz.NewFont(fnt),
 		filename:     id,
-		ToRune:       make(map[int]rune),
-		ToGlyphIndex: make(map[rune]int),
+		ToRune:       make(map[fonts.GID]rune),
+		ToGlyphIndex: make(map[rune]fonts.GID),
 		usedChar:     make(map[int]bool),
+		cmap:         cm,
 	}
 
 	return &face, nil
@@ -86,25 +91,12 @@ func fillFaceObject(id string, fnt *opentype.Font) (*Face, error) {
 func NewFaceFromData(id string, data []byte) (*Face, error) {
 	r := bytes.NewReader(data)
 	bag.Logger.Info("Read font")
-	fnt, err := opentype.Open(r, 0)
+	fnt, err := truetype.Load(r)
 	if err != nil {
 		return nil, err
 	}
-	return fillFaceObject(id, fnt)
-}
-
-func getFace(filename string) (*Face, error) {
-	r, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	bag.Logger.Infof("Load font %s", filename)
-	fnt, err := opentype.Open(r, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	return fillFaceObject(filename, fnt)
+	firstface := fnt[0]
+	return fillFaceObject(id, firstface)
 }
 
 // LoadFace loads a font from the disc. The index specifies the sub font to be
@@ -115,11 +107,13 @@ func LoadFace(pw *PDF, filename string, idx int) (*Face, error) {
 		return nil, err
 	}
 	bag.Logger.Infof("Load font %s", filename)
-	fnt, err := opentype.Open(r, 0)
+	fnt, err := truetype.Load(r)
 	if err != nil {
 		return nil, err
 	}
-	f, err := fillFaceObject(filename, fnt)
+	firstface := fnt[0]
+
+	f, err := fillFaceObject(filename, firstface)
 	if err != nil {
 		return nil, err
 	}
@@ -131,16 +125,13 @@ func LoadFace(pw *PDF, filename string, idx int) (*Face, error) {
 // GetIndex returns the glyph index of the rune r
 func (face *Face) GetIndex(r rune) (int, error) {
 	if idx, ok := face.ToGlyphIndex[r]; ok {
-		return idx, nil
+		return int(idx), nil
 	}
-
-	idx, err := face.Font.GetIndex(r)
-	if err != nil {
-		return 0, err
-	}
+	cm := face.Codepoints([]rune{r})
+	idx := fonts.GID(cm[0])
 	face.ToRune[idx] = r
 	face.ToGlyphIndex[r] = idx
-	return idx, nil
+	return int(idx), nil
 }
 
 // InternalName returns a PDF usable name such as /F1
@@ -148,21 +139,35 @@ func (face *Face) InternalName() string {
 	return fmt.Sprintf("/F%d", face.FaceID)
 }
 
-// Codepoints returns the internal code points for the runes.
-func (face *Face) Codepoints(runes []rune) []int {
-	return face.Codepoints(runes)
+// Codepoint tries to find the code point for r. If none found, 0 is returned.
+func (face *Face) Codepoint(r rune) fonts.GID {
+	if gid, ok := face.cmap.Lookup(r); ok {
+		return gid
+	}
+	return 0
 }
 
-// finish writes the font file to the PDF. The font should be sub-setted,
+// Codepoints returns the internal code points for the runes.
+func (face *Face) Codepoints(runes []rune) []int {
+	ret := []int{}
+	for _, r := range runes {
+		if gid, ok := face.cmap.Lookup(r); ok {
+			ret = append(ret, int(gid))
+		}
+	}
+	return ret
+}
+
+// finish writes the font file to the PDF. The font should be subsetted,
 // therefore we know the requirements only the end of the PDF file.
 func (face *Face) finish() error {
 	var err error
 	bag.Logger.Infof("Write font %s to PDF", face.filename)
-	fnt := face.Font
-	subset := make([]int, len(face.usedChar))
+	fnt := face.Font.Face()
+	subset := make([]fonts.GID, len(face.usedChar))
 	i := 0
 	for g := range face.usedChar {
-		subset[i] = g
+		subset[i] = fonts.GID(g)
 		i++
 	}
 
@@ -174,12 +179,17 @@ func (face *Face) finish() error {
 	if err = fnt.WriteSubset(&w); err != nil {
 		return err
 	}
-
 	b := w.Bytes()
 
 	fontstream := NewStream(b)
 	fontstream.SetCompression()
-	if fnt.IsCFF {
+
+	var isCFF bool
+	if otf, ok := fnt.(*truetype.Font); ok {
+		isCFF = otf.Type == truetype.TypeOpenType
+	}
+
+	if isCFF {
 		fontstream.dict["/Subtype"] = "/CIDFontType0C"
 	}
 	fontstreamObj, err := face.pw.writeStream(fontstream, nil)
@@ -189,17 +199,17 @@ func (face *Face) finish() error {
 	fontstreamOnum := fontstreamObj.ObjectNumber
 	fontDescriptor := Dict{
 		"/Type":        "/FontDescriptor",
-		"/FontName":    fnt.PDFName(),
-		"/FontBBox":    fnt.BoundingBox(),
-		"/Ascent":      fmt.Sprintf("%d", fnt.Ascender()),
-		"/Descent":     fmt.Sprintf("%d", fnt.Descender()),
-		"/CapHeight":   fmt.Sprintf("%d", fnt.CapHeight()),
-		"/Flags":       fmt.Sprintf("%d", fnt.Flags()),
-		"/ItalicAngle": fmt.Sprintf("%d", fnt.ItalicAngle()),
-		"/StemV":       fmt.Sprintf("%d", fnt.StemV()),
-		"/XHeight":     fmt.Sprintf("%d", fnt.XHeight()),
+		"/FontName":    fnt.NamePDF(),
+		"/FontBBox":    fnt.BoundingBoxPDF(),
+		"/Ascent":      fmt.Sprintf("%d", fnt.AscenderPDF()),
+		"/Descent":     fmt.Sprintf("%d", fnt.DescenderPDF()),
+		"/CapHeight":   fmt.Sprintf("%d", fnt.CapHeightPDF()),
+		"/Flags":       fmt.Sprintf("%d", fnt.FlagsPDF()),
+		"/ItalicAngle": fmt.Sprintf("%d", fnt.ItalicAnglePDF()),
+		"/StemV":       fmt.Sprintf("%d", fnt.StemVPDF()),
+		"/XHeight":     fmt.Sprintf("%d", fnt.XHeightPDF()),
 	}
-	if fnt.IsCFF {
+	if isCFF {
 		fontDescriptor["/FontFile3"] = fontstreamOnum.Ref()
 	} else {
 		fontDescriptor["/FontFile2"] = fontstreamOnum.Ref()
@@ -209,7 +219,7 @@ func (face *Face) finish() error {
 	fdd := fontDescriptorObj.Dict(fontDescriptor)
 	fdd.Save()
 
-	cmap := fnt.CMap()
+	cmap := fnt.CMapPDF()
 	cmapStream := NewStream([]byte(cmap))
 	cmapObj, err := face.pw.writeStream(cmapStream, nil)
 	if err != nil {
@@ -217,16 +227,16 @@ func (face *Face) finish() error {
 	}
 
 	cidFontType2 := Dict{
-		"/BaseFont":       fnt.PDFName(),
+		"/BaseFont":       fnt.NamePDF(),
 		"/CIDSystemInfo":  `<< /Ordering (Identity) /Registry (Adobe) /Supplement 0 >>`,
 		"/FontDescriptor": fontDescriptorObj.ObjectNumber.Ref(),
 		"/Subtype":        "/CIDFontType2",
 		"/Type":           "/Font",
-		"/W":              fnt.Widths(),
+		"/W":              fnt.WidthsPDF(),
 		"/CIDToGIDMap":    "/Identity",
 	}
 
-	if fnt.IsCFF {
+	if isCFF {
 		cidFontType2["/Subtype"] = "/CIDFontType0"
 	} else {
 		cidFontType2["/Subtype"] = "/CIDFontType2"
@@ -237,7 +247,7 @@ func (face *Face) finish() error {
 
 	fontObj := face.fontobject
 	fontObj.Dict(Dict{
-		"/BaseFont":        fnt.PDFName(),
+		"/BaseFont":        fnt.NamePDF(),
 		"/DescendantFonts": fmt.Sprintf("[%s]", cidFontType2Obj.ObjectNumber.Ref()),
 		"/Encoding":        "/Identity-H",
 		"/Subtype":         "/Type0",

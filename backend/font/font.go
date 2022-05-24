@@ -1,11 +1,10 @@
 package font
 
 import (
-	"fmt"
-	"unicode"
-
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
+	"github.com/speedata/textlayout/fonts"
+	"github.com/speedata/textlayout/harfbuzz"
 )
 
 // An Atom contains size information about the glyphs as a result of Shape
@@ -18,6 +17,7 @@ type Atom struct {
 	Components string
 	Codepoint  int
 	Hyphenate  bool
+	Kernafter  bag.ScaledPoint
 }
 
 // Font is the main structure of a font instance
@@ -43,10 +43,10 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Size:         size,
 		Face:         face,
 		Mag:          mag,
-		Depth:        bag.ScaledPoint(face.Font.OS2.STypoDescender) * bag.ScaledPoint(mag) * -1,
+		Depth:        bag.ScaledPoint(face.Font.Face().DescenderPDF()) * bag.ScaledPoint(mag) * -1,
 	}
 
-	atoms := fnt.Shape("-")
+	atoms := fnt.Shape("-", []harfbuzz.Feature{})
 	if len(atoms) == 1 {
 		fnt.Hyphenchar = atoms[0]
 	}
@@ -54,29 +54,47 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 }
 
 // Shape transforms the text into a slice of code points.
-func (f *Font) Shape(text string) []Atom {
-	glyphs := make([]Atom, 0, len(text))
-	for _, r := range text {
-		if unicode.IsSpace(r) {
+func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
+	buf := harfbuzz.NewBuffer()
+	buf.AddRunes([]rune(text), 0, -1)
+	buf.Flags = harfbuzz.RemoveDefaultIgnorables
+
+	ha := f.Face.Font.Face().HorizontalAdvance
+
+	buf.GuessSegmentProperties()
+	buf.Shape(f.Face.Font, features)
+	runes := []rune(text)
+	glyphs := make([]Atom, 0, len(buf.Info))
+	space := f.Face.Codepoint(' ')
+	for i, r := range buf.Info {
+		char := runes[r.Cluster]
+		if r.Glyph == space {
 			glyphs = append(glyphs, Atom{
-				Glyph:      r,
+				Glyph:      rune(r.Glyph),
 				IsSpace:    true,
 				Advance:    f.Size,
 				Components: " ",
 			})
 		} else {
-			adv, err := f.AdvanceX(r)
-			if err != nil {
-				fmt.Println(err)
+			var bdelta bag.ScaledPoint
+			adv := buf.Pos[i].XAdvance
+			advanceCalculated := adv * int32(f.Mag)
+			// only add kern if the next item is not a space
+			if i < len(buf.Info)-1 {
+				if buf.Info[i+1].Glyph != space {
+					advanceWant := ha(r.Glyph) * float32(f.Mag)
+					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
+				}
 			}
 			glyphs = append(glyphs, Atom{
-				Glyph:      r,
-				Advance:    adv,
+				Glyph:      char,
+				Advance:    bag.ScaledPoint(advanceCalculated),
 				Height:     f.Size - f.Depth,
 				Depth:      f.Depth,
-				Hyphenate:  unicode.IsLetter(r),
-				Components: string(r),
-				Codepoint:  f.Face.ToGlyphIndex[r],
+				Hyphenate:  true,
+				Components: string(char),
+				Codepoint:  int(r.Glyph),
+				Kernafter:  bdelta,
 			})
 		}
 	}
@@ -89,7 +107,7 @@ func (f *Font) AdvanceX(r rune) (bag.ScaledPoint, error) {
 	if err != nil {
 		return 0, err
 	}
-	adv, err := f.Face.Font.GlyphAdvance(idx)
+	adv := f.Face.Font.Face().HorizontalAdvance(fonts.GID(idx))
 	if err != nil {
 		return 0, err
 	}

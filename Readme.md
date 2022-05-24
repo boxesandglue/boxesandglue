@@ -23,7 +23,7 @@ The frontend has high level methods to create a PDF document, load fonts, insert
 
 The backend has the small building blocks that are used to create documents. These building blocks are called “nodes” which can be chained together in linked lists, a node list.
 
-See the [architecture overview](https://github.com/speedata/boxesandglue/discussions/2) for a more detailled description.
+See the [architecture overview](https://github.com/speedata/boxesandglue/discussions/2) for a more detailed description.
 
 ## Status
 
@@ -124,7 +124,7 @@ func main() {
 ```
 
 
-To get a PDF/UA (universal accessibility) document, insert the following lines before `d.OutputAt...`
+To get a PDF/UA (universal accessibility) document, insert the following lines before `.OutputAt...` and add `"github.com/speedata/boxesandglue/backend/document"` to the import section.
 
 ```go
 	f.Doc.RootStructureElement = &document.StructureElement{
@@ -137,7 +137,7 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 	}
 	f.Doc.RootStructureElement.AddChild(para)
 
-	vlist.Attibutes = node.H{
+	vlist.Attributes = node.H{
 		"tag": para,
 	}
 ```

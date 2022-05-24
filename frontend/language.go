@@ -148,6 +148,8 @@ func Hyphenate(nodelist node.Node, defaultLang *lang.Lang) {
 		case *node.Lang:
 			curlang = v.Lang
 			wordboundary = true
+		case *node.Kern:
+			wordboundary = false
 		default:
 			wordboundary = true
 

@@ -313,6 +313,8 @@ func getWidth(n Node) bag.ScaledPoint {
 		return t.Width
 	case *HList:
 		return t.Width
+	case *Kern:
+		return t.Kern
 	case *VList:
 		return t.Width
 	case *StartStop, *Disc, *Lang:
@@ -335,7 +337,7 @@ func getHeight(n Node) bag.ScaledPoint {
 		return t.Height
 	case *Glue:
 		return t.Width
-	case *StartStop, *Disc, *Lang, *Penalty:
+	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
 		return 0
 	default:
 		bag.Logger.DPanicf("getHeight: unknown node type %T", n)

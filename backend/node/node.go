@@ -29,6 +29,8 @@ const (
 	TypeHList
 	// TypeImage is a Image node.
 	TypeImage
+	// TypeKern is a Kern node.
+	TypeKern
 	// TypeLang is a Lang node.
 	TypeLang
 	// TypePenalty is a Penalty node.
@@ -78,15 +80,17 @@ func String(n Node) string {
 			fontname = fmt.Sprintf("font: %s", t.Font.Face.InternalName())
 		}
 		extrainfo = fmt.Sprintf(": %s (%s)", t.Components, fontname)
+	case *Kern:
+		extrainfo = t.Kern.String()
 	}
 	return fmt.Sprintf(" %12s <- %-10s %4d -> %12s%s", pr, n.Name(), n.GetID(), nx, extrainfo)
 }
 
 type basenode struct {
-	next      Node
-	prev      Node
-	ID        int
-	Attibutes H
+	next       Node
+	prev       Node
+	ID         int
+	Attributes H
 }
 
 func genIntegerSequence(ids chan int) {
@@ -105,7 +109,7 @@ func init() {
 // IsNode returns true if the argument is a Node.
 func IsNode(arg interface{}) bool {
 	switch arg.(type) {
-	case *Disc, *Glyph, *Glue, *Image, *HList, *Lang, *StartStop, *VList:
+	case *Disc, *Glyph, *Glue, *Image, *HList, *Kern, *Lang, *StartStop, *VList:
 		return true
 	}
 	return false
@@ -135,7 +139,7 @@ func (d *Disc) Next() Node {
 	return d.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (d *Disc) Prev() Node {
 	return d.prev
 }
@@ -145,7 +149,7 @@ func (d *Disc) SetNext(n Node) {
 	d.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (d *Disc) SetPrev(n Node) {
 	d.prev = n
 }
@@ -180,7 +184,7 @@ func NewDiscWithContents(n *Disc) *Disc {
 	return n
 }
 
-// IsDisc retuns the value of the element and true, if the element is a Disc
+// IsDisc returns the value of the element and true, if the element is a Disc
 // node.
 func IsDisc(elt Node) (*Disc, bool) {
 	Disc, ok := elt.(*Disc)
@@ -209,7 +213,7 @@ func (g *Glyph) Next() Node {
 	return g.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (g *Glyph) Prev() Node {
 	return g.prev
 }
@@ -219,7 +223,7 @@ func (g *Glyph) SetNext(n Node) {
 	g.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (g *Glyph) SetPrev(n Node) {
 	g.prev = n
 }
@@ -299,7 +303,7 @@ func (g *Glue) Next() Node {
 	return g.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (g *Glue) Prev() Node {
 	return g.prev
 }
@@ -309,7 +313,7 @@ func (g *Glue) SetNext(n Node) {
 	g.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (g *Glue) SetPrev(n Node) {
 	g.prev = n
 }
@@ -347,7 +351,7 @@ func NewGlue() *Glue {
 	return n
 }
 
-// IsGlue retuns the value of the element and true, if the element is a Glue
+// IsGlue returns the value of the element and true, if the element is a Glue
 // node.
 func IsGlue(elt Node) (*Glue, bool) {
 	n, ok := elt.(*Glue)
@@ -381,7 +385,7 @@ func (h *HList) Next() Node {
 	return h.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (h *HList) Prev() Node {
 	return h.prev
 }
@@ -391,7 +395,7 @@ func (h *HList) SetNext(n Node) {
 	h.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (h *HList) SetPrev(n Node) {
 	h.prev = n
 }
@@ -431,11 +435,77 @@ func NewHList() *HList {
 	return n
 }
 
-// IsHList retuns the value of the element and true, if the element is a HList
+// IsHList returns the value of the element and true, if the element is a HList
 // node.
 func IsHList(elt Node) (*HList, bool) {
 	hlist, ok := elt.(*HList)
 	return hlist, ok
+}
+
+// A Kern is a small space between glyphs.
+type Kern struct {
+	basenode
+	Kern bag.ScaledPoint
+}
+
+func (k *Kern) String() string {
+	return String(k)
+}
+
+// Next returns the following node or nil if no such node exists.
+func (k *Kern) Next() Node {
+	return k.next
+}
+
+// Prev returns the node preceding this node or nil if no such node exists.
+func (k *Kern) Prev() Node {
+	return k.prev
+}
+
+// SetNext sets the following node.
+func (k *Kern) SetNext(n Node) {
+	k.next = n
+}
+
+// SetPrev sets the preceding node.
+func (k *Kern) SetPrev(n Node) {
+	k.prev = n
+}
+
+// GetID returns the node id
+func (k *Kern) GetID() int {
+	return k.ID
+}
+
+// Name returns the name of the node
+func (k *Kern) Name() string {
+	return "kern"
+}
+
+// Type returns the type of the node
+func (k *Kern) Type() Type {
+	return TypeGlue
+}
+
+// Copy creates a deep copy of the node.
+func (k *Kern) Copy() Node {
+	n := NewKern()
+	n.Kern = k.Kern
+	return n
+}
+
+// NewKern creates an initialized Kern node
+func NewKern() *Kern {
+	n := &Kern{}
+	n.ID = <-ids
+	return n
+}
+
+// IsKern returns the value of the element and true, if the element is a Kern
+// node.
+func IsKern(elt Node) (*Kern, bool) {
+	n, ok := elt.(*Kern)
+	return n, ok
 }
 
 // A Lang is a node that sets the current language.
@@ -453,7 +523,7 @@ func (l *Lang) Next() Node {
 	return l.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (l *Lang) Prev() Node {
 	return l.prev
 }
@@ -463,7 +533,7 @@ func (l *Lang) SetNext(n Node) {
 	l.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (l *Lang) SetPrev(n Node) {
 	l.prev = n
 }
@@ -498,7 +568,7 @@ func NewLangWithContents(n *Lang) *Lang {
 	return n
 }
 
-// IsLang retuns the value of the element and true, if the element is a Lang
+// IsLang returns the value of the element and true, if the element is a Lang
 // node.
 func IsLang(elt Node) (*Lang, bool) {
 	lang, ok := elt.(*Lang)
@@ -526,7 +596,7 @@ func (p *Penalty) Next() Node {
 	return p.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (p *Penalty) Prev() Node {
 	return p.prev
 }
@@ -536,7 +606,7 @@ func (p *Penalty) SetNext(n Node) {
 	p.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (p *Penalty) SetPrev(n Node) {
 	p.prev = n
 }
@@ -571,7 +641,7 @@ func NewPenalty() *Penalty {
 	return n
 }
 
-// IsPenalty retuns the value of the element and true, if the element is a Penalty
+// IsPenalty returns the value of the element and true, if the element is a Penalty
 // node.
 func IsPenalty(elt Node) (*Penalty, bool) {
 	Penalty, ok := elt.(*Penalty)
@@ -598,7 +668,7 @@ func (r *Rule) Next() Node {
 	return r.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (r *Rule) Prev() Node {
 	return r.prev
 }
@@ -608,7 +678,7 @@ func (r *Rule) SetNext(n Node) {
 	r.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (r *Rule) SetPrev(n Node) {
 	r.prev = n
 }
@@ -644,7 +714,7 @@ func NewRule() *Rule {
 	return n
 }
 
-// IsRule retuns the value of the element and true, if the element is a Rule
+// IsRule returns the value of the element and true, if the element is a Rule
 // node.
 func IsRule(elt Node) (*Rule, bool) {
 	rule, ok := elt.(*Rule)
@@ -673,7 +743,7 @@ const (
 )
 
 const (
-	// ActionNone represesents no special action
+	// ActionNone represents no special action
 	ActionNone ActionType = iota
 	// ActionHyperlink represents a hyperlink.
 	ActionHyperlink
@@ -710,7 +780,7 @@ func (d *StartStop) Next() Node {
 	return d.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (d *StartStop) Prev() Node {
 	return d.prev
 }
@@ -720,7 +790,7 @@ func (d *StartStop) SetNext(n Node) {
 	d.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (d *StartStop) SetPrev(n Node) {
 	d.prev = n
 }
@@ -772,7 +842,7 @@ func (v *VList) Next() Node {
 	return v.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (v *VList) Prev() Node {
 	return v.prev
 }
@@ -782,7 +852,7 @@ func (v *VList) SetNext(n Node) {
 	v.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (v *VList) SetPrev(n Node) {
 	v.prev = n
 }
@@ -822,7 +892,7 @@ func NewVList() *VList {
 	return n
 }
 
-// IsVList retuns the value of the element and true, if the element is a VList node.
+// IsVList returns the value of the element and true, if the element is a VList node.
 func IsVList(elt Node) (*VList, bool) {
 	vlist, ok := elt.(*VList)
 	return vlist, ok
@@ -845,7 +915,7 @@ func (img *Image) Next() Node {
 	return img.next
 }
 
-// Prev returns the node preceeding this node or nil if no such node exists.
+// Prev returns the node preceding this node or nil if no such node exists.
 func (img *Image) Prev() Node {
 	return img.prev
 }
@@ -855,7 +925,7 @@ func (img *Image) SetNext(n Node) {
 	img.next = n
 }
 
-// SetPrev sets the preceeding node.
+// SetPrev sets the preceding node.
 func (img *Image) SetPrev(n Node) {
 	img.prev = n
 }
@@ -891,7 +961,7 @@ func NewImage() *Image {
 	return n
 }
 
-// IsImage retuns the value of the element and true, if the element is a Image node.
+// IsImage returns the value of the element and true, if the element is a Image node.
 func IsImage(elt Node) (*Image, bool) {
 	img, ok := elt.(*Image)
 	return img, ok

@@ -2,12 +2,14 @@ package frontend
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
+	"github.com/speedata/textlayout/harfbuzz"
 )
 
 // SettingType represents a setting such as font weight or color.
@@ -98,16 +100,18 @@ const (
 	SettingFontFamily
 	// SettingSize sets the font size.
 	SettingSize
-	// SettingHyperlink defines an external hypherlink.
+	// SettingHyperlink defines an external hyperlink.
 	SettingHyperlink
-	// SettingMarginLeft sets the left margin
+	// SettingMarginLeft sets the left margin.
 	SettingMarginLeft
-	// SettingMarginRight sets the right margin
+	// SettingMarginRight sets the right margin.
 	SettingMarginRight
-	// SettingMarginBottom sets the bottom margin
+	// SettingMarginBottom sets the bottom margin.
 	SettingMarginBottom
-	// SettingMarginTop sets the top margin
+	// SettingMarginTop sets the top margin.
 	SettingMarginTop
+	// SettingOpenTypeFeature allows the user to (de)select OpenType features such as ligatures.
+	SettingOpenTypeFeature
 )
 
 // TypesettingSettings is a hash of glyph attributes to values.
@@ -128,6 +132,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	var color string
 	var hyperlink document.Hyperlink
 	var hasColor, hasHyperlink bool
+	fontfeatures := []harfbuzz.Feature{}
 
 	for k, v := range ts {
 		switch k {
@@ -145,6 +150,14 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 			hasHyperlink = true
 		case SettingStyle:
 			fontstyle = v.(FontStyle)
+		case SettingOpenTypeFeature:
+			for _, str := range strings.Split(v.(string), ",") {
+				f, err := harfbuzz.ParseFeature(str)
+				if err != nil {
+					bag.Logger.Errorf("cannot parse OpenType feature tag %q.", str)
+				}
+				fontfeatures = append(fontfeatures, f)
+			}
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
 			// ignore
 		default:
@@ -208,7 +221,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	cur = head
 	var lastglue node.Node
-	atoms := fnt.Shape(str)
+	atoms := fnt.Shape(str, fontfeatures)
 	for _, r := range atoms {
 		if r.IsSpace {
 			if lastglue == nil {
@@ -232,6 +245,13 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil
+
+			if r.Kernafter != 0 {
+				k := node.NewKern()
+				k.Kern = r.Kernafter
+				head = node.InsertAfter(head, cur, k)
+				cur = k
+			}
 		}
 	}
 	if hasColor {

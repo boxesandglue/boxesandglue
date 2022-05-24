@@ -44,10 +44,10 @@ type Page struct {
 }
 
 const (
-	pdfCodpointMode = 1
-	pdfBracketMode  = 2
-	pdfTextMode     = 3
-	pdfOuterMode    = 4
+	pdfCodepointMode = 1
+	pdfBracketMode   = 2
+	pdfTextMode      = 3
+	pdfOuterMode     = 4
 )
 
 // objectContext contains information about the current position of the cursor
@@ -236,6 +236,12 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 			posY := oc.objY - oc.sumV
 			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
 		}
+	case *node.Kern:
+		if oc.textmode == 1 {
+			oc.gotoTextMode(2)
+			oc.glueString = fmt.Sprintf(" %d ", -1000*n.Kern/oc.currentFont.Size)
+		}
+		oc.sumX += n.Kern
 	case *node.Lang, *node.Penalty:
 		// ignore
 	case *node.Disc:
@@ -347,8 +353,8 @@ func (p *Page) Shipout() {
 		}
 
 		vlist := obj.Vlist
-		if vlist.Attibutes != nil {
-			if r, ok := vlist.Attibutes["tag"]; ok {
+		if vlist.Attributes != nil {
+			if r, ok := vlist.Attributes["tag"]; ok {
 				oc.tag = r.(*StructureElement)
 				oc.tag.ID = len(p.StructureElements)
 				p.StructureElements = append(p.StructureElements, oc.tag)
@@ -368,7 +374,7 @@ func (p *Page) Shipout() {
 	}
 
 	st := pdf.NewStream([]byte(s.String()))
-	// st.SetCompression()
+	st.SetCompression()
 	page := p.document.pdf.AddPage(st)
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
