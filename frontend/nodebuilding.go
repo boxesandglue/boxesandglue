@@ -137,7 +137,12 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	for k, v := range ts {
 		switch k {
 		case SettingFontWeight:
-			fontweight = v.(FontWeight)
+			switch t := v.(type) {
+			case int:
+				fontweight = FontWeight(t)
+			case FontWeight:
+				fontweight = t
+			}
 		case SettingFontFamily:
 			fontfamily = v.(*FontFamily)
 		case SettingSize:

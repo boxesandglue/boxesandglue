@@ -23,27 +23,14 @@ func (fe *Document) NewFontFamily(name string) *FontFamily {
 		ID:   len(fe.FontFamilies),
 		Name: name,
 	}
-	fe.FontFamilies = append(fe.FontFamilies, ff)
+	fe.FontFamilies[name] = ff
 	return ff
-}
-
-// GetFontFamily returns the font family with the given id.
-func (fe *Document) GetFontFamily(id int) *FontFamily {
-	if id >= len(fe.FontFamilies) {
-		return nil
-	}
-	return fe.FontFamilies[id]
 }
 
 // FindFontFamily returns the font family with the given name or nil if there is
 // no font family with this name.
 func (fe *Document) FindFontFamily(name string) *FontFamily {
-	for _, ff := range fe.FontFamilies {
-		if ff.Name == name {
-			return ff
-		}
-	}
-	return nil
+	return fe.FontFamilies[name]
 }
 
 // LoadFace loads a font from a TrueType or OpenType collection.

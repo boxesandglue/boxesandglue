@@ -11,7 +11,7 @@ import (
 
 // Document holds convenience functions.
 type Document struct {
-	FontFamilies   []*FontFamily
+	FontFamilies   map[string]*FontFamily
 	Doc            *document.PDFDocument
 	usedcolors     map[string]*document.Color
 	usedSpotcolors map[*document.Color]bool
@@ -25,6 +25,7 @@ func initDocument() *Document {
 		usedSpotcolors: make(map[*document.Color]bool),
 		usedcolors:     make(map[string]*document.Color),
 		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
+		FontFamilies:   make(map[string]*FontFamily),
 	}
 	d.FindFile = d.findFile
 	return d
