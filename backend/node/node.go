@@ -484,7 +484,7 @@ func (k *Kern) Name() string {
 
 // Type returns the type of the node
 func (k *Kern) Type() Type {
-	return TypeGlue
+	return TypeKern
 }
 
 // Copy creates a deep copy of the node.

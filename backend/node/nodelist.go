@@ -29,7 +29,7 @@ func NewLinebreakSettings() *LinebreakSettings {
 }
 
 // InsertAfter inserts the node insert right after cur. If cur is nil then
-// insert is the new head. This method retuns the head node.
+// insert is the new head. This method returns the head node.
 func InsertAfter(head, cur, insert Node) Node {
 	if cur == nil {
 		return insert

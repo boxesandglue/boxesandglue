@@ -34,7 +34,8 @@ func LoadPatternFile(fn string) (*Lang, error) {
 	return l, nil
 }
 
-// NewFromReader returns a Lang object from the reader r which points to hyphenation patterns.
+// NewFromReader returns a Lang object from the reader r which points to
+// hyphenation patterns.
 func NewFromReader(r io.Reader) (*Lang, error) {
 	hl, err := hyphenation.New(r)
 	if err != nil {
@@ -45,7 +46,7 @@ func NewFromReader(r io.Reader) (*Lang, error) {
 	return l, nil
 }
 
-// Hyphenate retuns a slice of hyphenation points
+// Hyphenate returns a slice of hyphenation points
 func (l *Lang) Hyphenate(word string) []int {
 	l.lang.Leftmin = l.Lefthyphenmin
 	l.lang.Rightmin = l.Righthyphenmin
@@ -61,4 +62,8 @@ func (l *Lang) Hyphenate(word string) []int {
 		}
 	}
 	return hyphenpoints
+}
+
+func (l *Lang) String() string {
+	return l.Name
 }

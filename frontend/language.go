@@ -13,66 +13,66 @@ import (
 
 //go:generate rake genpatterns
 
-var codeVarname = map[string]bool{
-	"bg":    true,
-	"ca":    true,
-	"cs":    true,
-	"cy":    true,
-	"da":    true,
-	"de":    true,
-	"el":    true,
-	"en":    true,
-	"en_gb": true,
-	"en_us": true,
-	"eo":    true,
-	"es":    true,
-	"et":    true,
-	"eu":    true,
-	"fi":    true,
-	"fr":    true,
-	"ga":    true,
-	"gl":    true,
-	"grc":   true,
-	"gu":    true,
-	"hi":    true,
-	"hr":    true,
-	"hu":    true,
-	"hy":    true,
-	"id":    true,
-	"is":    true,
-	"it":    true,
-	"ku":    true,
-	"kn":    true,
-	"lt":    true,
-	"ml":    true,
-	"lv":    true,
-	"nb":    true,
-	"nl":    true,
-	"nn":    true,
-	"no":    true,
-	"pl":    true,
-	"pt":    true,
-	"ro":    true,
-	"ru":    true,
-	"sk":    true,
-	"sl":    true,
-	"sc":    true,
-	"sv":    true,
-	"tr":    true,
-	"uk":    true,
+var codeVarname = map[string]string{
+	"bg":    "bg",
+	"ca":    "ca",
+	"cs":    "cs",
+	"cy":    "cy",
+	"da":    "da",
+	"de":    "de",
+	"el":    "el",
+	"en":    "en",
+	"en_gb": "engb",
+	"en_us": "enus",
+	"eo":    "eo",
+	"es":    "es",
+	"et":    "et",
+	"eu":    "eu",
+	"fi":    "fi",
+	"fr":    "fr",
+	"ga":    "ga",
+	"gl":    "gl",
+	"grc":   "grc",
+	"gu":    "gu",
+	"hi":    "hi",
+	"hr":    "hr",
+	"hu":    "hu",
+	"hy":    "hy",
+	"id":    "id",
+	"is":    "is",
+	"it":    "it",
+	"ku":    "ku",
+	"kn":    "kn",
+	"lt":    "lt",
+	"ml":    "ml",
+	"lv":    "lv",
+	"nb":    "nb",
+	"nl":    "nl",
+	"nn":    "nn",
+	"no":    "no",
+	"pl":    "pl",
+	"pt":    "pt",
+	"ro":    "ro",
+	"ru":    "ru",
+	"sk":    "sk",
+	"sl":    "sl",
+	"sc":    "sc",
+	"sv":    "sv",
+	"tr":    "tr",
+	"uk":    "uk",
 }
 
 // GetLanguage returns a language object for the language.
 func GetLanguage(langname string) (*lang.Lang, error) {
 	newLangname := strings.ToLower(langname)
 	var r io.Reader
-	if _, ok := codeVarname[newLangname]; ok {
-		r = strings.NewReader(hyphenationpatterns[newLangname])
+	if vn, ok := codeVarname[newLangname]; ok {
+		r = strings.NewReader(hyphenationpatterns[vn])
 	} else {
 		if split := strings.Split(newLangname, "_"); len(split) > 1 {
 			newLangname = split[0]
-			if _, ok := codeVarname[newLangname]; ok {
-				r = strings.NewReader(hyphenationpatterns[newLangname])
+			if vn, ok := codeVarname[newLangname]; ok {
+				r = strings.NewReader(hyphenationpatterns[vn])
 			}
 		}
 	}
@@ -97,6 +97,9 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 		for _, step := range bp {
 			for i := 0; i <= step-1; i++ {
 				cur = cur.Next()
+				if cur.Type() == node.TypeKern {
+					cur = cur.Next()
+				}
 			}
 			disc := node.NewDisc()
 			hyphen := node.NewGlyph()

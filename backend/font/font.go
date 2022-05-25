@@ -1,6 +1,8 @@
 package font
 
 import (
+	"unicode"
+
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 	"github.com/speedata/textlayout/fonts"
@@ -91,7 +93,7 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 				Advance:    bag.ScaledPoint(advanceCalculated),
 				Height:     f.Size - f.Depth,
 				Depth:      f.Depth,
-				Hyphenate:  true,
+				Hyphenate:  unicode.IsLetter(char),
 				Components: string(char),
 				Codepoint:  int(r.Glyph),
 				Kernafter:  bdelta,
