@@ -148,3 +148,9 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 		"tag": para,
 	}
 ```
+
+
+The result is
+
+<img src="https://i.imgur.com/cwGQTzQ.png" alt="typeset text from the frog king" width="200"/>
+

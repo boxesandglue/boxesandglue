@@ -23,20 +23,6 @@ var (
 	toprightbottomleft = [...]string{"top", "right", "bottom", "left"}
 )
 
-type mode int
-
-func (m mode) String() string {
-	if m == modeHorizontal {
-		return "→"
-	}
-	return "↓"
-}
-
-const (
-	modeHorizontal mode = iota
-	modeVertial
-)
-
 func normalizespace(input string) string {
 	return strings.Join(strings.Fields(input), " ")
 }
@@ -104,35 +90,11 @@ func resolveStyle(i int, sel *goquery.Selection) {
 				tokens = append(tokens, token)
 			}
 		}
-		var i int
-		var key, val Tokenstream
-		start := 0
-		colon := 0
-		for {
-			tok := tokens[i]
-			switch tok.Type {
-			case scanner.Delim:
-				switch tok.Value {
-				case ":":
-					key = tokens[start:i]
-					colon = i + 1
-				case ";":
-					val = tokens[colon:i]
-					sel.SetAttr("!"+key.String(), val.String())
-					start = i
-				default:
-					w("unknown delimiter", tok.Value)
-				}
-			default:
-				// w("unknown token type", tok.Type, tok.Value)
-			}
-			i = i + 1
-			if i == len(tokens) {
-				break
-			}
+		block := ConsumeBlock(tokens, true)
+		for _, rule := range block.Rules {
+			sel.SetAttr("!"+stringValue(rule.Key), stringValue(rule.Value))
+
 		}
-		val = tokens[colon:i]
-		sel.SetAttr("!"+stringValue(key), stringValue(val))
 		sel.RemoveAttr("style")
 	}
 	sel.Children().Each(resolveStyle)

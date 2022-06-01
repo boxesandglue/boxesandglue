@@ -81,16 +81,17 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 			var bdelta bag.ScaledPoint
 			adv := buf.Pos[i].XAdvance
 			advanceCalculated := adv * int32(f.Mag)
+			advanceWant := ha(r.Glyph) * float32(f.Mag)
+
 			// only add kern if the next item is not a space
 			if i < len(buf.Info)-1 {
 				if buf.Info[i+1].Glyph != space {
-					advanceWant := ha(r.Glyph) * float32(f.Mag)
 					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
 				}
 			}
 			glyphs = append(glyphs, Atom{
 				Glyph:      char,
-				Advance:    bag.ScaledPoint(advanceCalculated),
+				Advance:    bag.ScaledPoint(advanceWant),
 				Height:     f.Size - f.Depth,
 				Depth:      f.Depth,
 				Hyphenate:  unicode.IsLetter(char),

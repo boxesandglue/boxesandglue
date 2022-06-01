@@ -312,7 +312,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 
 	// There might be several nodes in here which end at the last glue with
 	// different numbers of lines. Let's pick the one with the fewest total
-	// demerits, as we do not specify a loosenes parameter yet.
+	// demerits, as we do not specify a looseness parameter yet.
 	demerits := math.MaxInt
 	lastNode := lb.activeNodesA
 	if lastNode == nil {

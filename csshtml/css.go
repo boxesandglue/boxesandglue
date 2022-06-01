@@ -364,8 +364,7 @@ func NewCSSParser() *CSS {
 	return &CSS{}
 }
 
-// ParseHTMLFragment takes the HTML text and the CSS text and returns a
-// Lua table as a string and perhaps an error.
+// ParseHTMLFragment takes the HTML text and the CSS text and goquery selection.
 func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*goquery.Selection, error) {
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(csstext), false))

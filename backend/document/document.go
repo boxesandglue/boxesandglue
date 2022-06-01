@@ -144,7 +144,9 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 	case *node.Glue:
 		if oc.textmode == 1 {
 			// Single glue at end should not be printed. Therefore we save it for later.
-			oc.glueString = fmt.Sprintf(" %d ", -1*1000*n.Width/oc.currentFont.Size)
+			if oc.currentFont.Size != 0 {
+				oc.glueString = fmt.Sprintf(" %d ", -1*1000*n.Width/oc.currentFont.Size)
+			}
 		}
 		oc.sumX += n.Width
 	case *node.Rule:
@@ -263,7 +265,7 @@ func (oc *objectContext) outputVerticalItem(vlist *node.VList, hElt node.Node) {
 	case *node.HList:
 		// The first hlist: move cursor down
 		if hElt == vlist.List {
-			oc.sumV += v.Height
+			oc.sumV += v.Height + v.Depth
 		}
 
 		for itm := v.List; itm != nil; itm = itm.Next() {

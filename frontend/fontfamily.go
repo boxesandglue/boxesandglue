@@ -136,15 +136,19 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 		return nil, ErrUnfulfilledFamilyRequest
 	}
 found:
-	if ff.familyMember[weight][style] == nil {
-		// todo: implement algorithm to get different style?
-		return nil, ErrUnfulfilledFamilyRequest
+	ffMemberWeight := ff.familyMember[weight]
+	if ff := ffMemberWeight[style]; ff != nil {
+		return ff, nil
 	}
-	return ff.familyMember[weight][style], nil
+	// fallback to normal
+	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
+		return ff, nil
+	}
+	return nil, ErrUnfulfilledFamilyRequest
 }
 
 // ResolveFontWeight returns a FontWeight based on the string fw. For example
-// bold is convertert to font weight 700.
+// bold is converted to font weight 700.
 func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 	switch strings.ToLower(fw) {
 	case "thin", "hairline":
@@ -174,7 +178,19 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 	}
 
 	return FontWeight(i)
+}
 
+// ResolveFontStyle parses the string fs and returns a font style.
+func ResolveFontStyle(fs string) FontStyle {
+	switch strings.ToLower(fs) {
+	case "italic":
+		return FontStyleItalic
+	case "normal":
+		return FontStyleNormal
+	case "oblique":
+		return FontStyleOblique
+	}
+	return FontStyleNormal
 }
 
 func (ff FontFamily) String() string {

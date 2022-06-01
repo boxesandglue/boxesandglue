@@ -129,9 +129,9 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
 	fontsize := 12 * bag.Factor
-	var color string
+	var col *document.Color
 	var hyperlink document.Hyperlink
-	var hasColor, hasHyperlink bool
+	var hasHyperlink bool
 	fontfeatures := []harfbuzz.Feature{}
 
 	for k, v := range ts {
@@ -148,8 +148,14 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingSize:
 			fontsize = v.(bag.ScaledPoint)
 		case SettingColor:
-			color = v.(string)
-			hasColor = true
+			switch t := v.(type) {
+			case string:
+				if c := fe.GetColor(t); c != nil {
+					col = c
+				}
+			case *document.Color:
+				col = t
+			}
 		case SettingHyperlink:
 			hyperlink = v.(document.Hyperlink)
 			hasHyperlink = true
@@ -209,20 +215,16 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 		head = hyperlinkStart
 	}
 
-	if hasColor {
-		if col := fe.GetColor(color); col != nil {
-			colStart := node.NewStartStop()
-			colStart.Position = node.PDFOutputPage
-			colStart.Callback = func(n node.Node) string {
-				return col.PDFStringFG() + " "
-			}
-			if head != nil {
-				head = node.InsertAfter(head, head, colStart)
-			}
-			head = colStart
-		} else {
-			bag.Logger.Errorf("color %q not found", color)
+	if col != nil {
+		colStart := node.NewStartStop()
+		colStart.Position = node.PDFOutputPage
+		colStart.Callback = func(n node.Node) string {
+			return col.PDFStringFG() + " "
 		}
+		if head != nil {
+			head = node.InsertAfter(head, head, colStart)
+		}
+		head = colStart
 	}
 	cur = head
 	var lastglue node.Node
@@ -259,7 +261,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		}
 	}
-	if hasColor {
+	if col != nil {
 		stop := node.NewStartStop()
 		stop.Position = node.PDFOutputPage
 		stop.Callback = func(n node.Node) string {

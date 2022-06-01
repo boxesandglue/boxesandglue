@@ -296,7 +296,7 @@ func Vpack(firstNode Node) *VList {
 	vl := NewVList()
 	vl.List = firstNode
 	vl.Depth = getDepth(lastNode)
-	vl.Height = sumht
+	vl.Height = sumht - getDepth(lastNode)
 	vl.Width = maxwd
 	return vl
 }
