@@ -121,6 +121,7 @@ type Disc struct {
 	Pre     Node
 	Post    Node
 	Replace Node
+	Penalty int // Added to the hyphen penalty
 }
 
 func (d *Disc) String() string {
@@ -175,6 +176,7 @@ func (d *Disc) Copy() Node {
 	n.Pre = CopyList(d.Pre)
 	n.Post = CopyList(d.Post)
 	n.Replace = CopyList(d.Replace)
+	n.Penalty = d.Penalty
 	return n
 }
 
@@ -287,11 +289,11 @@ const (
 // A Glue node has the value of a shrinking and stretching space
 type Glue struct {
 	basenode
-	Width        bag.ScaledPoint
-	Stretch      bag.ScaledPoint
-	Shrink       bag.ScaledPoint
-	StretchOrder GlueOrder
-	ShrinkOrder  GlueOrder
+	Width        bag.ScaledPoint // The natural width of the glue.
+	Stretch      bag.ScaledPoint // The stretchability of the glue, where width plus stretch = maximum width.
+	Shrink       bag.ScaledPoint // The shrinkability of the glue, where width minus shrink = minimum width.
+	StretchOrder GlueOrder       // The order of infinity of stretching.
+	ShrinkOrder  GlueOrder       // The order of infinity of shrinking.
 }
 
 func (g *Glue) String() string {
@@ -358,26 +360,23 @@ func IsGlue(elt Node) (*Glue, bool) {
 	return n, ok
 }
 
-// A HList is a horizontal list.
+// A HList is a container for a list which items are placed horizontally next to
+// each other. The most convenient way to create a hlist is to use node.HPack.
 type HList struct {
 	basenode
-	Width    bag.ScaledPoint
-	Height   bag.ScaledPoint
-	Depth    bag.ScaledPoint
-	Badness  int
-	GlueSet  float64
-	GlueSign uint8
-	Shift    bag.ScaledPoint
-	List     Node
+	Width     bag.ScaledPoint // The width of the hlist.
+	Height    bag.ScaledPoint // The height of the list.
+	Depth     bag.ScaledPoint // The depth of the list.
+	Badness   int             // The calculated badness of the packed box. Only set when using Hpack function.
+	GlueSet   float64         // The ratio of the glue.
+	GlueSign  uint8           // 0 = normal, 1 = stretching, 2 = shrinking
+	GlueOrder GlueOrder       // The level of infinity
+	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
+	List      Node            // The list itself.
 }
 
 func (h *HList) String() string {
 	return "hlist"
-}
-
-// Head returns the head of the list
-func (h *HList) Head() Node {
-	return h.List
 }
 
 // Next returns the following node or nil if no such node exists.
@@ -445,7 +444,7 @@ func IsHList(elt Node) (*HList, bool) {
 // A Kern is a small space between glyphs.
 type Kern struct {
 	basenode
-	Kern bag.ScaledPoint
+	Kern bag.ScaledPoint // The displacement in progression direction.
 }
 
 func (k *Kern) String() string {
@@ -511,7 +510,7 @@ func IsKern(elt Node) (*Kern, bool) {
 // A Lang is a node that sets the current language.
 type Lang struct {
 	basenode
-	Lang *lang.Lang
+	Lang *lang.Lang // The language setting  for the following nodes.
 }
 
 func (l *Lang) String() string {
@@ -580,11 +579,14 @@ func (l *Lang) Type() Type {
 	return TypeLang
 }
 
-// A Penalty is a node that sets information about a place to break a list.
+// A Penalty is a valid horizontal or vertical break point. The higher the
+// penalty the less likely the break occurs at this penalty. Anything below
+// or equal -10000 is considered a forced break, anything higher than or
+// equal to 10000 is considered a disallowed break.
 type Penalty struct {
 	basenode
-	Penalty int
-	Width   bag.ScaledPoint
+	Penalty int             // Value
+	Width   bag.ScaledPoint // Width of the penalty
 }
 
 func (p *Penalty) String() string {
@@ -830,11 +832,6 @@ type VList struct {
 
 func (v *VList) String() string {
 	return "vlist"
-}
-
-// Head returns the head of the list
-func (v *VList) Head() Node {
-	return v.List
 }
 
 // Next returns the following node or nil if no such node exists.

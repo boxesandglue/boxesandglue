@@ -201,18 +201,25 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 
 		if action == node.ActionHyperlink {
 			posX := oc.objX + oc.sumX
-			posY := oc.objY - oc.sumV - oc.currentFont.Depth
+			posY := oc.objY - oc.sumV - v.Depth
 			hyperlink := startNode.Value.(*Hyperlink)
 			if isStartNode {
 				hyperlink.startposX = posX
 				hyperlink.startposY = posY
 			} else {
+				rectHT := posY + v.Height + v.Depth - hyperlink.startposY
+				rectWD := posX - hyperlink.startposX
 				a := pdf.Annotation{
-					Rect:    [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, hyperlink.startposX + 50*bag.Factor, posY + v.Height + oc.currentFont.Depth},
-					Subtype: "Link",
-					URI:     hyperlink.URI,
+					Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
+					Subtype:    "Link",
+					URI:        hyperlink.URI,
+					ShowBorder: oc.p.document.ShowHyperlinks,
 				}
 				oc.p.Annotations = append(oc.p.Annotations, a)
+				if oc.p.document.IsTrace(VTraceHyperlinks) {
+					oc.gotoTextMode(3)
+					fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
+				}
 			}
 		}
 		switch n.Position {
@@ -393,9 +400,10 @@ func (p *Page) Shipout() {
 	}
 
 	var structureElementObjectIDs []string
+	// annotations are hyperlinks and structure elements
+	page.Annotations = p.Annotations
 	if p.document.RootStructureElement != nil {
 
-		page.Annotations = p.Annotations
 		for _, se := range p.StructureElements {
 			parent := se.Parent
 			if parent.Obj == nil {
@@ -474,6 +482,7 @@ type PDFDocument struct {
 	Spotcolors           []*Color
 	pdf                  *pdf.PDF
 	tracing              VTrace
+	ShowHyperlinks       bool
 	RootStructureElement *StructureElement
 	ColorProfile         *ColorProfile
 	pdfStructureObjects  []*pdfStructureObject

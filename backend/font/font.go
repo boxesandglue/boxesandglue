@@ -11,7 +11,6 @@ import (
 
 // An Atom contains size information about the glyphs as a result of Shape
 type Atom struct {
-	Glyph      rune
 	Advance    bag.ScaledPoint
 	Height     bag.ScaledPoint
 	Depth      bag.ScaledPoint
@@ -36,8 +35,9 @@ type Font struct {
 
 // NewFont creates a new font instance.
 func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
+	f := face.Font.Face()
+	factor := 100 / (float64(f.AscenderPDF()) + float64(f.DescenderPDF()*-1))
 	mag := int(size) / int(face.UnitsPerEM)
-
 	fnt := &Font{
 		Space:        size * 333 / 1000,
 		SpaceStretch: size * 167 / 1000,
@@ -45,9 +45,8 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Size:         size,
 		Face:         face,
 		Mag:          mag,
-		Depth:        bag.ScaledPoint(face.Font.Face().DescenderPDF()) * bag.ScaledPoint(mag) * -1,
+		Depth:        size * bag.ScaledPoint(float64(-1*f.DescenderPDF())*factor) / 100,
 	}
-
 	atoms := fnt.Shape("-", []harfbuzz.Feature{})
 	if len(atoms) == 1 {
 		fnt.Hyphenchar = atoms[0]
@@ -70,9 +69,8 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 	space := f.Face.Codepoint(' ')
 	for i, r := range buf.Info {
 		char := runes[r.Cluster]
-		if r.Glyph == space {
+		if unicode.IsSpace(char) {
 			glyphs = append(glyphs, Atom{
-				Glyph:      rune(r.Glyph),
 				IsSpace:    true,
 				Advance:    f.Size,
 				Components: " ",
@@ -90,7 +88,6 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 				}
 			}
 			glyphs = append(glyphs, Atom{
-				Glyph:      char,
 				Advance:    bag.ScaledPoint(advanceWant),
 				Height:     f.Size - f.Depth,
 				Depth:      f.Depth,

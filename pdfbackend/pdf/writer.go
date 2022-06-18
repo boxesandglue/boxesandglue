@@ -57,10 +57,11 @@ type Pages struct {
 // An Annotation is a PDF element that is additional to the text, such as a
 // hyperlink or a note.
 type Annotation struct {
-	Subtype string
-	Border  []int
-	Rect    [4]bag.ScaledPoint
-	URI     string
+	Subtype    string
+	Border     []int
+	ShowBorder bool
+	Rect       [4]bag.ScaledPoint
+	URI        string
 }
 
 // Separation repressents a spot color
@@ -277,6 +278,10 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 				"/A":       HashToString(actionDict, 1),
 				"/Rect":    fmt.Sprintf("[%s %s %s %s]", annot.Rect[0], annot.Rect[1], annot.Rect[2], annot.Rect[3]),
 			}
+			if !annot.ShowBorder {
+				annotDict["/Border"] = "[0 0 0]"
+			}
+
 			annotObj.Dict(annotDict)
 			if err := annotObj.Save(); err != nil {
 				return 0, err

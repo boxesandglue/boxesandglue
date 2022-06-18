@@ -114,6 +114,10 @@ const (
 	SettingOpenTypeFeature
 )
 
+func (st SettingType) String() string {
+	return fmt.Sprintf("%d", st)
+}
+
 // TypesettingSettings is a hash of glyph attributes to values.
 type TypesettingSettings map[SettingType]interface{}
 
@@ -122,6 +126,19 @@ type TypesettingSettings map[SettingType]interface{}
 type TypesettingElement struct {
 	Settings TypesettingSettings
 	Items    []interface{}
+}
+
+func (ts *TypesettingElement) String() string {
+	ret := []string{}
+	ret = append(ret, "Settings:")
+	for k, v := range ts.Settings {
+		ret = append(ret, fmt.Sprintf("%s:%v", k, v))
+	}
+	ret = append(ret, fmt.Sprintf("\nitems(len %d)", len(ts.Items)))
+	for _, itm := range ts.Items {
+		ret = append(ret, fmt.Sprintf("%s", itm))
+	}
+	return strings.Join(ret, " ")
 }
 
 func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
@@ -203,9 +220,6 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	var head, cur node.Node
 	var hyperlinkStart, hyperlinkStop *node.StartStop
 	if hasHyperlink {
-		if false {
-			fmt.Println(hyperlink)
-		}
 		hyperlinkStart = node.NewStartStop()
 		hyperlinkStart.Action = node.ActionHyperlink
 		hyperlinkStart.Value = &hyperlink
@@ -280,11 +294,15 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	return head, nil
 }
 
-// Mknodes creates a list of nodes which which can be formatted to a given width.
-func (fe *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error) {
+// Mknodes creates a list of nodes which which can be formatted to a given
+// width. The returned head and the tail are the beginning and the end of the
+// node list.
+func (fe *Document) Mknodes(ts *TypesettingElement) (head node.Node, tail node.Node, err error) {
+	if len(ts.Items) == 0 {
+		return nil, nil, nil
+	}
 	var newSettings = make(TypesettingSettings)
-	var head, cur, nl, end node.Node
-	var err error
+	var nl, end node.Node
 	for k, v := range ts.Settings {
 		newSettings[k] = v
 	}
@@ -295,8 +313,8 @@ func (fe *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error
 			if err != nil {
 				return nil, nil, err
 			}
-			head = node.InsertAfter(head, cur, nl)
-			cur = node.Tail(nl)
+			head = node.InsertAfter(head, tail, nl)
+			tail = node.Tail(nl)
 		case *TypesettingElement:
 			for k, v := range newSettings {
 				if _, found := t.Settings[k]; !found {
@@ -307,12 +325,14 @@ func (fe *Document) Mknodes(ts *TypesettingElement) (node.Node, node.Node, error
 			if err != nil {
 				return nil, nil, err
 			}
-			head = node.InsertAfter(head, cur, nl)
-			cur = end
+			if nl != nil {
+				head = node.InsertAfter(head, tail, nl)
+				tail = end
+			}
 		default:
 			fmt.Printf("Mknodes: unknown item type %T\n", t)
 		}
 
 	}
-	return head, cur, nil
+	return head, tail, nil
 }

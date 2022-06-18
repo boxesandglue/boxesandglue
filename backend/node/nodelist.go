@@ -6,7 +6,7 @@ import (
 	"github.com/speedata/boxesandglue/backend/bag"
 )
 
-// LinebreakSettings contains all information about the final paragraph
+// LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
 	HSize                bag.ScaledPoint
 	LineHeight           bag.ScaledPoint
@@ -163,12 +163,12 @@ func Hpack(firstNode Node) *HList {
 // HpackTo returns a HList node with the node list as its list.
 // The width is the desired width.
 func HpackTo(firstNode Node, width bag.ScaledPoint) *HList {
-	return HPackToWithEnd(firstNode, Tail(firstNode), width)
+	return HpackToWithEnd(firstNode, Tail(firstNode), width)
 }
 
-// HPackToWithEnd returns a HList node with nl as its list. The width is the
+// HpackToWithEnd returns a HList node with nl as its list. The width is the
 // desired width. The list stops at lastNode (including lastNode).
-func HPackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList {
+func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList {
 	glues := []*Glue{}
 
 	sumwd := bag.ScaledPoint(0)

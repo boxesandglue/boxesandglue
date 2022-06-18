@@ -151,7 +151,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 				case *Penalty:
 					curpenalty = t.Penalty
 				case *Disc:
-					curpenalty = lb.settings.Hyphenpenalty
+					curpenalty = lb.settings.Hyphenpenalty + t.Penalty
 					curflagged = true
 				}
 				demerits := 0
@@ -341,7 +341,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		}
 		curPre = e.Pre
 		if startPos != nil {
-			hl := HPackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
+			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {
