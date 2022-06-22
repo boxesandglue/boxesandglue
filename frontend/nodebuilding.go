@@ -119,13 +119,13 @@ func (st SettingType) String() string {
 }
 
 // TypesettingSettings is a hash of glyph attributes to values.
-type TypesettingSettings map[SettingType]interface{}
+type TypesettingSettings map[SettingType]any
 
 // TypesettingElement associates all items with the given settings. Items can be
 // text (string), images, other instances of a TypesettingElement or nodes.
 type TypesettingElement struct {
 	Settings TypesettingSettings
-	Items    []interface{}
+	Items    []any
 }
 
 func (ts *TypesettingElement) String() string {
@@ -149,7 +149,10 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	var col *document.Color
 	var hyperlink document.Hyperlink
 	var hasHyperlink bool
-	fontfeatures := []harfbuzz.Feature{}
+	fontfeatures := make([]harfbuzz.Feature, 0, len(fe.DefaultFeatures))
+	for _, f := range fe.DefaultFeatures {
+		fontfeatures = append(fontfeatures, f)
+	}
 
 	for k, v := range ts {
 		switch k {
@@ -233,7 +236,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 		colStart := node.NewStartStop()
 		colStart.Position = node.PDFOutputPage
 		colStart.Callback = func(n node.Node) string {
-			return col.PDFStringFG() + " "
+			return col.PDFStringStroking() + " "
 		}
 		if head != nil {
 			head = node.InsertAfter(head, head, colStart)

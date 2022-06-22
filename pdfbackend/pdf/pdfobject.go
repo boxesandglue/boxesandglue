@@ -21,7 +21,7 @@ func StringToPDF(str string) string {
 }
 
 // ArrayToString converts the objects in ary to a string including the opening and closing bracket
-func ArrayToString(ary []interface{}) string {
+func ArrayToString(ary []any) string {
 	ret := []string{"["}
 	for _, elt := range ary {
 		switch t := elt.(type) {
@@ -48,7 +48,7 @@ type Object struct {
 	ObjectNumber Objectnumber
 	Data         *bytes.Buffer
 	Dictionary   Dict
-	Array        []interface{}
+	Array        []any
 	pdfwriter    *PDF
 	compress     bool // for streams
 	comment      string

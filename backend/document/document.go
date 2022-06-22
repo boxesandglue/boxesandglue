@@ -13,6 +13,15 @@ import (
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
+const (
+	// OneCM has the width of one centimeter in ScaledPoints
+	OneCM bag.ScaledPoint = 1857685
+)
+
+var (
+	cutmarkLength bag.ScaledPoint = OneCM
+)
+
 // Object contains a vertical list and coordinates to be placed on a page.
 type Object struct {
 	X     bag.ScaledPoint
@@ -36,7 +45,7 @@ type Page struct {
 	ExtraOffset       bag.ScaledPoint
 	Background        []Object
 	Objects           []Object
-	Userdata          map[interface{}]interface{}
+	Userdata          map[any]any
 	Finished          bool
 	StructureElements []*StructureElement
 	Annotations       []pdf.Annotation
@@ -153,7 +162,6 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 		if oc.textmode == 1 && oc.glueString != "" {
 			oc.gotoTextMode(2)
 			fmt.Fprint(oc.s, oc.glueString)
-			oc.glueString = ""
 		}
 		oc.gotoTextMode(4)
 		oc.glueString = ""
@@ -161,6 +169,11 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 		posY := oc.objY - oc.sumV
 		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
 		fmt.Fprint(oc.s, n.Pre)
+		if !n.Hide {
+			fmt.Fprintf(oc.s, "q 0 %s %s %s re f Q ", -1*n.Depth, n.Width, n.Height + n.Depth)
+		}
+		fmt.Fprint(oc.s, n.Post)
+		oc.sumX += n.Width
 		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
 	case *node.Image:
 		oc.gotoTextMode(4)
@@ -341,8 +354,37 @@ func (p *Page) Shipout() {
 	}
 	bleedamount := p.document.Bleed
 
-	offsetX := bleedamount
-	offsetY := bleedamount
+	// ExtraOffset is cutmarks length + bleed amount
+	offsetX := p.ExtraOffset
+	offsetY := p.ExtraOffset
+
+	if p.document.ShowCutmarks {
+		x, y, wd, ht := p.ExtraOffset, p.ExtraOffset, p.Width+p.ExtraOffset, p.Height+p.ExtraOffset
+		distance, length, width := 5*bag.Factor, cutmarkLength, bag.Factor/2
+		if distance < bleedamount {
+			distance = bleedamount
+		}
+
+		instructions := []string{fmt.Sprintf("q 1 1 1 1 K %s w 1 0 0 1 %s %s Tm", width, bag.ScaledPoint(0), bag.ScaledPoint(0))}
+		// top right
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", wd, ht+distance, wd, ht+distance+length))
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", wd+distance, ht, wd+distance+length, ht))
+
+		// top left
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", x, ht+distance, x, ht+distance+length))
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", x-distance, ht, x-length-distance, ht))
+
+		// bottom left
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", x, y-distance, x, y-length-distance))
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", x-distance, y, x-length-distance, y))
+
+		// bottom right
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", wd, y-distance, wd, y-length-distance))
+		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", wd+distance, y, wd+distance+length, y))
+
+		instructions = append(instructions, "Q ")
+		s.WriteString(strings.Join(instructions, "\n"))
+	}
 
 	objs := make([]Object, 0, len(p.Background)+len(p.Objects))
 	objs = append(objs, p.Background...)
@@ -388,8 +430,9 @@ func (p *Page) Shipout() {
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
 	page.Height = p.Height + 2*offsetY
+	page.Dict["/TrimBox"] = fmt.Sprintf("[%s %s %s %s]", p.ExtraOffset, p.ExtraOffset, page.Width-p.ExtraOffset, page.Height-p.ExtraOffset)
 	if bleedamount > 0 {
-		page.Dict["/TrimBox"] = fmt.Sprintf("[%s %s %s %s]", bleedamount, bleedamount, page.Width-bleedamount, page.Height-bleedamount)
+		page.Dict["/BleedBox"] = fmt.Sprintf("[%s %s %s %s]", p.ExtraOffset-bleedamount, p.ExtraOffset-bleedamount, page.Width-p.ExtraOffset+bleedamount, page.Height-p.ExtraOffset+bleedamount)
 	}
 
 	for f := range usedFaces {
@@ -478,6 +521,7 @@ type PDFDocument struct {
 	CurrentPage          *Page
 	Filename             string
 	Bleed                bag.ScaledPoint
+	ShowCutmarks         bool
 	Title                string
 	Spotcolors           []*Color
 	pdf                  *pdf.PDF
@@ -571,6 +615,11 @@ func (d *PDFDocument) NewPage() *Page {
 		Width:    d.DefaultPageWidth,
 		Height:   d.DefaultPageHeight,
 	}
+	if d.ShowCutmarks {
+		d.CurrentPage.ExtraOffset = cutmarkLength
+	}
+	d.CurrentPage.ExtraOffset += d.Bleed
+
 	d.Pages = append(d.Pages, d.CurrentPage)
 	return d.CurrentPage
 }
@@ -602,10 +651,10 @@ func (d *PDFDocument) Finish() error {
 			sep.Y = col.Y
 			sep.K = col.K
 			sep.Name = col.Basecolor
-			sep.ID = fmt.Sprintf("/CS%d", col.Spotcolorid)
+			sep.ID = fmt.Sprintf("/CS%d", col.SpotcolorID)
 
 			sepObj := d.pdf.NewObject()
-			sepObj.Array = []interface{}{
+			sepObj.Array = []any{
 				"/Separation",
 				pdf.Name(col.Basecolor),
 				pdf.Array{"/ICCBased", cp.ObjectNumber},
@@ -629,7 +678,7 @@ func (d *PDFDocument) Finish() error {
 		}
 		var poStr strings.Builder
 
-		// structure objects are a used to lookup stucture elements for a page
+		// structure objects are a used to lookup structure elements for a page
 		for _, po := range d.pdfStructureObjects {
 			poStr.WriteString(fmt.Sprintf("%d [%s]", po.id, po.refs))
 		}
@@ -694,7 +743,7 @@ const (
 )
 
 // RegisterCallback registers the callback in fn.
-func (d *PDFDocument) RegisterCallback(cb Callback, fn interface{}) {
+func (d *PDFDocument) RegisterCallback(cb Callback, fn any) {
 	switch cb {
 	case CallbackPreShipout:
 		d.preShipoutCallback = fn.(func(page *Page))

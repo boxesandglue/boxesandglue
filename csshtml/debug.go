@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func w(a ...interface{}) {
+func w(a ...any) {
 	fmt.Println(a...)
 }
 

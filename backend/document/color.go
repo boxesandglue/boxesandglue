@@ -12,7 +12,7 @@ import (
 type Color struct {
 	Space       ColorSpace
 	Basecolor   string
-	Spotcolorid int
+	SpotcolorID int
 	C           float64
 	M           float64
 	Y           float64
@@ -74,19 +74,19 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 	case ColorGray:
 		return fmt.Sprintf("%s %s", strconv.FormatFloat(col.G, 'f', -1, 64), col.getPDFColorSuffix(stroking))
 	case ColorSpotcolor:
-		return fmt.Sprintf("/CS%d %s 1 scn ", col.Spotcolorid, col.getPDFColorSuffix(stroking))
+		return fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
 	default:
 		bag.Logger.DPanic("PDFStringFG: unknown color space.")
 		return ""
 	}
 }
 
-// PDFStringFG returns the PDF instructions to swith to the color for foreground colors.
-func (col *Color) PDFStringFG() string {
+// PDFStringStroking returns the PDF instructions to switch to the color for foreground colors.
+func (col *Color) PDFStringStroking() string {
 	return col.getPDFColorValues(true)
 }
 
-// PDFStringBG returns the PDF instructions to swith to the color for background colors.
-func (col *Color) PDFStringBG() string {
+// PDFStringNonStroking returns the PDF instructions to switch to the color for background colors.
+func (col *Color) PDFStringNonStroking() string {
 	return col.getPDFColorValues(false)
 }

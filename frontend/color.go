@@ -27,7 +27,7 @@ func (d *Document) GetColor(s string) *document.Color {
 	if col, ok := csscolors[s]; ok {
 		if col.Space == document.ColorSpotcolor {
 			d.usedSpotcolors[col] = true
-			col.Spotcolorid = len(d.usedSpotcolors)
+			col.SpotcolorID = len(d.usedSpotcolors)
 		}
 		d.usedcolors[s] = col
 		return col

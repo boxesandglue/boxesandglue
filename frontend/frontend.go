@@ -7,17 +7,19 @@ import (
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
+	"github.com/speedata/textlayout/harfbuzz"
 )
 
 // Document holds convenience functions.
 type Document struct {
-	FontFamilies   map[string]*FontFamily
-	Doc            *document.PDFDocument
-	usedcolors     map[string]*document.Color
-	usedSpotcolors map[*document.Color]bool
-	usedFonts      map[*pdf.Face]map[bag.ScaledPoint]*font.Font
-	FindFile       func(string) string
-	dirstack       []string
+	FontFamilies    map[string]*FontFamily
+	Doc             *document.PDFDocument
+	usedcolors      map[string]*document.Color
+	usedSpotcolors  map[*document.Color]bool
+	usedFonts       map[*pdf.Face]map[bag.ScaledPoint]*font.Font
+	FindFile        func(string) string
+	DefaultFeatures []harfbuzz.Feature
+	dirstack        []string
 }
 
 func initDocument() *Document {

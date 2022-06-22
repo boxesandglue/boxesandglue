@@ -20,11 +20,11 @@ func TestSimple(t *testing.T) {
 	for _, tc := range testdata {
 		col := f.GetColor(tc.colorname)
 		if tc.foreground {
-			if got, want := col.PDFStringFG(), tc.result; got != want {
+			if got, want := col.PDFStringStroking(), tc.result; got != want {
 				t.Errorf("col.PDFStringFG() = %s, want %s", got, want)
 			}
 		} else {
-			if got, want := col.PDFStringBG(), tc.result; got != want {
+			if got, want := col.PDFStringNonStroking(), tc.result; got != want {
 				t.Errorf("col.PDFStringBG() = %s, want %s", got, want)
 			}
 		}

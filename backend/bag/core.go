@@ -15,7 +15,7 @@ var (
 	unitRE = regexp.MustCompile("(.*?)(sp|mm|cm|in|pt|px|pc|m)")
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
-	// Logger is a zap lgger which can be overridden from other packages
+	// Logger is a zap logger which can be overridden from other packages
 	Logger *zap.SugaredLogger
 )
 

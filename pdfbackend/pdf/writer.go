@@ -33,7 +33,7 @@ func (d Dict) String() string {
 }
 
 // Array is a list of anything
-type Array []interface{}
+type Array []any
 
 func (ary Array) String() string {
 	return ArrayToString(ary)
@@ -129,7 +129,7 @@ func (pw *PDF) Println(s string) error {
 }
 
 // Printf writes the string to the PDF file and adds a newline.
-func (pw *PDF) Printf(format string, a ...interface{}) error {
+func (pw *PDF) Printf(format string, a ...any) error {
 	n, err := fmt.Fprintf(pw.outfile, format, a...)
 	pw.pos += int64(n)
 	return err

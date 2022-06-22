@@ -43,8 +43,8 @@ const (
 	TypeVList
 )
 
-// H is a shortcut for map[string]interface{}
-type H map[string]interface{}
+// H is a shortcut for map[string]any
+type H map[string]any
 
 // Node represents any kind of node
 type Node interface {
@@ -107,7 +107,7 @@ func init() {
 }
 
 // IsNode returns true if the argument is a Node.
-func IsNode(arg interface{}) bool {
+func IsNode(arg any) bool {
 	switch arg.(type) {
 	case *Disc, *Glyph, *Glue, *Image, *HList, *Kern, *Lang, *StartStop, *VList:
 		return true
@@ -653,9 +653,13 @@ func IsPenalty(elt Node) (*Penalty, bool) {
 // A Rule is a node represents a black box
 type Rule struct {
 	basenode
-	Pre    string
-	Post   string
-	Show   bool
+	// PDF code that gets output before the rule.
+	Pre string
+	// PDF Code after drawing the rule.
+	Post string
+	// Hide makes the rule invisible, no black box is drawn. Used to make Pre
+	// and Post appear in the output with the given dimensions.
+	Hide   bool
 	Width  bag.ScaledPoint
 	Height bag.ScaledPoint
 	Depth  bag.ScaledPoint
@@ -763,7 +767,7 @@ type StartStop struct {
 	StartNode *StartStop
 	Position  PDFDataOutput
 	Callback  StartStopFunc
-	Value     interface{}
+	Value     any
 }
 
 func (d *StartStop) String() string {

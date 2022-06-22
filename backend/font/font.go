@@ -67,6 +67,7 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 	runes := []rune(text)
 	glyphs := make([]Atom, 0, len(buf.Info))
 	space := f.Face.Codepoint(' ')
+	lenBufInfo := len(buf.Info)
 	for i, r := range buf.Info {
 		char := runes[r.Cluster]
 		if unicode.IsSpace(char) {
@@ -87,15 +88,21 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
 				}
 			}
-			glyphs = append(glyphs, Atom{
-				Advance:    bag.ScaledPoint(advanceWant),
-				Height:     f.Size - f.Depth,
-				Depth:      f.Depth,
-				Hyphenate:  unicode.IsLetter(char),
-				Components: string(char),
-				Codepoint:  int(r.Glyph),
-				Kernafter:  bdelta,
-			})
+			g := Atom{
+				Advance:   bag.ScaledPoint(advanceWant),
+				Height:    f.Size - f.Depth,
+				Depth:     f.Depth,
+				Hyphenate: unicode.IsLetter(char),
+				Codepoint: int(r.Glyph),
+				Kernafter: bdelta,
+			}
+			if i == lenBufInfo-1 {
+				// last element
+				g.Components = string(runes[r.Cluster:])
+			} else {
+				g.Components = string(runes[r.Cluster:buf.Info[i+1].Cluster])
+			}
+			glyphs = append(glyphs, g)
 		}
 	}
 	return glyphs
