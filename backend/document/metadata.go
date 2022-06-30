@@ -17,32 +17,30 @@ func (d *PDFDocument) getMetadata() string {
 	docID := uuid.New()
 	instanceID := uuid.New()
 
-	str := `<?xpacket begin="%s" id="W5M0MpCehiHzreSzNTczkc9d"?>
+	str := `<?xpacket begin="%[1]s" id="W5M0MpCehiHzreSzNTczkc9d"?>
 	<x:xmpmeta xmlns:x="adobe:ns:meta/">
    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
 	 <rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/">
-	   <xmpMM:DocumentID>uuid:%s</xmpMM:DocumentID>
-	   <xmpMM:InstanceID>uuid:%s</xmpMM:InstanceID>
-	 </rdf:Description>%s
+	   <xmpMM:DocumentID>uuid:%[2]s</xmpMM:DocumentID>
+	   <xmpMM:InstanceID>uuid:%[3]s</xmpMM:InstanceID>
+	 </rdf:Description>%[4]s
 	 <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/">
-		<xmp:CreateDate>%s</xmp:CreateDate>
-		<xmp:ModifyDate>%s</xmp:ModifyDate>
-		<xmp:MetadataDate>%s</xmp:MetadataDate>
-		<xmp:CreatorTool>%s</xmp:CreatorTool>
+		<xmp:CreateDate>%[5]s</xmp:CreateDate>
+		<xmp:ModifyDate>%[5]s</xmp:ModifyDate>
+		<xmp:MetadataDate>%[5]s</xmp:MetadataDate>
+		<xmp:CreatorTool>%[6]s</xmp:CreatorTool>
 	 </rdf:Description>
 	 <rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
-	   <pdf:Producer>speedata/xts</pdf:Producer>
+	   <pdf:Producer>%[7]s</pdf:Producer>
 	 </rdf:Description>
 	 <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
-	   <dc:title>
-		 <rdf:Alt>
-		   <rdf:li xml:lang="x-default">%s</rdf:li>
-		 </rdf:Alt>
-	   </dc:title>
+	   <dc:title>%[8]s</dc:title>
+	   <dc:creator>%[9]s</dc:creator>
 	 </rdf:Description>
    </rdf:RDF>
  </x:xmpmeta>
 <?xpacket end="r"?>`
+
 	var pdfuaident string
 	if d.RootStructureElement != nil {
 		pdfuaident = `
@@ -50,6 +48,16 @@ func (d *PDFDocument) getMetadata() string {
 	<pdfuaid:part>1</pdfuaid:part>
 </rdf:Description>`
 	}
-	return fmt.Sprintf(str, "\xEF\xBB\xBF", docID, instanceID, pdfuaident, isoformatted, isoformatted, isoformatted, "speedata/xts", xmlescape.Replace(d.Title))
+	return fmt.Sprintf(str,
+		"\xEF\xBB\xBF",
+		docID,
+		instanceID,
+		pdfuaident,
+		isoformatted,
+		xmlescape.Replace(d.Creator),
+		xmlescape.Replace(d.Producer),
+		xmlescape.Replace(d.Title),
+		xmlescape.Replace(d.Author),
+	)
 
 }

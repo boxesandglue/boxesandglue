@@ -64,7 +64,7 @@ type Annotation struct {
 	URI        string
 }
 
-// Separation repressents a spot color
+// Separation represents a spot color
 type Separation struct {
 	Obj        Objectnumber
 	ID         string
@@ -89,28 +89,48 @@ type Page struct {
 	Dict        Dict
 }
 
+// Outline represents PDF bookmarks
+type Outline struct {
+	Children     []*Outline
+	Title        string
+	Open         bool
+	Dest         *Dest
+	objectNumber Objectnumber
+}
+
 // PDF is the central point of writing a PDF file.
 type PDF struct {
-	outfile           io.Writer
-	nextobject        Objectnumber
 	Catalog           Dict
 	DefaultPageWidth  bag.ScaledPoint
 	DefaultPageHeight bag.ScaledPoint
 	Colorspaces       []*Separation
-	objectlocations   map[Objectnumber]int64
-	pages             *Pages
-	lastEOL           int64
-	pos               int64
+	Destinations      map[int]*Dest
+	Outlines          []*Outline
+	// Major version. Should be 1.
+	Major uint
+	// Minor version. Just for information purposes. No checks are done.
+	Minor           uint
+	InfoDict        Dict
+	outfile         io.Writer
+	nextobject      Objectnumber
+	objectlocations map[Objectnumber]int64
+	pages           *Pages
+	lastEOL         int64
+	pos             int64
 }
 
 // NewPDFWriter creates a PDF file for writing to file
 func NewPDFWriter(file io.Writer) *PDF {
-	pw := PDF{}
+	pw := PDF{
+		Major:        1,
+		Minor:        7,
+		Destinations: make(map[int]*Dest),
+	}
 	pw.outfile = file
 	pw.nextobject = 1
 	pw.objectlocations = make(map[Objectnumber]int64)
 	pw.pages = &Pages{}
-	pw.Println("%PDF-1.7")
+	pw.Printf("%%PDF-%d.%d", pw.Major, pw.Minor)
 	return &pw
 }
 
@@ -136,11 +156,11 @@ func (pw *PDF) Printf(format string, a ...any) error {
 }
 
 // AddPage adds a page to the PDF file. The stream must be complete.
-func (pw *PDF) AddPage(pagestream *Stream) *Page {
+func (pw *PDF) AddPage(pagestream *Stream, onum Objectnumber) *Page {
 	pg := &Page{}
 	pg.Obj = pw.NewObject()
 	pg.stream = pagestream
-	pg.Dictnum = pw.NextObject()
+	pg.Dictnum = onum
 	pw.pages.pages = append(pw.pages.pages, pg)
 	return pg
 }
@@ -179,6 +199,15 @@ func (pw *PDF) writeStream(st *Stream, obj *Object) (*Object, error) {
 
 	obj.Save()
 	return obj, nil
+}
+func (pw *PDF) writeInfoDict() (*Object, error) {
+	if pw.Major < 2 {
+		info := pw.NewObject()
+		info.Dictionary = pw.InfoDict
+		info.Save()
+		return info, nil
+	}
+	return nil, nil
 }
 
 func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
@@ -256,9 +285,6 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 			"/Parent":   pagesObj.ObjectNumber.Ref(),
 			"/MediaBox": fmt.Sprintf("[0 0 %s %s]", page.Width, page.Height),
 		}
-		// do we really need the procset?
-		// resHash["/ProcSet"] = "[ /PDF /Text /ImageB /ImageC /ImageI ]"
-		// resHash["/ExtGState"] = "<< >> "
 
 		if len(resHash) > 0 {
 			pageHash["/Resources"] = HashToString(resHash, 1)
@@ -314,11 +340,37 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	})
 	pagesObj.Save()
 
+	// outlines
+	var outlinesOjbNum Objectnumber
+
+	if pw.Outlines != nil {
+		outlinesOjb := pw.NewObject()
+		first, last, count, err := pw.writeOutline(outlinesOjb, pw.Outlines)
+		if err != nil {
+			return 0, err
+		}
+
+		outlinesOjb.Dictionary = Dict{
+			"/Type":  "/Outlines",
+			"/First": first.Ref(),
+			"/Last":  last.Ref(),
+			"/Count": fmt.Sprintf("%d", count),
+		}
+		outlinesOjbNum = outlinesOjb.ObjectNumber
+
+		if err = outlinesOjb.Save(); err != nil {
+			return 0, err
+		}
+	}
+
 	catalog := pw.NewObject()
 	catalog.comment = "Catalog"
 	dictCatalog := Dict{
 		"/Type":  "/Catalog",
 		"/Pages": pw.pages.dictnum.Ref(),
+	}
+	if pw.Outlines != nil {
+		dictCatalog["/Outlines"] = outlinesOjbNum.Ref()
 	}
 	for k, v := range pw.Catalog {
 		dictCatalog[k] = v
@@ -334,12 +386,65 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	return catalog.ObjectNumber, nil
 }
 
+func (pw *PDF) writeOutline(parentObj *Object, outlines []*Outline) (first Objectnumber, last Objectnumber, c int, err error) {
+	for _, outline := range outlines {
+		outline.objectNumber = pw.NextObject()
+	}
+
+	c = 0
+	for i, outline := range outlines {
+		c++
+		outlineObj := pw.NewObjectWithNumber(outline.objectNumber)
+		outlineDict := Dict{}
+		outlineDict["/Parent"] = parentObj.ObjectNumber.Ref()
+		outlineDict["/Title"] = StringToPDF(outline.Title)
+		outlineDict["/Dest"] = fmt.Sprintf("[ %s /XYZ %f %f 0]", outline.Dest.PageObjectnumber.Ref(), outline.Dest.X, outline.Dest.Y)
+
+		if i < len(outlines)-1 {
+			outlineDict["/Next"] = outlines[i+1].objectNumber.Ref()
+		} else {
+			last = outline.objectNumber
+		}
+		if i > 0 {
+			outlineDict["/Prev"] = outlines[i-1].objectNumber.Ref()
+		} else {
+			first = outline.objectNumber
+		}
+
+		if len(outline.Children) > 0 {
+			var cldFirst, cldLast Objectnumber
+			var count int
+			cldFirst, cldLast, count, err = pw.writeOutline(outlineObj, outline.Children)
+			if err != nil {
+				return
+			}
+			outlineDict["/First"] = cldFirst.Ref()
+			outlineDict["/Last"] = cldLast.Ref()
+			if outline.Open {
+				outlineDict["/Count"] = fmt.Sprintf("%d", count)
+			} else {
+				outlineDict["/Count"] = "-1"
+			}
+			c += count
+		}
+		outlineObj.Dictionary = outlineDict
+		outlineObj.Save()
+	}
+	return
+}
+
 // Finish writes the trailer and xref section but does not close the file.
 func (pw *PDF) Finish() error {
 	dc, err := pw.writeDocumentCatalogAndPages()
 	if err != nil {
 		return err
 	}
+
+	infodict, err := pw.writeInfoDict()
+	if err != nil {
+		return err
+	}
+
 	// XRef section
 	type chunk struct {
 		startOnum Objectnumber
@@ -385,6 +490,10 @@ func (pw *PDF) Finish() error {
 		"/Root": dc.Ref(),
 		"/ID":   fmt.Sprintf("[<%s> <%s>]", sum, sum),
 	}
+	if infodict != nil {
+		trailer["/Info"] = infodict.ObjectNumber.Ref()
+	}
+
 	if err = pw.Println("trailer"); err != nil {
 		return err
 	}

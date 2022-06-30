@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
@@ -14,8 +15,8 @@ import (
 type Document struct {
 	FontFamilies    map[string]*FontFamily
 	Doc             *document.PDFDocument
-	usedcolors      map[string]*document.Color
-	usedSpotcolors  map[*document.Color]bool
+	usedcolors      map[string]*color.Color
+	usedSpotcolors  map[*color.Color]bool
 	usedFonts       map[*pdf.Face]map[bag.ScaledPoint]*font.Font
 	FindFile        func(string) string
 	DefaultFeatures []harfbuzz.Feature
@@ -24,8 +25,8 @@ type Document struct {
 
 func initDocument() *Document {
 	d := &Document{
-		usedSpotcolors: make(map[*document.Color]bool),
-		usedcolors:     make(map[string]*document.Color),
+		usedSpotcolors: make(map[*color.Color]bool),
+		usedcolors:     make(map[string]*color.Color),
 		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
 		FontFamilies:   make(map[string]*FontFamily),
 	}

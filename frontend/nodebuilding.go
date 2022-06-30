@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/node"
@@ -146,7 +147,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
 	fontsize := 12 * bag.Factor
-	var col *document.Color
+	var col *color.Color
 	var hyperlink document.Hyperlink
 	var hasHyperlink bool
 	fontfeatures := make([]harfbuzz.Feature, 0, len(fe.DefaultFeatures))
@@ -173,7 +174,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 				if c := fe.GetColor(t); c != nil {
 					col = c
 				}
-			case *document.Color:
+			case *color.Color:
 				col = t
 			}
 		case SettingHyperlink:
@@ -332,10 +333,12 @@ func (fe *Document) Mknodes(ts *TypesettingElement) (head node.Node, tail node.N
 				head = node.InsertAfter(head, tail, nl)
 				tail = end
 			}
+		case node.Node:
+			head = node.InsertAfter(head, tail, t)
+			tail = t
 		default:
-			fmt.Printf("Mknodes: unknown item type %T\n", t)
+			bag.Logger.DPanicf("Mknodes: unknown item type %T", t)
 		}
-
 	}
 	return head, tail, nil
 }

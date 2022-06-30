@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/document"
+	"github.com/speedata/boxesandglue/backend/color"
 )
 
 // DefineColor associates a color with a name for later use.
-func (d *Document) DefineColor(name string, col *document.Color) {
+func (d *Document) DefineColor(name string, col *color.Color) {
 	d.usedcolors[name] = col
 }
 
@@ -20,12 +20,12 @@ var rgbmatcher = regexp.MustCompile(`rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,
 
 // GetColor returns a color. The string can be a predefined color name or an
 // HTML / CSS color definition such as #FAF or rgb(0.5.,0.5,0.5).
-func (d *Document) GetColor(s string) *document.Color {
+func (d *Document) GetColor(s string) *color.Color {
 	if col, ok := d.usedcolors[s]; ok {
 		return col
 	}
 	if col, ok := csscolors[s]; ok {
-		if col.Space == document.ColorSpotcolor {
+		if col.Space == color.ColorSpotcolor {
 			d.usedSpotcolors[col] = true
 			col.SpotcolorID = len(d.usedSpotcolors)
 		}
@@ -35,9 +35,9 @@ func (d *Document) GetColor(s string) *document.Color {
 	var r, g, b int
 	var alpha float64
 	var err error
-	col := &document.Color{}
+	col := &color.Color{}
 	if strings.HasPrefix(s, "#") {
-		col.Space = document.ColorRGB
+		col.Space = color.ColorRGB
 		switch len(s) {
 		case 7:
 			fmt.Sscanf(s, "#%2x%2x%2x", &r, &g, &b)
@@ -51,7 +51,7 @@ func (d *Document) GetColor(s string) *document.Color {
 		col.B = math.Round(100.0*float64(b)/float64(255)) / 100.0
 		return col
 	} else if strings.HasPrefix(s, "rgb") {
-		col.Space = document.ColorRGB
+		col.Space = color.ColorRGB
 		colorvalues := rgbmatcher.FindAllStringSubmatch(s, -1)
 
 		if len(colorvalues) == 1 {

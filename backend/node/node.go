@@ -43,6 +43,37 @@ const (
 	TypeVList
 )
 
+func (t Type) String() string {
+	switch t {
+	case TypeUnknown:
+		return "Unknown"
+	case TypeDisc:
+		return "Disc"
+	case TypeGlue:
+		return "Glue"
+	case TypeGlyph:
+		return "Glyph"
+	case TypeHList:
+		return "HList"
+	case TypeImage:
+		return "Image"
+	case TypeKern:
+		return "Kern"
+	case TypeLang:
+		return "Lang"
+	case TypePenalty:
+		return "Penalty"
+	case TypeRule:
+		return "Rule"
+	case TypeStartStop:
+		return "StartStop"
+	case TypeVList:
+		return "Vlist"
+	default:
+		return "something else"
+	}
+}
+
 // H is a shortcut for map[string]any
 type H map[string]any
 
@@ -286,9 +317,17 @@ const (
 	StretchFilll
 )
 
+type GlueSubtype int
+
+const (
+	GlueDefault GlueSubtype = iota
+	GluelineEnd
+)
+
 // A Glue node has the value of a shrinking and stretching space
 type Glue struct {
 	basenode
+	Subtype      GlueSubtype
 	Width        bag.ScaledPoint // The natural width of the glue.
 	Stretch      bag.ScaledPoint // The stretchability of the glue, where width plus stretch = maximum width.
 	Shrink       bag.ScaledPoint // The shrinkability of the glue, where width minus shrink = minimum width.
@@ -753,10 +792,25 @@ const (
 	ActionNone ActionType = iota
 	// ActionHyperlink represents a hyperlink.
 	ActionHyperlink
+	// ActionDest insets a PDF destination.
+	ActionDest
 )
 
+func (at ActionType) String() string {
+	switch at {
+	case ActionNone:
+		return "ActionNone"
+	case ActionHyperlink:
+		return "ActionHyperlink"
+	case ActionDest:
+		return "ActionDest"
+	default:
+		return "other action"
+	}
+}
+
 // StartStopFunc is the type of the callback when this node is encountered in the
-// node list.
+// node list. The returned string (if not empty) gets written to the PDF.
 type StartStopFunc func(thisnode Node) string
 
 // A StartStop is a paired node type used for color switches, hyperlinks and
@@ -767,7 +821,8 @@ type StartStop struct {
 	StartNode *StartStop
 	Position  PDFDataOutput
 	Callback  StartStopFunc
-	Value     any
+	// Value contains action specific contents
+	Value any
 }
 
 func (d *StartStop) String() string {

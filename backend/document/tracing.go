@@ -12,6 +12,8 @@ const (
 	VTraceHBoxes
 	// VTraceHyperlinks shows hyperlinks
 	VTraceHyperlinks
+	// VTraceDest shows destinations
+	VTraceDest
 )
 
 // SetVTrace sets the visual tracing

@@ -30,6 +30,7 @@ type Font struct {
 	Depth        bag.ScaledPoint
 	Face         *pdf.Face
 	Hyphenchar   Atom
+	SpaceChar    Atom
 	Mag          int
 }
 
@@ -47,9 +48,13 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Mag:          mag,
 		Depth:        size * bag.ScaledPoint(float64(-1*f.DescenderPDF())*factor) / 100,
 	}
-	atoms := fnt.Shape("-", []harfbuzz.Feature{})
-	if len(atoms) == 1 {
-		fnt.Hyphenchar = atoms[0]
+	hyphenchar := fnt.Shape("-", []harfbuzz.Feature{})
+	if len(hyphenchar) == 1 {
+		fnt.Hyphenchar = hyphenchar[0]
+	}
+	spacechar := fnt.Shape(" ", []harfbuzz.Feature{})
+	if len(spacechar) == 1 {
+		fnt.SpaceChar = spacechar[0]
 	}
 	return fnt
 }
@@ -70,17 +75,19 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 	lenBufInfo := len(buf.Info)
 	for i, r := range buf.Info {
 		char := runes[r.Cluster]
+		adv := buf.Pos[i].XAdvance
+		advanceCalculated := adv * int32(f.Mag)
+		advanceWant := ha(r.Glyph) * float32(f.Mag)
+
 		if unicode.IsSpace(char) {
 			glyphs = append(glyphs, Atom{
 				IsSpace:    true,
-				Advance:    f.Size,
+				Advance:    bag.ScaledPoint(advanceWant),
 				Components: " ",
+				Codepoint:  int(r.Glyph),
 			})
 		} else {
 			var bdelta bag.ScaledPoint
-			adv := buf.Pos[i].XAdvance
-			advanceCalculated := adv * int32(f.Mag)
-			advanceWant := ha(r.Glyph) * float32(f.Mag)
 
 			// only add kern if the next item is not a space
 			if i < len(buf.Info)-1 {

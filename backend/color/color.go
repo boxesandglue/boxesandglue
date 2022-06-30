@@ -1,4 +1,4 @@
-package document
+package color
 
 import (
 	"fmt"

@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/image"
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
+	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
@@ -49,7 +52,8 @@ type Page struct {
 	Finished          bool
 	StructureElements []*StructureElement
 	Annotations       []pdf.Annotation
-	Spotcolors        []*Color
+	Spotcolors        []*color.Color
+	Objectnumber      pdf.Objectnumber
 }
 
 const (
@@ -62,19 +66,19 @@ const (
 // objectContext contains information about the current position of the cursor
 // and about the images and faces used in the object.
 type objectContext struct {
-	p           *Page
-	currentFont *font.Font
-	textmode    uint8
-	usedFaces   map[*pdf.Face]bool
-	usedImages  map[*pdf.Imagefile]bool
-	tag         *StructureElement
-	s           *strings.Builder
-	glueString  string
-	shiftX      bag.ScaledPoint
-	sumX        bag.ScaledPoint
-	sumV        bag.ScaledPoint
-	objX        bag.ScaledPoint
-	objY        bag.ScaledPoint
+	p                *Page
+	pageObjectnumber pdf.Objectnumber
+	currentFont      *font.Font
+	textmode         uint8
+	usedFaces        map[*pdf.Face]bool
+	usedImages       map[*pdf.Imagefile]bool
+	tag              *StructureElement
+	s                *strings.Builder
+	shiftX           bag.ScaledPoint
+	sumX             bag.ScaledPoint
+	sumV             bag.ScaledPoint
+	objX             bag.ScaledPoint
+	objY             bag.ScaledPoint
 }
 
 // gotoTextMode inserts PDF instructions to switch to a inner/outer text mode.
@@ -132,7 +136,6 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 			fmt.Fprintf(oc.s, "\n%s %s Tf ", n.Font.Face.InternalName(), n.Font.Size)
 			oc.usedFaces[n.Font.Face] = true
 			oc.currentFont = n.Font
-			oc.glueString = ""
 		}
 		if oc.textmode > 3 {
 			oc.gotoTextMode(3)
@@ -142,35 +145,32 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 			oc.shiftX = 0
 		}
 		n.Font.Face.RegisterChar(n.Codepoint)
-		if oc.glueString != "" {
-			oc.gotoTextMode(2)
-			fmt.Fprintf(oc.s, "%s", oc.glueString)
-			oc.glueString = ""
-		}
 		oc.gotoTextMode(1)
 		fmt.Fprintf(oc.s, "%04x", n.Codepoint)
 		oc.sumX += n.Width
 	case *node.Glue:
 		if oc.textmode == 1 {
-			// Single glue at end should not be printed. Therefore we save it for later.
+			var goBackwards bag.ScaledPoint
+			if curFont := oc.currentFont; curFont != nil {
+				oc.gotoTextMode(1)
+				fmt.Fprintf(oc.s, "%04x", curFont.SpaceChar.Codepoint)
+				curFont.Face.RegisterChar(curFont.SpaceChar.Codepoint)
+				goBackwards = curFont.SpaceChar.Advance
+			}
 			if oc.currentFont.Size != 0 {
-				oc.glueString = fmt.Sprintf(" %d ", -1*1000*n.Width/oc.currentFont.Size)
+				oc.gotoTextMode(2)
+				fmt.Fprintf(oc.s, " %d ", -1*1000*(n.Width-goBackwards)/oc.currentFont.Size)
 			}
 		}
 		oc.sumX += n.Width
 	case *node.Rule:
-		if oc.textmode == 1 && oc.glueString != "" {
-			oc.gotoTextMode(2)
-			fmt.Fprint(oc.s, oc.glueString)
-		}
 		oc.gotoTextMode(4)
-		oc.glueString = ""
 		posX := oc.objX + oc.sumX
 		posY := oc.objY - oc.sumV
 		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
 		fmt.Fprint(oc.s, n.Pre)
 		if !n.Hide {
-			fmt.Fprintf(oc.s, "q 0 %s %s %s re f Q ", -1*n.Depth, n.Width, n.Height + n.Depth)
+			fmt.Fprintf(oc.s, "q 0 %s %s %s re f Q ", -1*n.Depth, n.Width, n.Height+n.Depth)
 		}
 		fmt.Fprint(oc.s, n.Post)
 		oc.sumX += n.Width
@@ -193,6 +193,9 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 		x := oc.objX
 		fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
 	case *node.StartStop:
+		posX := oc.objX + oc.sumX
+		posY := oc.objY - oc.sumV - v.Depth
+
 		isStartNode := true
 		action := n.Action
 
@@ -206,15 +209,7 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 			startNode = n
 		}
 
-		if oc.textmode == 1 && oc.glueString != "" {
-			oc.gotoTextMode(2)
-			fmt.Fprint(oc.s, oc.glueString)
-			oc.glueString = ""
-		}
-
 		if action == node.ActionHyperlink {
-			posX := oc.objX + oc.sumX
-			posY := oc.objY - oc.sumV - v.Depth
 			hyperlink := startNode.Value.(*Hyperlink)
 			if isStartNode {
 				hyperlink.startposX = posX
@@ -234,6 +229,28 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 					fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 				}
 			}
+		} else if action == node.ActionDest {
+			// dest should be in the top left corner of the current position
+			y := posY + v.Height + v.Depth
+			destnum := int(n.Value.(int))
+			d := &pdf.Dest{
+				Num:              destnum,
+				X:                posX.ToPT(),
+				Y:                y.ToPT(),
+				PageObjectnumber: oc.pageObjectnumber,
+			}
+
+			oc.p.document.PDFWriter.Destinations[destnum] = d
+			if oc.p.document.IsTrace(VTraceDest) {
+				oc.gotoTextMode(4)
+				black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
+				circ := pdfdraw.New().ColorNonstroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
+				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
+				fmt.Fprint(oc.s, circ)
+				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
+			}
+		} else {
+			bag.Logger.Warnf("start/stop node: unhandled action %s", action)
 		}
 		switch n.Position {
 		case node.PDFOutputPage:
@@ -242,27 +259,25 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 			oc.gotoTextMode(3)
 		case node.PDFOutputHere:
 			oc.gotoTextMode(4)
-			posX := oc.objX + oc.sumX
-			posY := oc.objY - oc.sumV
 			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
 		case node.PDFOutputLowerLeft:
 			oc.gotoTextMode(4)
 		}
-		oc.glueString = ""
 		if n.Callback != nil {
 			fmt.Fprint(oc.s, n.Callback(n))
 		}
 		switch n.Position {
 		case node.PDFOutputHere:
-			posX := oc.objX + oc.sumX
-			posY := oc.objY - oc.sumV
 			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
 		}
 	case *node.Kern:
-		if oc.textmode == 1 {
-			oc.gotoTextMode(2)
-			oc.glueString = fmt.Sprintf(" %d ", -1000*n.Kern/oc.currentFont.Size)
+		if oc.textmode > 2 {
+			fmt.Fprintf(oc.s, "\n1 0 0 1 %s %s Tm ", oc.objX+oc.shiftX+oc.sumX, (oc.objY - oc.sumV))
+			oc.shiftX = 0
 		}
+
+		oc.gotoTextMode(2)
+		fmt.Fprintf(oc.s, " %d ", -1000*n.Kern/oc.currentFont.Size)
 		oc.sumX += n.Kern
 	case *node.Lang, *node.Penalty:
 		// ignore
@@ -333,7 +348,6 @@ func (oc *objectContext) outputVerticalItem(vlist *node.VList, hElt node.Node) {
 	default:
 		bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
 	}
-
 }
 
 // OutputAt places the nodelist at the position.
@@ -348,6 +362,8 @@ func (p *Page) Shipout() {
 		return
 	}
 	p.Finished = true
+
+	pageObjectNumber := p.document.PDFWriter.NextObject()
 	var s strings.Builder
 	if cb := p.document.preShipoutCallback; cb != nil {
 		cb(p)
@@ -394,13 +410,14 @@ func (p *Page) Shipout() {
 
 	for _, obj := range objs {
 		oc := &objectContext{
-			textmode:   4,
-			s:          &s,
-			usedFaces:  make(map[*pdf.Face]bool),
-			usedImages: make(map[*pdf.Imagefile]bool),
-			p:          p,
-			objX:       obj.X + offsetX,
-			objY:       obj.Y + offsetY,
+			textmode:         4,
+			s:                &s,
+			usedFaces:        make(map[*pdf.Face]bool),
+			usedImages:       make(map[*pdf.Imagefile]bool),
+			p:                p,
+			objX:             obj.X + offsetX,
+			objY:             obj.Y + offsetY,
+			pageObjectnumber: pageObjectNumber,
 		}
 
 		vlist := obj.Vlist
@@ -426,7 +443,7 @@ func (p *Page) Shipout() {
 
 	st := pdf.NewStream([]byte(s.String()))
 	st.SetCompression()
-	page := p.document.pdf.AddPage(st)
+	page := p.document.PDFWriter.AddPage(st, pageObjectNumber)
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
 	page.Height = p.Height + 2*offsetY
@@ -445,14 +462,15 @@ func (p *Page) Shipout() {
 	var structureElementObjectIDs []string
 	// annotations are hyperlinks and structure elements
 	page.Annotations = p.Annotations
+
 	if p.document.RootStructureElement != nil {
 
 		for _, se := range p.StructureElements {
 			parent := se.Parent
 			if parent.Obj == nil {
-				parent.Obj = p.document.pdf.NewObject()
+				parent.Obj = p.document.PDFWriter.NewObject()
 			}
-			se.Obj = p.document.pdf.NewObject()
+			se.Obj = p.document.PDFWriter.NewObject()
 			se.Obj.Dictionary = pdf.Dict{
 				"/Type": "/StructElem",
 				"/S":    "/" + se.Role,
@@ -523,8 +541,13 @@ type PDFDocument struct {
 	Bleed                bag.ScaledPoint
 	ShowCutmarks         bool
 	Title                string
-	Spotcolors           []*Color
-	pdf                  *pdf.PDF
+	Author               string
+	Creator              string
+	Producer             string
+	Keywords             string
+	Subject              string
+	Spotcolors           []*color.Color
+	PDFWriter            *pdf.PDF
 	tracing              VTrace
 	ShowHyperlinks       bool
 	RootStructureElement *StructureElement
@@ -539,9 +562,9 @@ func NewDocument(w io.Writer) *PDFDocument {
 	d := &PDFDocument{
 		DefaultPageWidth:  bag.MustSp("210mm"),
 		DefaultPageHeight: bag.MustSp("297mm"),
-		Title:             "document",
+		Producer:          "speedata/boxesandglue",
 		Languages:         make(map[string]*lang.Lang),
-		pdf:               pdf.NewPDFWriter(w),
+		PDFWriter:         pdf.NewPDFWriter(w),
 		usedPDFImages:     make(map[string]*pdf.Imagefile),
 	}
 	return d
@@ -566,7 +589,7 @@ func (d *PDFDocument) SetDefaultLanguage(l *lang.Lang) {
 func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
 	bag.Logger.Debugf("LoadFace %s", filename)
 
-	f, err := pdf.LoadFace(d.pdf, filename, index)
+	f, err := pdf.LoadFace(d.PDFWriter, filename, index)
 	if err != nil {
 		return nil, err
 	}
@@ -580,7 +603,7 @@ func (d *PDFDocument) LoadImageFile(filename string) (*pdf.Imagefile, error) {
 	if imgf, ok := d.usedPDFImages[filename]; ok {
 		return imgf, nil
 	}
-	imgf, err := pdf.LoadImageFile(d.pdf, filename)
+	imgf, err := pdf.LoadImageFile(d.PDFWriter, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -633,9 +656,9 @@ func (d *PDFDocument) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Fon
 // not close the writer.
 func (d *PDFDocument) Finish() error {
 	var err error
-	d.pdf.Catalog = pdf.Dict{}
+	d.PDFWriter.Catalog = pdf.Dict{}
 	if d.ColorProfile != nil {
-		cp := d.pdf.NewObject()
+		cp := d.PDFWriter.NewObject()
 		cp.Data.Write(d.ColorProfile.data)
 		cp.Dictionary = pdf.Dict{
 			"/N": fmt.Sprintf("%d", d.ColorProfile.Colors),
@@ -653,7 +676,7 @@ func (d *PDFDocument) Finish() error {
 			sep.Name = col.Basecolor
 			sep.ID = fmt.Sprintf("/CS%d", col.SpotcolorID)
 
-			sepObj := d.pdf.NewObject()
+			sepObj := d.PDFWriter.NewObject()
 			sepObj.Array = []any{
 				"/Separation",
 				pdf.Name(col.Basecolor),
@@ -668,13 +691,13 @@ func (d *PDFDocument) Finish() error {
 			}
 			sepObj.Save()
 			sep.Obj = sepObj.ObjectNumber
-			d.pdf.Colorspaces = append(d.pdf.Colorspaces, &sep)
+			d.PDFWriter.Colorspaces = append(d.PDFWriter.Colorspaces, &sep)
 		}
 	}
 
 	if se := d.RootStructureElement; se != nil {
 		if se.Obj == nil {
-			se.Obj = d.pdf.NewObject()
+			se.Obj = d.PDFWriter.NewObject()
 		}
 		var poStr strings.Builder
 
@@ -686,7 +709,7 @@ func (d *PDFDocument) Finish() error {
 		for _, childSe := range se.children {
 			childObjectNumbers = append(childObjectNumbers, childSe.Obj.ObjectNumber.Ref())
 		}
-		structRoot := d.pdf.NewObject()
+		structRoot := d.PDFWriter.NewObject()
 		structRoot.Dictionary = pdf.Dict{
 			"/Type":       "/StructTreeRoot",
 			"/ParentTree": fmt.Sprintf("<< /Nums [ %s ] >>", poStr.String()),
@@ -698,18 +721,18 @@ func (d *PDFDocument) Finish() error {
 			"/K":    fmt.Sprintf("%s", childObjectNumbers),
 			"/P":    structRoot.ObjectNumber.Ref(),
 			"/Type": "/StructElem",
-			"/T":    pdf.StringToPDF(d.Title),
+			"/T":    d.Title,
 		}
 		se.Obj.Save()
 
-		d.pdf.Catalog["/StructTreeRoot"] = structRoot.ObjectNumber.Ref()
-		d.pdf.Catalog["/ViewerPreferences"] = "<< /DisplayDocTitle true >>"
-		d.pdf.Catalog["/Lang"] = "(en)"
-		d.pdf.Catalog["/MarkInfo"] = `<< /Marked true /Suspects false  >>`
+		d.PDFWriter.Catalog["/StructTreeRoot"] = structRoot.ObjectNumber.Ref()
+		d.PDFWriter.Catalog["/ViewerPreferences"] = "<< /DisplayDocTitle true >>"
+		d.PDFWriter.Catalog["/Lang"] = "(en)"
+		d.PDFWriter.Catalog["/MarkInfo"] = `<< /Marked true /Suspects false  >>`
 
 	}
 
-	rdf := d.pdf.NewObject()
+	rdf := d.PDFWriter.NewObject()
 	rdf.Data.WriteString(d.getMetadata())
 	rdf.Dictionary = pdf.Dict{
 		"/Type":    "/Metadata",
@@ -719,16 +742,34 @@ func (d *PDFDocument) Finish() error {
 	if err != nil {
 		return err
 	}
-	d.pdf.Catalog["/Metadata"] = rdf.ObjectNumber.Ref()
-	d.pdf.DefaultPageWidth = d.DefaultPageWidth
-	d.pdf.DefaultPageHeight = d.DefaultPageHeight
-	if err = d.pdf.Finish(); err != nil {
+	d.PDFWriter.Catalog["/Metadata"] = rdf.ObjectNumber.Ref()
+	d.PDFWriter.DefaultPageWidth = d.DefaultPageWidth
+	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight
+
+	d.PDFWriter.InfoDict = pdf.Dict{
+		"/Producer": "(speedata/boxesandglue)",
+	}
+	if t := d.Title; t != "" {
+		d.PDFWriter.InfoDict["/Title"] = pdf.StringToPDF(t)
+	}
+	if t := d.Author; t != "" {
+		d.PDFWriter.InfoDict["/Author"] = pdf.StringToPDF(t)
+	}
+	if t := d.Creator; t != "" {
+		d.PDFWriter.InfoDict["/Creator"] = pdf.StringToPDF(t)
+	}
+	if t := d.Subject; t != "" {
+		d.PDFWriter.InfoDict["/Subject"] = pdf.StringToPDF(t)
+	}
+	d.PDFWriter.InfoDict["/CreationDate"] = time.Now().Format("(D:20060102150405)")
+
+	if err = d.PDFWriter.Finish(); err != nil {
 		return err
 	}
 	if d.Filename != "" {
-		bag.Logger.Infof("Output written to %s (%d bytes)", d.Filename, d.pdf.Size())
+		bag.Logger.Infof("Output written to %s (%d bytes)", d.Filename, d.PDFWriter.Size())
 	} else {
-		bag.Logger.Info("Output written (%d bytes)", d.pdf.Size())
+		bag.Logger.Info("Output written (%d bytes)", d.PDFWriter.Size())
 	}
 	bag.Logger.Sync()
 	return nil

@@ -9,6 +9,15 @@ import (
 	"unicode/utf16"
 )
 
+// Dest represents a PDF destination
+type Dest struct {
+	Objectnumber     Objectnumber
+	PageObjectnumber Objectnumber
+	Num              int
+	X                float64
+	Y                float64
+}
+
 // StringToPDF returns an escaped string suitable to be used as a PDF object.
 func StringToPDF(str string) string {
 	var out strings.Builder
