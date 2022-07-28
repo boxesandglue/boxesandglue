@@ -83,6 +83,10 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 
 // GetFontSource tries to get the face closest to the requested face.
 func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
+	if ff == nil {
+		return nil, fmt.Errorf("no font family specified")
+	}
+
 	if ff.familyMember == nil {
 		return nil, ErrEmptyFF
 	}

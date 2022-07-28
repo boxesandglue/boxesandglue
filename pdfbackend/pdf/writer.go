@@ -89,7 +89,9 @@ type Page struct {
 	Dict        Dict
 }
 
-// Outline represents PDF bookmarks
+// Outline represents PDF bookmarks. To create outlines, you need to assign
+// previously created Dest items to the outline. When Open is true, the PDF
+// viewer shows the child outlines.
 type Outline struct {
 	Children     []*Outline
 	Title        string

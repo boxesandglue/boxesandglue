@@ -146,7 +146,8 @@ func IsNode(arg any) bool {
 	return false
 }
 
-// A Disc is a hyphenation point.
+// A Disc represents a hyphenation point. Currently only the Penalty field is
+// used.
 type Disc struct {
 	basenode
 	Pre     Node
@@ -400,18 +401,20 @@ func IsGlue(elt Node) (*Glue, bool) {
 }
 
 // A HList is a container for a list which items are placed horizontally next to
-// each other. The most convenient way to create a hlist is to use node.HPack.
+// each other. The most convenient way to create a hlist is using node.HPack.
+// The width, height, depth, badness and the glue settings are calculated when
+// using node.HPack.
 type HList struct {
-	basenode
-	Width     bag.ScaledPoint // The width of the hlist.
-	Height    bag.ScaledPoint // The height of the list.
-	Depth     bag.ScaledPoint // The depth of the list.
-	Badness   int             // The calculated badness of the packed box. Only set when using Hpack function.
-	GlueSet   float64         // The ratio of the glue.
+	Width     bag.ScaledPoint
+	Height    bag.ScaledPoint
+	Depth     bag.ScaledPoint
+	Badness   int
+	GlueSet   float64         // The ratio of the glue. Positive means stretching, negative shrinking.
 	GlueSign  uint8           // 0 = normal, 1 = stretching, 2 = shrinking
 	GlueOrder GlueOrder       // The level of infinity
 	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
 	List      Node            // The list itself.
+	basenode
 }
 
 func (h *HList) String() string {
@@ -482,8 +485,9 @@ func IsHList(elt Node) (*HList, bool) {
 
 // A Kern is a small space between glyphs.
 type Kern struct {
+	// The displacement in progression direction.
+	Kern bag.ScaledPoint
 	basenode
-	Kern bag.ScaledPoint // The displacement in progression direction.
 }
 
 func (k *Kern) String() string {
@@ -689,14 +693,14 @@ func IsPenalty(elt Node) (*Penalty, bool) {
 	return Penalty, ok
 }
 
-// A Rule is a node represents a black box
+// A Rule is a node represents a colored rectangular area.
 type Rule struct {
 	basenode
 	// PDF code that gets output before the rule.
 	Pre string
 	// PDF Code after drawing the rule.
 	Post string
-	// Hide makes the rule invisible, no black box is drawn. Used to make Pre
+	// Hide makes the rule invisible, no colored area is drawn. Used to make Pre
 	// and Post appear in the output with the given dimensions.
 	Hide   bool
 	Width  bag.ScaledPoint

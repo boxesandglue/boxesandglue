@@ -30,8 +30,8 @@ github.com/speedata/gofpdi v1.0.15 h1:PLFmzHTAdhgvCDMsWgvL/njaDFzTmvsYewqgw3UUEg
 github.com/speedata/gofpdi v1.0.15/go.mod h1:aRZ6VjhFbzJWwCoHeKOdbUjImuf4GMVCJpwS9+bCYuM=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
 github.com/speedata/hyphenation v1.0.1/go.mod h1:vwrKKvBvJWFll0sVZw99hyWS/+r4YlMI7MAYjnje0nM=
-github.com/speedata/textlayout v0.0.0-20220524080102-01873ebf5971 h1:Mx5eyfQFE+v6410nPIQleMnsfaU3rmr+Y7gaieD4hGk=
-github.com/speedata/textlayout v0.0.0-20220524080102-01873ebf5971/go.mod h1:5yI24VPA1OjAI56+oF5XzsbIgu2elJhwIDb5SWdniN8=
+github.com/speedata/optionparser v1.0.1 h1:sWevh2SwW2FnLI3S/LNKQBTaArQi+jhi+tPmuoxm2mY=
+github.com/speedata/optionparser v1.0.1/go.mod h1:JzOMd1kGlM5gtPBy7reOayfHsTXCvd6P4JU8BW0LicE=
 github.com/speedata/textlayout v0.0.0-20220525185931-f2d16b648f68 h1:yebHavBelVD5NiOKfp9/EJcDt1JH8vlfvBUPxK560pg=
 github.com/speedata/textlayout v0.0.0-20220525185931-f2d16b648f68/go.mod h1:5yI24VPA1OjAI56+oF5XzsbIgu2elJhwIDb5SWdniN8=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

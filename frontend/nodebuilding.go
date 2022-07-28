@@ -119,7 +119,7 @@ func (st SettingType) String() string {
 	return fmt.Sprintf("%d", st)
 }
 
-// TypesettingSettings is a hash of glyph attributes to values.
+// TypesettingSettings is a set of settings for text rendering.
 type TypesettingSettings map[SettingType]any
 
 // TypesettingElement associates all items with the given settings. Items can be
@@ -127,6 +127,13 @@ type TypesettingSettings map[SettingType]any
 type TypesettingElement struct {
 	Settings TypesettingSettings
 	Items    []any
+}
+
+// NewTypesettingElement returns an initialized typesetting element.
+func NewTypesettingElement() *TypesettingElement {
+	te := TypesettingElement{}
+	te.Settings = make(TypesettingSettings)
+	return &te
 }
 
 func (ts *TypesettingElement) String() string {
@@ -201,7 +208,6 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	var face *pdf.Face
 	var fs *FontSource
 	var err error
-
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}

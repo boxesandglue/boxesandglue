@@ -15,11 +15,11 @@ import (
 type Document struct {
 	FontFamilies    map[string]*FontFamily
 	Doc             *document.PDFDocument
+	DefaultFeatures []harfbuzz.Feature
+	FindFile        func(string) string
 	usedcolors      map[string]*color.Color
 	usedSpotcolors  map[*color.Color]bool
 	usedFonts       map[*pdf.Face]map[bag.ScaledPoint]*font.Font
-	FindFile        func(string) string
-	DefaultFeatures []harfbuzz.Feature
 	dirstack        []string
 }
 

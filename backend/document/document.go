@@ -721,7 +721,7 @@ func (d *PDFDocument) Finish() error {
 			"/K":    fmt.Sprintf("%s", childObjectNumbers),
 			"/P":    structRoot.ObjectNumber.Ref(),
 			"/Type": "/StructElem",
-			"/T":    d.Title,
+			"/T":    pdf.StringToPDF(d.Title),
 		}
 		se.Obj.Save()
 
