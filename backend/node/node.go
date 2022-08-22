@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/font"
@@ -89,7 +90,49 @@ type Node interface {
 	Copy() Node
 }
 
-// String returns a string representation of the node n and the previous and next node.
+func showRecentNodes(n Node, i int) string {
+	ret := []string{}
+	c := 0
+	for e := n; e != nil; e = e.Prev() {
+		switch t := e.(type) {
+		case *Glue:
+			ret = append(ret, " ")
+		case *Glyph:
+			ret = append(ret, t.Components)
+		case *Disc:
+			ret = append(ret, "|")
+		case *Penalty:
+			ret = append(ret, "•")
+		case *Kern:
+			c--
+			// ignore
+		default:
+			c--
+			fmt.Printf("**%T\n", t)
+		}
+		c++
+		if c >= i {
+			break
+		}
+	}
+
+	j := 0
+	input := strings.Join(ret, "")
+	rune := make([]rune, len(input))
+	for _, r := range input {
+		rune[j] = r
+		j++
+	}
+	rune = rune[0:j]
+	// Reverse
+	for i := 0; i < j/2; i++ {
+		rune[i], rune[j-1-i] = rune[j-1-i], rune[i]
+	}
+	return string(rune)
+}
+
+// String returns a string representation of the node n and the previous and
+// next node.
 func String(n Node) string {
 	var nx, pr, extrainfo string
 	if next := n.Next(); next != nil {
@@ -318,11 +361,15 @@ const (
 	StretchFilll
 )
 
+// GlueSubtype is set wherever the glue comes from.
 type GlueSubtype int
 
 const (
+	// GlueDefault when no subtype is set
 	GlueDefault GlueSubtype = iota
-	GluelineEnd
+	// GlueLineEnd is added at the end of each line in a paragraph so that copy
+	// and paste works in PDF.
+	GlueLineEnd
 )
 
 // A Glue node has the value of a shrinking and stretching space
