@@ -52,12 +52,12 @@ const (
 	ColorSpotcolor
 )
 
-func (col *Color) getPDFColorSuffix(fg bool) string {
-	if fg {
+func (col *Color) getPDFColorSuffix(stroking bool) string {
+	if stroking {
 		// keep the order
-		return []string{"", "rg", "k", "g", "cs"}[col.Space]
+		return []string{"", "RG", "K", "G", "CS"}[col.Space]
 	}
-	return []string{"", "RG", "K", "G", "CS"}[col.Space]
+	return []string{"", "rg", "k", "g", "cs"}[col.Space]
 }
 
 func (col *Color) getPDFColorValues(stroking bool) string {

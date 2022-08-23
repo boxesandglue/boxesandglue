@@ -54,7 +54,6 @@ import (
 	"time"
 
 	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend"
 )
 
@@ -69,9 +68,7 @@ var (
 	favorite plaything.`
 )
 
-func dothings() error {
-	// normalize space of the string above
-	str = strings.Join(strings.Fields(str), " ")
+func typesetSample() error {
 	f, err := frontend.New("sample.pdf")
 	if err != nil {
 		return err
@@ -84,34 +81,31 @@ func dothings() error {
 	}
 
 	// Load a font, define a font family, and add this font to the family.
-	fontsource := &frontend.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"}
 	ff := f.NewFontFamily("text")
-	ff.AddMember(fontsource, frontend.FontWeight400, frontend.FontStyleNormal)
+	ff.AddMember(
+		&frontend.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"},
+		frontend.FontWeight400,
+		frontend.FontStyleNormal,
+	)
 
-	// Create a recursive data structure for typesetting and create nodes.
-	te := &frontend.TypesettingElement{
-		Settings: frontend.TypesettingSettings{
-			frontend.SettingFontFamily: ff,
-			frontend.SettingSize:       bag.MustSp("12pt"),
-		},
-		Items: []interface{}{str},
-	}
-	var nl, tail node.Node
-	if nl, tail, err = f.Mknodes(te); err != nil {
+	// Create a recursive data structure for typesetting initialized with the
+	// text from the top (but with space normalized).
+	te := frontend.NewTypesettingElement()
+	te.Items = []any{strings.Join(strings.Fields(str), " ")}
+
+	// Format the text into a paragraph. Some of these settings (font family and
+	// font size) can be part of the typesetting element.
+	vlist, err := f.FormatParagraph(te,
+		frontend.HSize(bag.MustSp("125pt")),
+		frontend.Leading(bag.MustSp("14pt")),
+		frontend.FontSize(bag.MustSp("12pt")),
+		frontend.Family(ff),
+	)
+	if err != nil {
 		return err
 	}
 
-	// Hyphenation is optional.
-	frontend.Hyphenate(nl, f.Doc.DefaultLanguage)
-	node.AppendLineEndAfter(tail)
-
-	// Break into lines
-	settings := node.NewLinebreakSettings()
-	settings.HSize = bag.MustSp("125pt")
-	settings.LineHeight = bag.MustSp("14pt")
-	vlist, _ := node.Linebreak(nl, settings)
-
-	// output the text and finish the page and the PDF file
+	// Output the text and finish the page and the PDF file.
 	p := f.Doc.NewPage()
 	p.OutputAt(bag.MustSp("1cm"), bag.MustSp("26cm"), vlist)
 	p.Shipout()
@@ -123,7 +117,7 @@ func dothings() error {
 
 func main() {
 	starttime := time.Now()
-	err := dothings()
+	err := typesetSample()
 	if err != nil {
 		log.Fatal(err)
 	}

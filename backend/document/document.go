@@ -244,11 +244,13 @@ func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
 			if oc.p.document.IsTrace(VTraceDest) {
 				oc.gotoTextMode(4)
 				black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
-				circ := pdfdraw.New().ColorNonstroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
+				circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
 				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
 				fmt.Fprint(oc.s, circ)
 				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
 			}
+		} else if action == node.ActionNone {
+			// ignore
 		} else {
 			bag.Logger.Warnf("start/stop node: unhandled action %s", action)
 		}

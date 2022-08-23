@@ -8,6 +8,7 @@ import (
 	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
+	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 	"github.com/speedata/textlayout/harfbuzz"
@@ -147,6 +148,86 @@ func (ts *TypesettingElement) String() string {
 		ret = append(ret, fmt.Sprintf("%s", itm))
 	}
 	return strings.Join(ret, " ")
+}
+
+type paragraph struct {
+	fontsize   bag.ScaledPoint
+	fontfamily *FontFamily
+	hsize      bag.ScaledPoint
+	leading    bag.ScaledPoint
+	language   *lang.Lang
+}
+
+// TypesettingOption controls the formatting of the paragraph.
+type TypesettingOption func(*paragraph)
+
+// HSize sets the horizontal size of the paragraph.
+func HSize(hsize bag.ScaledPoint) TypesettingOption {
+	return func(p *paragraph) {
+		p.hsize = hsize
+	}
+}
+
+// Leading sets the distance between two baselines in a paragraph.
+func Leading(leading bag.ScaledPoint) TypesettingOption {
+	return func(p *paragraph) {
+		p.leading = leading
+	}
+}
+
+// Language sets the default language for the whole paragraph (used for hyphenation).
+func Language(language *lang.Lang) TypesettingOption {
+	return func(p *paragraph) {
+		p.language = language
+	}
+}
+
+// FontSize sets the font size for the paragraph.
+func FontSize(size bag.ScaledPoint) TypesettingOption {
+	return func(p *paragraph) {
+		p.fontsize = size
+	}
+}
+
+// Family sets the font family for the paragraph.
+func Family(fam *FontFamily) TypesettingOption {
+	return func(p *paragraph) {
+		p.fontfamily = fam
+	}
+}
+
+// FormatParagraph creates a rectangular text from the data stored in the
+// TypesettingElement.
+func (fe *Document) FormatParagraph(te *TypesettingElement, opts ...TypesettingOption) (*node.VList, error) {
+	p := &paragraph{
+		language: fe.Doc.DefaultLanguage,
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if p.fontsize != 0 {
+		te.Settings[SettingSize] = p.fontsize
+	}
+	if p.fontfamily != nil {
+		te.Settings[SettingFontFamily] = p.fontfamily
+	}
+	hlist, tail, err := fe.Mknodes(te)
+	if err != nil {
+		return nil, err
+	}
+
+	Hyphenate(hlist, p.language)
+	node.AppendLineEndAfter(tail)
+
+	ls := node.NewLinebreakSettings()
+	ls.HSize = p.hsize
+	if p.leading == 0 {
+		ls.LineHeight = p.hsize * 120 / 100
+	} else {
+		ls.LineHeight = p.leading
+	}
+	vlist, _ := node.Linebreak(hlist, ls)
+	return vlist, nil
 }
 
 func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
