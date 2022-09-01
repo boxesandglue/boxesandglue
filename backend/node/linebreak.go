@@ -70,6 +70,32 @@ func newLinebreaker(hl Node, settings *LinebreakSettings) *linebreaker {
 	return lb
 }
 
+func getNextNodeWidth(n Node, maxwidth bag.ScaledPoint) bag.ScaledPoint {
+	sumwd := bag.ScaledPoint(0)
+	firstGlue := true
+sumup:
+	for e := n; e != nil; e = e.Next() {
+		switch t := e.(type) {
+		case *Glue:
+			if firstGlue {
+				firstGlue = false
+				sumwd += t.Width
+			} else {
+				break sumup
+			}
+		case *Penalty:
+			if t.Penalty < 10000 {
+				break sumup
+			}
+		case *Disc:
+			break sumup
+		default:
+			sumwd += getWidth(e)
+		}
+	}
+	return sumwd
+}
+
 func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 	// compute the adjustment ratio r from a to n
 	desiredLineWidth := lb.sumW - a.sumW
@@ -97,6 +123,11 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 			r = float64(lb.settings.HSize-desiredLineWidth) / float64(z)
 		} else {
 			r = negativeInf
+		}
+	}
+	if r == negativeInf || r == positiveInf {
+		if desiredLineWidth+getNextNodeWidth(n, lb.settings.HSize) > lb.settings.HSize {
+			return negativeInf
 		}
 	}
 	return r
@@ -446,6 +477,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			// insert vertical glue if necessary
 			if e.next != nil {
 				lineskip := NewGlue()
+				lineskip.Attributes = H{"origin": "lineskip"}
 				if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
 					lineskip.Width = settings.LineHeight - totalHeightHL
 				}

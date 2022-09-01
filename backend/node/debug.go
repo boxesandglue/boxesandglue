@@ -1,37 +1,104 @@
 package node
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
-	"strings"
-
-	"github.com/fatih/color"
+	"os"
 )
 
 // Debug shows node list debug output
 func Debug(n Node) {
-	debugNode(n, 0)
+	w := new(bytes.Buffer)
+	enc := xml.NewEncoder(w)
+	enc.Indent("", "    ")
+	debugNode(n, enc, 0)
+	enc.Flush()
+	w.WriteTo(os.Stdout)
 }
 
-func debugNode(n Node, level int) {
+type kv struct {
+	key   string
+	value any
+}
+
+func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv) {
+	for _, attr := range attributes {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Local: attr.key},
+			Value: fmt.Sprint(attr.value),
+		})
+	}
+}
+
+func debugNode(n Node, enc *xml.Encoder, level int) {
 	for e := n; e != nil; e = e.Next() {
-		fmt.Print(strings.Repeat(" | ", level))
+		start := xml.StartElement{}
+		start.Name = xml.Name{Local: e.Name()}
+		var err error
 		switch v := e.(type) {
 		case *VList:
-			color.Cyan("vlist (%d) wd: %s, ht %s, dp %s", v.ID, v.Width, v.Height, v.Depth)
-			debugNode(v.List, level+1)
+			attr := []kv{
+				{"id", v.ID},
+				{"wd", v.Width},
+				{"ht", v.Height},
+				{"dp", v.Depth},
+			}
+			for k, v := range v.Attributes {
+				attr = append(attr, kv{k, v})
+			}
+			encodeAttributes(enc, &start, attr)
+			err = enc.EncodeToken(start)
+			debugNode(v.List, enc, level+1)
 		case *HList:
-			color.HiBlue("hlist (%d) wd: %s ht: %s dp: %s", v.ID, v.Width, v.Height, v.Depth)
-			debugNode(v.List, level+1)
+			attr := []kv{
+				{"id", v.ID},
+				{"wd", v.Width},
+				{"ht", v.Height},
+				{"dp", v.Depth},
+				{"r", v.GlueSet},
+			}
+			for k, v := range v.Attributes {
+				attr = append(attr, kv{k, v})
+			}
+
+			encodeAttributes(enc, &start, attr)
+			err = enc.EncodeToken(start)
+			debugNode(v.List, enc, level+1)
 		case *Disc:
-			color.HiBlack("disc (%d)", v.ID)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+			})
+			err = enc.EncodeToken(start)
 		case *Glyph:
 			var fontid int
 			if fnt := v.Font; fnt != nil {
 				fontid = fnt.Face.FaceID
 			}
-			color.HiGreen("glyph (%d): %s wd: %s ht: %s, dp: %s, cp: %d face %d", v.ID, v.Components, v.Width, v.Height, v.Depth, v.Codepoint, fontid)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+				{"components", v.Components},
+				{"wd", v.Width},
+				{"ht", v.Height},
+				{"dp", v.Depth},
+				{"codepoint", v.Codepoint},
+				{"face", fontid},
+			})
+			err = enc.EncodeToken(start)
 		case *Glue:
-			color.HiMagenta("glue (%d): %spt plus %spt minus %spt stretch order %d shrink order %d", v.ID, v.Width, v.Stretch, v.Shrink, v.StretchOrder, v.ShrinkOrder)
+			attr := []kv{
+				{"id", v.ID},
+				{"wd", v.Width},
+				{"stretch", v.Stretch},
+				{"stretchorder", v.StretchOrder},
+				{"shrink", v.Shrink},
+				{"shrinkorder", v.ShrinkOrder},
+			}
+			for k, v := range v.Attributes {
+				attr = append(attr, kv{k, v})
+			}
+			encodeAttributes(enc, &start, attr)
+			err = enc.EncodeToken(start)
 		case *Image:
 			var filename string
 			if v.Img != nil && v.Img.ImageFile != nil {
@@ -39,9 +106,17 @@ func debugNode(n Node, level int) {
 			} else {
 				filename = "(image object not set)"
 			}
-			color.Magenta("image (%d): %s", v.ID, filename)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+				{"filename", filename},
+			})
+			err = enc.EncodeToken(start)
 		case *Kern:
-			color.Blue("kern (%d): %s", v.ID, v.Kern)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+				{"kern", v.Kern},
+			})
+			err = enc.EncodeToken(start)
 		case *Lang:
 			var langname string
 			if v.Lang != nil {
@@ -49,15 +124,41 @@ func debugNode(n Node, level int) {
 			} else {
 				langname = "-"
 			}
-			color.Magenta("lang (%d): %s", v.ID, langname)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+				{"lang", langname},
+			})
+			err = enc.EncodeToken(start)
 		case *Penalty:
-			color.HiMagenta("peanlty (%d): %d wd: %spt", v.ID, v.Penalty, v.Width)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+				{"penalty", v.Penalty},
+				{"width", v.Width},
+			})
+			err = enc.EncodeToken(start)
 		case *Rule:
-			color.HiBlack("rule (%d)", v.ID)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+				{"wd", v.Width},
+				{"ht", v.Height},
+				{"dp", v.Depth},
+			})
+			err = enc.EncodeToken(start)
 		case *StartStop:
-			color.HiCyan("start/stop (%d)", v.ID)
+			encodeAttributes(enc, &start, []kv{
+				{"id", v.ID},
+			})
+			err = enc.EncodeToken(start)
 		default:
-			color.HiRed("Unhandled token %v", v)
+			err = enc.EncodeToken(start)
+			panic("unhandled token")
+		}
+		if err != nil {
+			panic(err)
+		}
+		err = enc.EncodeToken(start.End())
+		if err != nil {
+			panic(err)
 		}
 	}
 }

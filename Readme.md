@@ -95,7 +95,7 @@ func typesetSample() error {
 
 	// Format the text into a paragraph. Some of these settings (font family and
 	// font size) can be part of the typesetting element.
-	vlist, err := f.FormatParagraph(te,
+	vlist, _, err := f.FormatParagraph(te,
 		frontend.HSize(bag.MustSp("125pt")),
 		frontend.Leading(bag.MustSp("14pt")),
 		frontend.FontSize(bag.MustSp("12pt")),

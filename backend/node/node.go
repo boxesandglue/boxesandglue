@@ -786,7 +786,7 @@ func (r *Rule) GetID() int {
 
 // Name returns the name of the node
 func (r *Rule) Name() string {
-	return "lang"
+	return "rule"
 }
 
 // Type returns the type of the node

@@ -198,7 +198,7 @@ func Family(fam *FontFamily) TypesettingOption {
 
 // FormatParagraph creates a rectangular text from the data stored in the
 // TypesettingElement.
-func (fe *Document) FormatParagraph(te *TypesettingElement, opts ...TypesettingOption) (*node.VList, error) {
+func (fe *Document) FormatParagraph(te *TypesettingElement, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
 	p := &paragraph{
 		language: fe.Doc.DefaultLanguage,
 	}
@@ -213,7 +213,7 @@ func (fe *Document) FormatParagraph(te *TypesettingElement, opts ...TypesettingO
 	}
 	hlist, tail, err := fe.Mknodes(te)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	Hyphenate(hlist, p.language)
@@ -222,12 +222,12 @@ func (fe *Document) FormatParagraph(te *TypesettingElement, opts ...TypesettingO
 	ls := node.NewLinebreakSettings()
 	ls.HSize = p.hsize
 	if p.leading == 0 {
-		ls.LineHeight = p.hsize * 120 / 100
+		ls.LineHeight = p.fontsize * 120 / 100
 	} else {
 		ls.LineHeight = p.leading
 	}
-	vlist, _ := node.Linebreak(hlist, ls)
-	return vlist, nil
+	vlist, info := node.Linebreak(hlist, ls)
+	return vlist, info, nil
 }
 
 func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {

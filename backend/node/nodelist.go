@@ -130,11 +130,19 @@ func Hpack(firstNode Node) *HList {
 			sumwd = sumwd + v.Width
 		case *HList:
 			sumwd = sumwd + v.Width
+		case *Kern:
+			sumwd += v.Kern
 		case *Lang:
 		case *Penalty:
 			sumwd += v.Width
 		case *VList:
 			sumwd += v.Width
+			if v.Height > maxht {
+				maxht = v.Height
+			}
+			if v.Depth > maxdp {
+				maxdp = v.Depth
+			}
 		case *Rule:
 			sumwd += v.Width
 			if v.Height > maxht {
@@ -242,7 +250,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 		// a long line
 		r = float64(width-sumwd) / float64(shrinkability)
 	}
-
 	badness := 10000
 	if r < -1 {
 		// Badness 1000000 for overfull boxes
@@ -259,15 +266,17 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 
 	// calculate the real width: non-glue widths + new glue widths
 	sumwd = nonGlueSumWd
+
 	for _, g := range glues {
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
+		} else {
+			g.Width -= bag.ScaledPoint(g.Shrink)
+			r = -1.0
 		}
 		sumwd += g.Width
-		g.Stretch = 0
-		g.Shrink = 0
 	}
 
 	hl := NewHList()

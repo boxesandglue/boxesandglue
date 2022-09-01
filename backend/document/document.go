@@ -1,8 +1,10 @@
 package document
 
 import (
+	"encoding/xml"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -54,6 +56,7 @@ type Page struct {
 	Annotations       []pdf.Annotation
 	Spotcolors        []*color.Color
 	Objectnumber      pdf.Objectnumber
+	outputDebug       *outputDebug
 }
 
 const (
@@ -75,10 +78,43 @@ type objectContext struct {
 	tag              *StructureElement
 	s                *strings.Builder
 	shiftX           bag.ScaledPoint
-	sumX             bag.ScaledPoint
-	sumV             bag.ScaledPoint
-	objX             bag.ScaledPoint
-	objY             bag.ScaledPoint
+	outputDebug      *outputDebug
+	curOutputDebug   *outputDebug
+}
+
+func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
+	fmt.Fprintf(oc.s, "\n1 0 0 1 %s %s Tm ", x, y)
+}
+
+type outputDebug struct {
+	Name       string
+	Attributes map[string]any
+	Items      []any
+}
+
+func (od outputDebug) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	startElt := xml.StartElement{
+		Name: xml.Name{Local: od.Name},
+	}
+
+	keys := make([]string, 0, len(od.Attributes))
+
+	for attrname := range od.Attributes {
+		keys = append(keys, attrname)
+	}
+
+	sort.Strings(keys)
+	for _, key := range keys {
+		startElt.Attr = append(startElt.Attr,
+			xml.Attr{Name: xml.Name{Local: key}, Value: fmt.Sprint(od.Attributes[key])})
+
+	}
+	e.EncodeToken(startElt)
+	for _, itm := range od.Items {
+		e.Encode(itm)
+	}
+	e.EncodeToken(startElt.End())
+	return nil
 }
 
 // gotoTextMode inserts PDF instructions to switch to a inner/outer text mode.
@@ -127,229 +163,328 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 	}
 }
 
-// outputHorizontalItem outputs a single horizontal item and advance the cursor.
-func (oc *objectContext) outputHorizontalItem(v *node.HList, itm node.Node) {
-	switch n := itm.(type) {
-	case *node.Glyph:
-		if n.Font != oc.currentFont {
-			oc.gotoTextMode(3)
-			fmt.Fprintf(oc.s, "\n%s %s Tf ", n.Font.Face.InternalName(), n.Font.Size)
-			oc.usedFaces[n.Font.Face] = true
-			oc.currentFont = n.Font
-		}
-		if oc.textmode > 3 {
-			oc.gotoTextMode(3)
-		}
-		if oc.textmode > 2 {
-			fmt.Fprintf(oc.s, "\n1 0 0 1 %s %s Tm ", oc.objX+oc.shiftX+oc.sumX, (oc.objY - oc.sumV))
-			oc.shiftX = 0
-		}
-		n.Font.Face.RegisterChar(n.Codepoint)
-		oc.gotoTextMode(1)
-		fmt.Fprintf(oc.s, "%04x", n.Codepoint)
-		oc.sumX += n.Width
-	case *node.Glue:
-		if oc.textmode == 1 {
-			var goBackwards bag.ScaledPoint
-			if curFont := oc.currentFont; curFont != nil {
-				oc.gotoTextMode(1)
-				fmt.Fprintf(oc.s, "%04x", curFont.SpaceChar.Codepoint)
-				curFont.Face.RegisterChar(curFont.SpaceChar.Codepoint)
-				goBackwards = curFont.SpaceChar.Advance
-			}
-			if oc.currentFont.Size != 0 {
-				oc.gotoTextMode(2)
-				fmt.Fprintf(oc.s, " %d ", -1*1000*(n.Width-goBackwards)/oc.currentFont.Size)
-			}
-		}
-		oc.sumX += n.Width
-	case *node.Rule:
-		oc.gotoTextMode(4)
-		posX := oc.objX + oc.sumX
-		posY := oc.objY - oc.sumV
-		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
-		fmt.Fprint(oc.s, n.Pre)
-		if !n.Hide {
-			fmt.Fprintf(oc.s, "q 0 %s %s %s re f Q ", -1*n.Depth, n.Width, n.Height+n.Depth)
-		}
-		fmt.Fprint(oc.s, n.Post)
-		oc.sumX += n.Width
-		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
-	case *node.Image:
-		oc.gotoTextMode(4)
-		img := n.Img
-		if img.Used {
-			bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
-		} else {
-			img.Used = true
-		}
-		ifile := img.ImageFile
-		oc.usedImages[ifile] = true
-
-		scaleX := v.Width.ToPT() / ifile.ScaleX
-		scaleY := v.Height.ToPT() / ifile.ScaleY
-		ht := v.Height
-		y := oc.objY - ht
-		x := oc.objX
-		fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
-	case *node.StartStop:
-		posX := oc.objX + oc.sumX
-		posY := oc.objY - oc.sumV - v.Depth
-
-		isStartNode := true
-		action := n.Action
-
-		var startNode *node.StartStop
-		if n.StartNode != nil {
-			// a stop node which has a link to a start node
-			isStartNode = false
-			startNode = n.StartNode
-			action = startNode.Action
-		} else {
-			startNode = n
-		}
-
-		if action == node.ActionHyperlink {
-			hyperlink := startNode.Value.(*Hyperlink)
-			if isStartNode {
-				hyperlink.startposX = posX
-				hyperlink.startposY = posY
-			} else {
-				rectHT := posY + v.Height + v.Depth - hyperlink.startposY
-				rectWD := posX - hyperlink.startposX
-				a := pdf.Annotation{
-					Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
-					Subtype:    "Link",
-					URI:        hyperlink.URI,
-					ShowBorder: oc.p.document.ShowHyperlinks,
-				}
-				oc.p.Annotations = append(oc.p.Annotations, a)
-				if oc.p.document.IsTrace(VTraceHyperlinks) {
-					oc.gotoTextMode(3)
-					fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
-				}
-			}
-		} else if action == node.ActionDest {
-			// dest should be in the top left corner of the current position
-			y := posY + v.Height + v.Depth
-			destnum := int(n.Value.(int))
-			d := &pdf.Dest{
-				Num:              destnum,
-				X:                posX.ToPT(),
-				Y:                y.ToPT(),
-				PageObjectnumber: oc.pageObjectnumber,
-			}
-
-			oc.p.document.PDFWriter.Destinations[destnum] = d
-			if oc.p.document.IsTrace(VTraceDest) {
-				oc.gotoTextMode(4)
-				black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
-				circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
-				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
-				fmt.Fprint(oc.s, circ)
-				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
-			}
-		} else if action == node.ActionNone {
-			// ignore
-		} else {
-			bag.Logger.Warnf("start/stop node: unhandled action %s", action)
-		}
-		switch n.Position {
-		case node.PDFOutputPage:
-			oc.gotoTextMode(4)
-		case node.PDFOutputDirect:
-			oc.gotoTextMode(3)
-		case node.PDFOutputHere:
-			oc.gotoTextMode(4)
-			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
-		case node.PDFOutputLowerLeft:
-			oc.gotoTextMode(4)
-		}
-		if n.Callback != nil {
-			fmt.Fprint(oc.s, n.Callback(n))
-		}
-		switch n.Position {
-		case node.PDFOutputHere:
-			fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
-		}
-	case *node.Kern:
-		if oc.textmode > 2 {
-			fmt.Fprintf(oc.s, "\n1 0 0 1 %s %s Tm ", oc.objX+oc.shiftX+oc.sumX, (oc.objY - oc.sumV))
-			oc.shiftX = 0
-		}
-
-		oc.gotoTextMode(2)
-		fmt.Fprintf(oc.s, " %d ", -1000*n.Kern/oc.currentFont.Size)
-		oc.sumX += n.Kern
-	case *node.Lang, *node.Penalty:
-		// ignore
-	case *node.Disc:
-		// ignore
-	case *node.HList:
-		oc.outputHorizontalItem(n, n.List)
-	case *node.VList:
-		for vItem := v.List; vItem != nil; vItem = vItem.Next() {
-			oc.outputVerticalItem(n, vItem)
-		}
-	default:
-		bag.Logger.DPanicf("Shipout: unknown node %v", itm)
+// outputHorizontalItems outputs a list of horizontal item and advances the
+// cursor.
+func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node.HList) {
+	od := &outputDebug{
+		Name: "hlist",
+		Attributes: map[string]any{
+			"width":  hlist.Width,
+			"height": hlist.Height,
+			"depth":  hlist.Depth,
+			"x":      x,
+			"y":      y,
+		},
 	}
+	if origin, ok := hlist.Attributes["origin"]; ok {
+		od.Attributes["origin"] = origin
+	}
+	saveCurOutputDebug := oc.curOutputDebug
+	oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+	oc.curOutputDebug = od
+	sumX := bag.ScaledPoint(0)
+	for hItem := hlist.List; hItem != nil; hItem = hItem.Next() {
+		switch v := hItem.(type) {
+		case *node.Glyph:
+			od = &outputDebug{
+				Name: "glyph",
+				Attributes: map[string]any{
+					"cp":         v.Codepoint,
+					"fontsize":   v.Font.Size,
+					"faceid":     v.Font.Face.FaceID,
+					"components": v.Components,
+				}}
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+			if v.Font != oc.currentFont {
+				oc.gotoTextMode(3)
+				fmt.Fprintf(oc.s, "\n%s %s Tf ", v.Font.Face.InternalName(), v.Font.Size)
+				oc.usedFaces[v.Font.Face] = true
+				oc.currentFont = v.Font
+			}
+			if oc.textmode > 3 {
+				oc.gotoTextMode(3)
+			}
+			if oc.textmode > 2 {
+				oc.moveto(x+oc.shiftX+sumX, (y - hlist.Height))
+				oc.shiftX = 0
+			}
+			v.Font.Face.RegisterChar(v.Codepoint)
+			oc.gotoTextMode(1)
+			fmt.Fprintf(oc.s, "%04x", v.Codepoint)
+			sumX += v.Width
+		case *node.Glue:
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, &outputDebug{
+				Name: "glue",
+				Attributes: map[string]any{
+					"width": v.Width,
+				},
+			})
+
+			if oc.textmode == 1 {
+				var goBackwards bag.ScaledPoint
+				if curFont := oc.currentFont; curFont != nil {
+					oc.gotoTextMode(1)
+					fmt.Fprintf(oc.s, "%04x", curFont.SpaceChar.Codepoint)
+					curFont.Face.RegisterChar(curFont.SpaceChar.Codepoint)
+					goBackwards = curFont.SpaceChar.Advance
+				}
+				if oc.currentFont.Size != 0 {
+					oc.gotoTextMode(2)
+					fmt.Fprintf(oc.s, " %d ", -1*1000*(v.Width-goBackwards)/oc.currentFont.Size)
+				}
+			}
+			sumX += v.Width
+		case *node.Rule:
+			od = &outputDebug{
+				Name: "rule",
+				Attributes: map[string]any{
+					"width":  v.Width,
+					"height": v.Height,
+					"depth":  v.Depth,
+				}}
+			if origin, ok := v.Attributes["origin"]; ok {
+				od.Attributes["origin"] = origin
+			}
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+
+			oc.gotoTextMode(4)
+			posX := x + sumX
+			posY := y
+			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
+
+			if v.Pre != "" {
+				pdfinstructions = append(pdfinstructions, v.Pre)
+			}
+			if !v.Hide {
+				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, -1*(v.Height+v.Depth)))
+			}
+			pdfinstructions = append(pdfinstructions, v.Post)
+			sumX += v.Width
+			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
+			fmt.Fprintf(oc.s, strings.Join(pdfinstructions, " "))
+		case *node.Image:
+			oc.gotoTextMode(4)
+			img := v.Img
+			if img.Used {
+				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
+			} else {
+				img.Used = true
+			}
+			ifile := img.ImageFile
+			oc.usedImages[ifile] = true
+
+			scaleX := hlist.Width.ToPT() / ifile.ScaleX
+			scaleY := hlist.Height.ToPT() / ifile.ScaleY
+			ht := hlist.Height
+			posy := y - ht
+			posx := x
+			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+		case *node.StartStop:
+			posX := x + sumX
+			posY := y - hlist.Depth
+
+			isStartNode := true
+			action := v.Action
+
+			var startNode *node.StartStop
+			if v.StartNode != nil {
+				// a stop node which has a link to a start node
+				isStartNode = false
+				startNode = v.StartNode
+				action = startNode.Action
+			} else {
+				startNode = v
+			}
+
+			if action == node.ActionHyperlink {
+				hyperlink := startNode.Value.(*Hyperlink)
+				if isStartNode {
+					hyperlink.startposX = posX
+					hyperlink.startposY = posY
+				} else {
+					rectHT := posY + hlist.Height + hlist.Depth - hyperlink.startposY
+					rectWD := posX - hyperlink.startposX
+					a := pdf.Annotation{
+						Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
+						Subtype:    "Link",
+						URI:        hyperlink.URI,
+						ShowBorder: oc.p.document.ShowHyperlinks,
+					}
+					oc.p.Annotations = append(oc.p.Annotations, a)
+					if oc.p.document.IsTrace(VTraceHyperlinks) {
+						oc.gotoTextMode(3)
+						fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
+					}
+				}
+			} else if action == node.ActionDest {
+				// dest should be in the top left corner of the current position
+				y := posY + hlist.Height + hlist.Depth
+				destnum := int(v.Value.(int))
+				d := &pdf.Dest{
+					Num:              destnum,
+					X:                posX.ToPT(),
+					Y:                y.ToPT(),
+					PageObjectnumber: oc.pageObjectnumber,
+				}
+
+				oc.p.document.PDFWriter.Destinations[destnum] = d
+				if oc.p.document.IsTrace(VTraceDest) {
+					oc.gotoTextMode(4)
+					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
+					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
+					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
+					fmt.Fprint(oc.s, circ)
+					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
+				}
+			} else if action == node.ActionNone {
+				// ignore
+			} else {
+				bag.Logger.Warnf("start/stop node: unhandled action %s", action)
+			}
+			switch v.Position {
+			case node.PDFOutputPage:
+				oc.gotoTextMode(4)
+			case node.PDFOutputDirect:
+				oc.gotoTextMode(3)
+			case node.PDFOutputHere:
+				oc.gotoTextMode(4)
+				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+			case node.PDFOutputLowerLeft:
+				oc.gotoTextMode(4)
+			}
+			if v.Callback != nil {
+				fmt.Fprint(oc.s, v.Callback(v))
+			}
+			switch v.Position {
+			case node.PDFOutputHere:
+				oc.moveto(-posX, -posY)
+			}
+		case *node.Kern:
+			if oc.textmode > 2 {
+				oc.moveto(x+oc.shiftX+sumX, (y))
+				oc.shiftX = 0
+			}
+
+			oc.gotoTextMode(2)
+			fmt.Fprintf(oc.s, " %d ", -1000*v.Kern/oc.currentFont.Size)
+			sumX += v.Kern
+		case *node.Lang, *node.Penalty:
+			// ignore
+		case *node.Disc:
+			// ignore
+		case *node.HList:
+			oc.outputHorizontalItems(x, y, v)
+		case *node.VList:
+			saveX := x
+			saveY := y
+			x += sumX
+			oc.outputVerticalItems(x, y, v)
+			sumX += v.Width
+			x = saveX
+			y = saveY
+		default:
+			bag.Logger.DPanicf("Shipout: unknown node %v", hItem)
+		}
+	}
+	oc.curOutputDebug = saveCurOutputDebug
 }
 
-func (oc *objectContext) outputVerticalItem(vlist *node.VList, hElt node.Node) {
-	oc.sumX = 0
-	switch v := hElt.(type) {
-	case *node.HList:
-		// The first hlist: move cursor down
-		if hElt == vlist.List {
-			oc.sumV += v.Height + v.Depth
-		}
-
-		for itm := v.List; itm != nil; itm = itm.Next() {
-			oc.outputHorizontalItem(v, itm)
-		}
-		oc.sumV += v.Height + v.Depth
-		if oc.textmode < 3 {
-			oc.gotoTextMode(3)
-		}
-	case *node.Image:
-		img := v.Img
-		if img.Used {
-			bag.Logger.Warnf("image node already in use, id: %d", v.ID)
-		} else {
-			img.Used = true
-		}
-		ifile := img.ImageFile
-		oc.usedImages[ifile] = true
-		oc.gotoTextMode(4)
-
-		scaleX := v.Width.ToPT() / ifile.ScaleX
-		scaleY := v.Height.ToPT() / ifile.ScaleY
-
-		ht := v.Height
-		y := oc.objY - ht
-		x := oc.objX
-		if oc.p.document.IsTrace(VTraceImages) {
-			fmt.Fprintf(oc.s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
-		}
-		fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, x, y, img.ImageFile.InternalName())
-	case *node.Glue:
-		// Let's assume that the glue ratio has been determined and the
-		// natural width is in v.Width for now.
-		oc.sumV += v.Width
-	case *node.Rule:
-		posX := oc.objX + oc.sumX
-		posY := oc.objY - oc.sumV
-		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
-		fmt.Fprint(oc.s, v.Pre)
-		fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -posY)
-	case *node.VList:
-		for vItem := v.List; vItem != nil; vItem = vItem.Next() {
-			oc.outputVerticalItem(vlist, vItem)
-		}
-	default:
-		bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
+// outputVerticalItems iterates through the vlist's list and outputs each item
+// beneath each other.
+func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.VList) {
+	od := &outputDebug{
+		Name: "vlist",
+		Attributes: map[string]any{
+			"width":  vlist.Width,
+			"height": vlist.Height,
+			"depth":  vlist.Depth,
+			"x":      x,
+			"y":      y,
+		},
 	}
+	saveCurOutputDebug := oc.curOutputDebug
+	oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+	oc.curOutputDebug = od
+	sumV := bag.ScaledPoint(0)
+	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
+		switch v := vItem.(type) {
+		case *node.HList:
+			oc.outputHorizontalItems(x, y-sumV, v)
+			sumV += v.Height
+			sumV += v.Depth
+			if oc.textmode < 3 {
+				oc.gotoTextMode(3)
+			}
+		case *node.Image:
+			img := v.Img
+			if img.Used {
+				bag.Logger.Warnf("image node already in use, id: %d", v.ID)
+			} else {
+				img.Used = true
+			}
+			ifile := img.ImageFile
+			oc.usedImages[ifile] = true
+			oc.gotoTextMode(4)
+
+			scaleX := v.Width.ToPT() / ifile.ScaleX
+			scaleY := v.Height.ToPT() / ifile.ScaleY
+
+			ht := v.Height
+			posy := y - ht
+			posx := x
+			if oc.p.document.IsTrace(VTraceImages) {
+				fmt.Fprintf(oc.s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
+			}
+			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+		case *node.Glue:
+			od = &outputDebug{
+				Name: "glue",
+				Attributes: map[string]any{
+					"width":   v.Width,
+					"stretch": v.Stretch,
+					"shrink":  v.Shrink,
+				}}
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+
+			// Let's assume that the glue ratio has been determined and the
+			// natural width is in v.Width for now.
+			sumV += v.Width
+		case *node.Rule:
+			od = &outputDebug{
+				Name: "rule",
+				Attributes: map[string]any{
+					"width":  v.Width,
+					"height": v.Height,
+					"depth":  v.Depth,
+				}}
+			if origin, ok := v.Attributes["origin"]; ok {
+				od.Attributes["origin"] = origin
+			}
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+
+			posX := x
+			posY := y - sumV
+			sumV += v.Height + v.Depth
+			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
+			if v.Pre != "" {
+				pdfinstructions = append(pdfinstructions, v.Pre)
+			}
+			if !v.Hide {
+				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 0 %s %s re f Q", v.Width, -1*(v.Height+v.Depth)))
+			}
+			if v.Post != "" {
+				pdfinstructions = append(pdfinstructions, v.Post)
+			}
+			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
+			fmt.Fprintf(oc.s, strings.Join(pdfinstructions, " "))
+		case *node.VList:
+			oc.outputVerticalItems(x, y-sumV, v)
+			sumV += v.Height + v.Depth
+		default:
+			bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
+		}
+	}
+	oc.curOutputDebug = saveCurOutputDebug
 }
 
 // OutputAt places the nodelist at the position.
@@ -409,7 +544,9 @@ func (p *Page) Shipout() {
 	objs = append(objs, p.Objects...)
 	usedFaces := make(map[*pdf.Face]bool)
 	usedImages := make(map[*pdf.Imagefile]bool)
-
+	p.outputDebug = &outputDebug{
+		Name: "page",
+	}
 	for _, obj := range objs {
 		oc := &objectContext{
 			textmode:         4,
@@ -417,10 +554,12 @@ func (p *Page) Shipout() {
 			usedFaces:        make(map[*pdf.Face]bool),
 			usedImages:       make(map[*pdf.Imagefile]bool),
 			p:                p,
-			objX:             obj.X + offsetX,
-			objY:             obj.Y + offsetY,
 			pageObjectnumber: pageObjectNumber,
+			outputDebug: &outputDebug{
+				Name: "object",
+			},
 		}
+		oc.curOutputDebug = oc.outputDebug
 
 		vlist := obj.Vlist
 		if vlist.Attributes != nil {
@@ -430,10 +569,11 @@ func (p *Page) Shipout() {
 				p.StructureElements = append(p.StructureElements, oc.tag)
 			}
 		}
+
+		x := obj.X + offsetX
+		y := obj.Y + offsetY
 		// output vertical items
-		for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
-			oc.outputVerticalItem(vlist, vItem)
-		}
+		oc.outputVerticalItems(x, y, vlist)
 		for k := range oc.usedFaces {
 			usedFaces[k] = true
 		}
@@ -441,10 +581,11 @@ func (p *Page) Shipout() {
 			usedImages[k] = true
 		}
 		oc.gotoTextMode(4)
+		p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
 	}
 
 	st := pdf.NewStream([]byte(s.String()))
-	st.SetCompression()
+	// st.SetCompression()
 	page := p.document.PDFWriter.AddPage(st, pageObjectNumber)
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
@@ -550,10 +691,12 @@ type PDFDocument struct {
 	Subject              string
 	Spotcolors           []*color.Color
 	PDFWriter            *pdf.PDF
-	tracing              VTrace
 	ShowHyperlinks       bool
 	RootStructureElement *StructureElement
 	ColorProfile         *ColorProfile
+	tracing              VTrace
+	outputDebug          *outputDebug
+	curOutputDebug       *outputDebug
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   CallbackShipout
 	usedPDFImages        map[string]*pdf.Imagefile
@@ -568,8 +711,25 @@ func NewDocument(w io.Writer) *PDFDocument {
 		Languages:         make(map[string]*lang.Lang),
 		PDFWriter:         pdf.NewPDFWriter(w),
 		usedPDFImages:     make(map[string]*pdf.Imagefile),
+		outputDebug: &outputDebug{
+			Name: "pdfdocument",
+		},
 	}
+	d.curOutputDebug = d.outputDebug
 	return d
+}
+
+// OutputXMLDump writes an XML dump of the document to w.
+func (d *PDFDocument) OutputXMLDump(w io.Writer) error {
+	for _, pg := range d.Pages {
+		d.outputDebug.Items = append(d.outputDebug.Items, pg.outputDebug)
+	}
+	b, err := xml.MarshalIndent(d.outputDebug, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(b)
+	return err
 }
 
 // LoadPatternFile loads a hyphenation pattern file.
