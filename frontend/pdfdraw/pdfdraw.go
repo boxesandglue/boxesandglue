@@ -72,7 +72,7 @@ func (pd *Object) Lineto(x, y bag.ScaledPoint) *Object {
 func (pd *Object) Circle(x, y, radiusX, radiusY bag.ScaledPoint) *Object {
 	circleBezier := 0.551915024494
 
-	shiftDown, shiftRight := -1*radiusY, -radiusX
+	shiftDown, shiftRight := -1*radiusY-y, -radiusX+x
 	dx := bag.ScaledPointFromFloat(radiusX.ToPT() * (1 - circleBezier))
 	dy := bag.ScaledPointFromFloat(radiusY.ToPT() * (1 - circleBezier))
 

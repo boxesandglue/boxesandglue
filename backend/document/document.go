@@ -360,6 +360,16 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.moveto(-posX, -posY)
 			}
 		case *node.Kern:
+			od = &outputDebug{
+				Name: "kern",
+				Attributes: map[string]any{
+					"kern": v.Kern,
+				}}
+			if origin, ok := v.Attributes["origin"]; ok {
+				od.Attributes["origin"] = origin
+			}
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+
 			if oc.textmode > 2 {
 				oc.moveto(x+oc.shiftX+sumX, (y))
 				oc.shiftX = 0

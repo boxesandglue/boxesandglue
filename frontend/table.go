@@ -7,6 +7,33 @@ import (
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 )
 
+// HorizontalAlignment is the horizontal alignment.
+type HorizontalAlignment int
+
+// VerticalAlignment is the vertical alignment.
+type VerticalAlignment int
+
+const (
+	// HAlignDefault is an undefined alignment.
+	HAlignDefault HorizontalAlignment = iota
+	// HAlignLeft makes a table cell ragged right.
+	HAlignLeft
+	// HAlignRight makes a table cell ragged left.
+	HAlignRight
+	// HAlignCenter has ragged left and right alignment.
+	HAlignCenter
+)
+const (
+	// VAlignDefault is an undefined vertical alignment.
+	VAlignDefault VerticalAlignment = iota
+	// VAlignTop aligns the contents of the cell at the top.
+	VAlignTop
+	// VAlignMiddle aligns the contents of the cell in the vertical middle.
+	VAlignMiddle
+	// VAlignBottom aligns the contents of the cell at the bottom.
+	VAlignBottom
+)
+
 // TableCell represents a table cell
 type TableCell struct {
 	BorderTopWidth    bag.ScaledPoint
@@ -19,57 +46,66 @@ type TableCell struct {
 	BorderRightColor  *color.Color
 	CalculatedWidth   bag.ScaledPoint
 	CalculatedHeight  bag.ScaledPoint
+	HAlign            HorizontalAlignment
+	VAlign            VerticalAlignment
 	Contents          []*TypesettingElement
 	row               *TableRow
+	vlist             *node.VList
 }
 
 func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
-	te := cell.Contents[0]
-	_, info, err := cell.row.table.doc.FormatParagraph(te, HSize(1*bag.Factor))
-	if err != nil {
-		return 0, err
-	}
 	minwd := bag.ScaledPoint(0)
-	for _, inf := range info {
-		if wd := inf.Width; wd > minwd {
-			minwd = wd
+
+	for _, cc := range cell.Contents {
+		_, info, err := cell.row.table.doc.FormatParagraph(cc, Family(cell.row.table.FontFamily), HSize(1*bag.Factor))
+		if err != nil {
+			return 0, err
+		}
+		for _, inf := range info {
+			if wd := inf.Width; wd > minwd {
+				minwd = wd
+			}
 		}
 	}
 	return minwd + cell.BorderLeftWidth + cell.BorderRightWidth, nil
 }
 
 func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
-	te := cell.Contents[0]
-	_, info, err := cell.row.table.doc.FormatParagraph(te, HSize(bag.MaxSP))
-	if err != nil {
-		return 0, err
-	}
 	maxwd := bag.ScaledPoint(0)
-
-	for _, inf := range info {
-		if wd := inf.Width; wd > maxwd {
-			maxwd = wd
+	for _, cc := range cell.Contents {
+		_, info, err := cell.row.table.doc.FormatParagraph(cc, Family(cell.row.table.FontFamily), HSize(bag.MaxSP))
+		if err != nil {
+			return 0, err
+		}
+		for _, inf := range info {
+			if wd := inf.Width; wd > maxwd {
+				maxwd = wd
+			}
 		}
 	}
+
 	return maxwd + cell.BorderLeftWidth + cell.BorderRightWidth, nil
 }
 
 func (cell *TableCell) build() (*node.VList, error) {
-	te := cell.Contents[0]
 	paraWidth := cell.CalculatedWidth - cell.BorderLeftWidth - cell.BorderRightWidth
-	para, _, err := cell.row.table.doc.FormatParagraph(te, HSize(paraWidth))
-	if err != nil {
-		return nil, err
+	var head node.Node
+	var vl *node.VList
+	for _, cc := range cell.Contents {
+		para, _, err := cell.row.table.doc.FormatParagraph(cc, Family(cell.row.table.FontFamily), HSize(paraWidth))
+		if err != nil {
+			return nil, err
+		}
+		head = node.InsertAfter(head, node.Tail(head), para)
 	}
+	vl = node.Vpack(head)
+
 	cellHeight := cell.CalculatedHeight
 	if cellHeight == 0 {
-		cellHeight = para.Height + para.Depth + cell.BorderTopWidth + cell.BorderBottomWidth
+		cellHeight = vl.Height + vl.Depth + cell.BorderTopWidth + cell.BorderBottomWidth
 	}
-
-	para.Attributes = make(node.H)
-	para.Attributes["origin"] = "cell mknodes"
-	vl := para
-	var head node.Node
+	vl.Attributes = make(node.H)
+	vl.Attributes["origin"] = "cell mknodes"
 	head = nil
 	if cell.BorderTopWidth > 0 {
 		if cell.BorderTopColor == nil {
@@ -83,17 +119,31 @@ func (cell *TableCell) build() (*node.VList, error) {
 		toprule.Attributes = node.H{"origin": "toprule"}
 		head = toprule
 	}
-	glueHeight := (cellHeight - cell.BorderTopWidth - cell.BorderBottomWidth - vl.Height - vl.Depth) / 2
-	topglue := node.NewGlue()
-	topglue.Width = glueHeight
+	glueHeight := cellHeight - cell.BorderTopWidth - cell.BorderBottomWidth - vl.Height - vl.Depth
 
-	head = node.InsertAfter(head, node.Tail(head), topglue)
-	head = node.InsertAfter(head, topglue, vl)
+	valign := cell.VAlign
+	if valign == VAlignDefault {
+		valign = cell.row.VAlign
+	}
 
-	bottomglue := node.NewGlue()
-	bottomglue.Width = glueHeight
+	if valign == VAlignDefault || valign == VAlignMiddle {
+		glueHeight /= 2
+	}
 
-	head = node.InsertAfter(head, vl, bottomglue)
+	if valign != VAlignTop {
+		topglue := node.NewGlue()
+		topglue.Width = glueHeight
+		head = node.InsertAfter(head, node.Tail(head), topglue)
+		head = node.InsertAfter(head, topglue, vl)
+	} else {
+		head = node.InsertAfter(head, head, vl)
+	}
+
+	if valign != VAlignBottom {
+		bottomglue := node.NewGlue()
+		bottomglue.Width = glueHeight
+		head = node.InsertAfter(head, vl, bottomglue)
+	}
 
 	if cell.BorderBottomWidth > 0 {
 		if cell.BorderBottomColor == nil {
@@ -149,6 +199,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 type TableRow struct {
 	Cells            []*TableCell
 	CalculatedHeight bag.ScaledPoint
+	VAlign           VerticalAlignment
 	table            *Table
 }
 
@@ -158,9 +209,9 @@ func (row *TableRow) getNumberOfColumns() int {
 
 func (row *TableRow) setHeight() error {
 	maxht := bag.ScaledPoint(0)
-	for i, col := range row.Cells {
-		col.CalculatedWidth = row.table.columnWidths[i]
-		vl, err := col.build()
+	for i, cell := range row.Cells {
+		cell.CalculatedWidth = row.table.columnWidths[i]
+		vl, err := cell.build()
 		if err != nil {
 			return err
 		}
@@ -214,6 +265,7 @@ func (row *TableRow) build() (*node.HList, error) {
 	return hl, nil
 }
 
+// TableRows is a collection of table rows.
 type TableRows []*TableRow
 
 func (tr TableRows) getNumberOfColumns() int {
@@ -234,6 +286,7 @@ func (tr *TableRows) calculateHeights() {
 type Table struct {
 	MaxWidth     bag.ScaledPoint
 	Stretch      bool
+	FontFamily   *FontFamily
 	Rows         TableRows
 	doc          *Document
 	columnWidths []bag.ScaledPoint
@@ -322,6 +375,6 @@ func (fe *Document) BuildTable(tbl *Table, opts ...TableOption) ([]*node.VList, 
 		tail = hl
 	}
 	vl := node.Vpack(head)
-
+	vl.Attributes = node.H{"origin": "table"}
 	return []*node.VList{vl}, nil
 }
