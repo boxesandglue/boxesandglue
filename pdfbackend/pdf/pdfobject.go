@@ -88,9 +88,9 @@ func (pw *PDF) NewObject() *Object {
 	return obj
 }
 
-// SetCompression turns on stream compression
-func (obj *Object) SetCompression() {
-	obj.compress = true
+// SetCompression turns on stream compression if compresslevel > 0
+func (obj *Object) SetCompression(compresslevel uint) {
+	obj.compress = compresslevel > 0
 }
 
 // Save adds the PDF object to the main PDF file.

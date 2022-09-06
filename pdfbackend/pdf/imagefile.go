@@ -188,7 +188,7 @@ func (imgf *Imagefile) finish() error {
 	if imgf.colorspace == "Indexed" {
 		size := len(imgf.pal)/3 - 1
 		palStr := NewStream(imgf.pal)
-		palStr.SetCompression()
+		palStr.SetCompression(9)
 		strObj, err := imgf.pw.writeStream(palStr, nil)
 		if err != nil {
 			return err

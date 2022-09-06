@@ -182,7 +182,7 @@ func (face *Face) finish() error {
 	b := w.Bytes()
 
 	fontstream := NewStream(b)
-	fontstream.SetCompression()
+	fontstream.SetCompression(9)
 
 	var isCFF bool
 	if otf, ok := fnt.(*truetype.Font); ok {

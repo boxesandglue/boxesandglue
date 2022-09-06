@@ -48,7 +48,7 @@ type TableCell struct {
 	CalculatedHeight  bag.ScaledPoint
 	HAlign            HorizontalAlignment
 	VAlign            VerticalAlignment
-	Contents          []*TypesettingElement
+	Contents          []*Paragraph
 	row               *TableRow
 	vlist             *node.VList
 }
@@ -57,7 +57,7 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	minwd := bag.ScaledPoint(0)
 
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc, Family(cell.row.table.FontFamily), HSize(1*bag.Factor))
+		_, info, err := cell.row.table.doc.FormatParagraph(cc, 1*bag.Factor, Family(cell.row.table.FontFamily))
 		if err != nil {
 			return 0, err
 		}
@@ -73,7 +73,7 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	maxwd := bag.ScaledPoint(0)
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc, Family(cell.row.table.FontFamily), HSize(bag.MaxSP))
+		_, info, err := cell.row.table.doc.FormatParagraph(cc, bag.MaxSP, Family(cell.row.table.FontFamily))
 		if err != nil {
 			return 0, err
 		}
@@ -92,7 +92,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 	var head node.Node
 	var vl *node.VList
 	for _, cc := range cell.Contents {
-		para, _, err := cell.row.table.doc.FormatParagraph(cc, Family(cell.row.table.FontFamily), HSize(paraWidth))
+		para, _, err := cell.row.table.doc.FormatParagraph(cc, paraWidth, Family(cell.row.table.FontFamily))
 		if err != nil {
 			return nil, err
 		}

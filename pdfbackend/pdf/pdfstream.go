@@ -16,6 +16,6 @@ func NewStream(data []byte) *Stream {
 }
 
 // SetCompression turns on stream compression
-func (s *Stream) SetCompression() {
-	s.compress = true
+func (s *Stream) SetCompression(compresslevel uint) {
+	s.compress = compresslevel > 0
 }

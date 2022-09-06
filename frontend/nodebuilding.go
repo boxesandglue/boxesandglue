@@ -123,21 +123,21 @@ func (st SettingType) String() string {
 // TypesettingSettings is a set of settings for text rendering.
 type TypesettingSettings map[SettingType]any
 
-// TypesettingElement associates all items with the given settings. Items can be
-// text (string), images, other instances of a TypesettingElement or nodes.
-type TypesettingElement struct {
+// Paragraph associates all items with the given settings. Items can be
+// text (string), images, other instances of a Paragraph or nodes.
+type Paragraph struct {
 	Settings TypesettingSettings
 	Items    []any
 }
 
-// NewTypesettingElement returns an initialized typesetting element.
-func NewTypesettingElement() *TypesettingElement {
-	te := TypesettingElement{}
+// NewParagraph returns an initialized typesetting element.
+func NewParagraph() *Paragraph {
+	te := Paragraph{}
 	te.Settings = make(TypesettingSettings)
 	return &te
 }
 
-func (ts *TypesettingElement) String() string {
+func (ts *Paragraph) String() string {
 	ret := []string{}
 	ret = append(ret, "Settings:")
 	for k, v := range ts.Settings {
@@ -160,13 +160,6 @@ type paragraph struct {
 
 // TypesettingOption controls the formatting of the paragraph.
 type TypesettingOption func(*paragraph)
-
-// HSize sets the horizontal size of the paragraph.
-func HSize(hsize bag.ScaledPoint) TypesettingOption {
-	return func(p *paragraph) {
-		p.hsize = hsize
-	}
-}
 
 // Leading sets the distance between two baselines in a paragraph.
 func Leading(leading bag.ScaledPoint) TypesettingOption {
@@ -197,10 +190,11 @@ func Family(fam *FontFamily) TypesettingOption {
 }
 
 // FormatParagraph creates a rectangular text from the data stored in the
-// TypesettingElement.
-func (fe *Document) FormatParagraph(te *TypesettingElement, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
+// Paragraph.
+func (fe *Document) FormatParagraph(te *Paragraph, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
 	p := &paragraph{
 		language: fe.Doc.DefaultLanguage,
+		hsize:    hsize,
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -388,7 +382,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 // Mknodes creates a list of nodes which which can be formatted to a given
 // width. The returned head and the tail are the beginning and the end of the
 // node list.
-func (fe *Document) Mknodes(ts *TypesettingElement) (head node.Node, tail node.Node, err error) {
+func (fe *Document) Mknodes(ts *Paragraph) (head node.Node, tail node.Node, err error) {
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}
@@ -406,7 +400,7 @@ func (fe *Document) Mknodes(ts *TypesettingElement) (head node.Node, tail node.N
 			}
 			head = node.InsertAfter(head, tail, nl)
 			tail = node.Tail(nl)
-		case *TypesettingElement:
+		case *Paragraph:
 			for k, v := range newSettings {
 				if _, found := t.Settings[k]; !found {
 					t.Settings[k] = v

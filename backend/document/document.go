@@ -595,7 +595,7 @@ func (p *Page) Shipout() {
 	}
 
 	st := pdf.NewStream([]byte(s.String()))
-	// st.SetCompression()
+	st.SetCompression(p.document.CompressLevel)
 	page := p.document.PDFWriter.AddPage(st, pageObjectNumber)
 	page.Dict = make(pdf.Dict)
 	page.Width = p.Width + 2*offsetX
@@ -704,6 +704,7 @@ type PDFDocument struct {
 	ShowHyperlinks       bool
 	RootStructureElement *StructureElement
 	ColorProfile         *ColorProfile
+	CompressLevel        uint
 	tracing              VTrace
 	outputDebug          *outputDebug
 	curOutputDebug       *outputDebug
@@ -720,6 +721,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 		Producer:          "speedata/boxesandglue",
 		Languages:         make(map[string]*lang.Lang),
 		PDFWriter:         pdf.NewPDFWriter(w),
+		CompressLevel:     9,
 		usedPDFImages:     make(map[string]*pdf.Imagefile),
 		outputDebug: &outputDebug{
 			Name: "pdfdocument",
