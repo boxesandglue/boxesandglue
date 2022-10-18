@@ -69,7 +69,6 @@ func readBytes(f io.Reader, len int) ([]byte, error) {
 }
 
 func compress(data []byte) ([]byte, error) {
-	fmt.Println("compress")
 	var buff bytes.Buffer
 	zwr := zlib.NewWriter(&buff)
 	var err error

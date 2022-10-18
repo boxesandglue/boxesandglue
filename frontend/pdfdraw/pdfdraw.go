@@ -49,10 +49,28 @@ func (pd *Object) ColorNonstroking(col color.Color) *Object {
 	return pd
 }
 
-// Curveto appends a bezier curve from the current point to point 3 controlled by
-// points 1 and 2.
-func (pd *Object) Curveto(x1, y1, x2, y2, x3, y3 bag.ScaledPoint) *Object {
-	pd.pdfstring = append(pd.pdfstring, fmt.Sprintf("%s %s %s %s %s %s c", x1, y1, x2, y2, x3, y3))
+// Close closes the sub path.
+func (pd *Object) Close() *Object {
+	pd.pdfstring = append(pd.pdfstring, "h")
+	return pd
+}
+
+// Clip clips the sub path using the even-odd rule.
+func (pd *Object) Clip() *Object {
+	pd.pdfstring = append(pd.pdfstring, "W*")
+	return pd
+}
+
+// Curveto appends a bezier curve from the current point to point 1 controlled by
+// control points 1 and 2.
+func (pd *Object) Curveto(control1x, control1y, control2x, control2y, x1, y1 bag.ScaledPoint) *Object {
+	pd.pdfstring = append(pd.pdfstring, fmt.Sprintf("%s %s %s %s %s %s c", control1x, control1y, control2x, control2y, x1, y1))
+	return pd
+}
+
+// Endpath ends the current path.
+func (pd *Object) Endpath() *Object {
+	pd.pdfstring = append(pd.pdfstring, "n")
 	return pd
 }
 
@@ -73,6 +91,7 @@ func (pd *Object) Circle(x, y, radiusX, radiusY bag.ScaledPoint) *Object {
 	circleBezier := 0.551915024494
 
 	shiftDown, shiftRight := -1*radiusY-y, -radiusX+x
+	shiftDown = y - radiusY
 	dx := bag.ScaledPointFromFloat(radiusX.ToPT() * (1 - circleBezier))
 	dy := bag.ScaledPointFromFloat(radiusY.ToPT() * (1 - circleBezier))
 
@@ -141,6 +160,12 @@ func (pd *Object) Stroke() *Object {
 // LineWidth sets the line width.
 func (pd *Object) LineWidth(wd bag.ScaledPoint) *Object {
 	pd.pdfstring = append(pd.pdfstring, fmt.Sprintf("%s w", wd))
+	return pd
+}
+
+// Literal inserts a PDF literal.
+func (pd *Object) Literal(s string) *Object {
+	pd.pdfstring = append(pd.pdfstring, s)
 	return pd
 }
 
