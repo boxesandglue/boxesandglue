@@ -34,6 +34,26 @@ const (
 	VAlignBottom
 )
 
+// Table represents tabular material to be typeset.
+type Table struct {
+	MaxWidth     bag.ScaledPoint
+	Stretch      bool
+	FontFamily   *FontFamily
+	Rows         TableRows
+	doc          *Document
+	columnWidths []bag.ScaledPoint
+	nCol         int
+	nRow         int
+}
+
+// TableRow represents a row in a table.
+type TableRow struct {
+	Cells            []*TableCell
+	CalculatedHeight bag.ScaledPoint
+	VAlign           VerticalAlignment
+	table            *Table
+}
+
 // TableCell represents a table cell
 type TableCell struct {
 	BorderTopWidth    bag.ScaledPoint
@@ -195,14 +215,6 @@ func (cell *TableCell) build() (*node.VList, error) {
 	return vl, nil
 }
 
-// TableRow represents a row in a table.
-type TableRow struct {
-	Cells            []*TableCell
-	CalculatedHeight bag.ScaledPoint
-	VAlign           VerticalAlignment
-	table            *Table
-}
-
 func (row *TableRow) getNumberOfColumns() int {
 	return len(row.Cells)
 }
@@ -268,40 +280,61 @@ func (row *TableRow) build() (*node.HList, error) {
 // TableRows is a collection of table rows.
 type TableRows []*TableRow
 
-func (tr TableRows) getNumberOfColumns() int {
-	nCol := 0
-	for _, row := range tr {
-		return row.getNumberOfColumns()
-	}
-	return nCol
-}
-
 func (tr *TableRows) calculateHeights() {
 	for _, row := range *tr {
 		row.setHeight()
 	}
 }
 
-// Table represents tabular material to be typeset.
-type Table struct {
-	MaxWidth     bag.ScaledPoint
-	Stretch      bool
-	FontFamily   *FontFamily
-	Rows         TableRows
-	doc          *Document
-	columnWidths []bag.ScaledPoint
+func (tbl *Table) analyzeTable() {
+	// calculate number of rows and columns
+	tbl.nRow = len(tbl.Rows)
+	for _, row := range tbl.Rows {
+		if n := len(row.Cells); n > tbl.nCol {
+			tbl.nCol = n
+		}
+	}
+
+	// border collapse
+	for j := 0; j < tbl.nRow; j++ {
+		row := tbl.Rows[j]
+
+		for i := 0; i < tbl.nCol; i++ {
+			cell := row.Cells[i]
+
+			if j < tbl.nRow-1 {
+				nextRow := tbl.Rows[j+1].Cells[i]
+				if b, t := cell.BorderBottomWidth, nextRow.BorderTopWidth; b > 0 && t > 0 {
+					if b > t {
+						nextRow.BorderTopWidth = 0
+					} else {
+						cell.BorderBottomWidth = 0
+					}
+				}
+			}
+			if i < tbl.nCol-1 {
+				nextCell := row.Cells[i+1]
+				if r, l := cell.BorderRightWidth, nextCell.BorderLeftWidth; r > 0 && l > 0 {
+					if r > l {
+						nextCell.BorderLeftWidth = 0
+					} else {
+						cell.BorderRightWidth = l
+						nextCell.BorderLeftWidth = 0
+					}
+				}
+			}
+		}
+	}
 }
 
-// TableOption controls the table typesetting.
-type TableOption func(*Table)
-
 // BuildTable creates one or more vertical lists to be placed into the PDF.
-func (fe *Document) BuildTable(tbl *Table, opts ...TableOption) ([]*node.VList, error) {
+func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	tbl.doc = fe
 	var head, tail node.Node
-	nCols := tbl.Rows.getNumberOfColumns()
-	colmax := make([]bag.ScaledPoint, nCols)
-	colmin := make([]bag.ScaledPoint, nCols)
+	tbl.analyzeTable()
+	colmax := make([]bag.ScaledPoint, tbl.nCol)
+	colmin := make([]bag.ScaledPoint, tbl.nCol)
+
 	for _, r := range tbl.Rows {
 		r.table = tbl
 		rowmin, rowmax, err := r.calculateWidths()
@@ -325,12 +358,12 @@ func (fe *Document) BuildTable(tbl *Table, opts ...TableOption) ([]*node.VList, 
 		sumCols += max
 	}
 
-	tbl.columnWidths = make([]bag.ScaledPoint, nCols)
+	tbl.columnWidths = make([]bag.ScaledPoint, tbl.nCol)
 
 	if tbl.MaxWidth < sumCols {
 		// shrink
 		r := tbl.MaxWidth.ToPT() / sumCols.ToPT()
-		shrinkTbl := make([]float64, nCols)
+		shrinkTbl := make([]float64, tbl.nCol)
 
 		sumShrinkfactor := 0.0
 		excess := bag.ScaledPoint(0)
@@ -345,7 +378,7 @@ func (fe *Document) BuildTable(tbl *Table, opts ...TableOption) ([]*node.VList, 
 				sumShrinkfactor += shrinkTbl[i]
 			}
 		}
-		for i := 0; i < nCols; i++ {
+		for i := 0; i < tbl.nCol; i++ {
 			if shrinkTbl[i] != 0 {
 				tbl.columnWidths[i] += bag.ScaledPointFromFloat(shrinkTbl[i] / sumShrinkfactor * excess.ToPT())
 			}
