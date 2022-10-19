@@ -7,33 +7,6 @@ import (
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 )
 
-// HorizontalAlignment is the horizontal alignment.
-type HorizontalAlignment int
-
-// VerticalAlignment is the vertical alignment.
-type VerticalAlignment int
-
-const (
-	// HAlignDefault is an undefined alignment.
-	HAlignDefault HorizontalAlignment = iota
-	// HAlignLeft makes a table cell ragged right.
-	HAlignLeft
-	// HAlignRight makes a table cell ragged left.
-	HAlignRight
-	// HAlignCenter has ragged left and right alignment.
-	HAlignCenter
-)
-const (
-	// VAlignDefault is an undefined vertical alignment.
-	VAlignDefault VerticalAlignment = iota
-	// VAlignTop aligns the contents of the cell at the top.
-	VAlignTop
-	// VAlignMiddle aligns the contents of the cell in the vertical middle.
-	VAlignMiddle
-	// VAlignBottom aligns the contents of the cell at the bottom.
-	VAlignBottom
-)
-
 // Table represents tabular material to be typeset.
 type Table struct {
 	MaxWidth     bag.ScaledPoint
@@ -112,7 +85,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 	var head node.Node
 	var vl *node.VList
 	for _, cc := range cell.Contents {
-		para, _, err := cell.row.table.doc.FormatParagraph(cc, paraWidth, Family(cell.row.table.FontFamily))
+		para, _, err := cell.row.table.doc.FormatParagraph(cc, paraWidth, Family(cell.row.table.FontFamily), HorizontalAlign(cell.HAlign))
 		if err != nil {
 			return nil, err
 		}
@@ -163,6 +136,8 @@ func (cell *TableCell) build() (*node.VList, error) {
 		bottomglue := node.NewGlue()
 		bottomglue.Width = glueHeight
 		head = node.InsertAfter(head, vl, bottomglue)
+	} else {
+		head = node.InsertAfter(head, vl, node.NewGlue())
 	}
 
 	if cell.BorderBottomWidth > 0 {

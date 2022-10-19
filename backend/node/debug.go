@@ -93,6 +93,7 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 				{"stretchorder", v.StretchOrder},
 				{"shrink", v.Shrink},
 				{"shrinkorder", v.ShrinkOrder},
+				{"subtype", v.Subtype},
 			}
 			for k, v := range v.Attributes {
 				attr = append(attr, kv{k, v})

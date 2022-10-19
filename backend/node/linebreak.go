@@ -468,9 +468,8 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		curPre = e.Pre
 		if startPos != nil {
 			// if PDF/UA is written, the line end should have a space at the end.
-			lineEndGlue := NewGlue()
-			lineEndGlue.Subtype = GlueLineEnd
-			InsertAfter(startPos, endNode.Prev(), lineEndGlue)
+			InsertAfter(startPos, endNode.Prev(), settings.LineEndGlue.Copy())
+			startPos = InsertBefore(startPos, startPos, settings.LineStartGlue.Copy())
 
 			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
 			vert = InsertBefore(vert, vert, hl)

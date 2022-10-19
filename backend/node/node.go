@@ -367,6 +367,8 @@ type GlueSubtype int
 const (
 	// GlueDefault when no subtype is set
 	GlueDefault GlueSubtype = iota
+	// GlueLineStart is inserted left of the hlist during the line breaking
+	GlueLineStart
 	// GlueLineEnd is added at the end of each line in a paragraph so that copy
 	// and paste works in PDF.
 	GlueLineEnd

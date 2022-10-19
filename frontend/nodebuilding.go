@@ -156,6 +156,7 @@ type paragraph struct {
 	hsize      bag.ScaledPoint
 	leading    bag.ScaledPoint
 	language   *lang.Lang
+	alignment  HorizontalAlignment
 }
 
 // TypesettingOption controls the formatting of the paragraph.
@@ -186,6 +187,13 @@ func FontSize(size bag.ScaledPoint) TypesettingOption {
 func Family(fam *FontFamily) TypesettingOption {
 	return func(p *paragraph) {
 		p.fontfamily = fam
+	}
+}
+
+// HorizontalAlign sets the horizontal alignment for a paragraph.
+func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
+	return func(p *paragraph) {
+		p.alignment = a
 	}
 }
 
@@ -220,6 +228,21 @@ func (fe *Document) FormatParagraph(te *Paragraph, hsize bag.ScaledPoint, opts .
 	} else {
 		ls.LineHeight = p.leading
 	}
+	if p.alignment == HAlignLeft || p.alignment == HAlignCenter {
+		lg := node.NewGlue()
+		lg.Stretch = bag.Factor
+		lg.StretchOrder = 3
+		lg.Subtype = node.GlueLineEnd
+		ls.LineEndGlue = lg
+	}
+	if p.alignment == HAlignRight || p.alignment == HAlignCenter {
+		lg := node.NewGlue()
+		lg.Stretch = bag.Factor
+		lg.StretchOrder = 3
+		lg.Subtype = node.GlueLineStart
+		ls.LineStartGlue = lg
+	}
+
 	vlist, info := node.Linebreak(hlist, ls)
 	return vlist, info, nil
 }

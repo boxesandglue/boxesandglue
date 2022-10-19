@@ -14,6 +14,8 @@ type LinebreakSettings struct {
 	DemeritsFitness      int
 	DoublehyphenDemerits int
 	Tolerance            float64
+	LineStartGlue        *Glue
+	LineEndGlue          *Glue
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.
@@ -23,6 +25,8 @@ func NewLinebreakSettings() *LinebreakSettings {
 		DemeritsFitness:      100,
 		Hyphenpenalty:        50,
 		Tolerance:            positiveInf,
+		LineStartGlue:        NewGlue(),
+		LineEndGlue:          NewGlue(),
 	}
 
 	return ls
@@ -239,7 +243,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			shrinkability = totalShrinkability[i]
 		}
 	}
-
 	var r float64
 	if width == sumwd {
 		r = 1
@@ -273,8 +276,8 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 		} else {
-			g.Width -= bag.ScaledPoint(g.Shrink)
-			r = -1.0
+			// g.Width -= bag.ScaledPoint(g.Shrink)
+			// r = -1.0
 		}
 		sumwd += g.Width
 	}

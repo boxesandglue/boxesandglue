@@ -61,3 +61,32 @@ func (fe *Document) Finish() error {
 	}
 	return fe.Doc.Finish()
 }
+
+// HorizontalAlignment is the horizontal alignment.
+type HorizontalAlignment int
+
+// VerticalAlignment is the vertical alignment.
+type VerticalAlignment int
+
+const (
+	// HAlignDefault is an undefined alignment.
+	HAlignDefault HorizontalAlignment = iota
+	// HAlignLeft makes text ragged right.
+	HAlignLeft
+	// HAlignRight makes text ragged left.
+	HAlignRight
+	// HAlignCenter has ragged left and right alignment.
+	HAlignCenter
+	// HAlignJustified makes text left and right aligned.
+	HAlignJustified
+)
+const (
+	// VAlignDefault is an undefined vertical alignment.
+	VAlignDefault VerticalAlignment = iota
+	// VAlignTop aligns the contents at the top of the surrounding box.
+	VAlignTop
+	// VAlignMiddle aligns the contents in the vertical middle of the surrounding box.
+	VAlignMiddle
+	// VAlignBottom aligns the contents at the bottom of the surrounding box.
+	VAlignBottom
+)
