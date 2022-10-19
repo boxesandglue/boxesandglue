@@ -19,6 +19,7 @@ var (
 
 // NewFontFamily creates a new font family for bundling fonts.
 func (fe *Document) NewFontFamily(name string) *FontFamily {
+	bag.Logger.Infof("Define font family %q", name)
 	ff := &FontFamily{
 		ID:   len(fe.FontFamilies),
 		Name: name,

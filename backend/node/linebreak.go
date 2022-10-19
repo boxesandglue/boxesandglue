@@ -73,7 +73,7 @@ func newLinebreaker(hl Node, settings *LinebreakSettings) *linebreaker {
 func getNextNodeWidth(n Node, maxwidth bag.ScaledPoint) bag.ScaledPoint {
 	sumwd := bag.ScaledPoint(0)
 	firstGlue := true
-sumup:
+sum:
 	for e := n; e != nil; e = e.Next() {
 		switch t := e.(type) {
 		case *Glue:
@@ -81,14 +81,14 @@ sumup:
 				firstGlue = false
 				sumwd += t.Width
 			} else {
-				break sumup
+				break sum
 			}
 		case *Penalty:
 			if t.Penalty < 10000 {
-				break sumup
+				break sum
 			}
 		case *Disc:
-			break sumup
+			break sum
 		default:
 			sumwd += getWidth(e)
 		}

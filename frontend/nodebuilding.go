@@ -114,6 +114,8 @@ const (
 	SettingMarginTop
 	// SettingOpenTypeFeature allows the user to (de)select OpenType features such as ligatures.
 	SettingOpenTypeFeature
+	// SettingHAlign sets the horizontal alignment of the paragraph
+	SettingHAlign
 )
 
 func (st SettingType) String() string {
@@ -203,6 +205,9 @@ func (fe *Document) FormatParagraph(te *Paragraph, hsize bag.ScaledPoint, opts .
 	p := &paragraph{
 		language: fe.Doc.DefaultLanguage,
 		hsize:    hsize,
+	}
+	if ha, ok := te.Settings[SettingHAlign]; ok {
+		p.alignment = ha.(HorizontalAlignment)
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -296,6 +301,8 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 				fontfeatures = append(fontfeatures, f)
 			}
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
+			// ignore
+		case SettingHAlign:
 			// ignore
 		default:
 			bag.Logger.DPanicf("Unknown setting %v", k)
