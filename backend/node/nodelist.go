@@ -6,6 +6,16 @@ import (
 	"github.com/speedata/boxesandglue/backend/bag"
 )
 
+// Direction represents the direction of the node list. This can be horizontal or vertical.
+type Direction bool
+
+const (
+	// Horizontal is the direction from left to right or from right to left.
+	Horizontal Direction = true
+	// Vertical is the direction from top to bottom or from bottom to top.
+	Vertical Direction = false
+)
+
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
 	HSize                bag.ScaledPoint
@@ -105,11 +115,12 @@ func CopyList(nl Node) Node {
 	return copied
 }
 
-// Dimensions returns the width of the node list starting at n.
-func Dimensions(n Node) bag.ScaledPoint {
+// Dimensions returns the width of the node list starting at n. If horizontal is
+// true, then calculate in horizontal mode, otherwise in vertical mode.
+func Dimensions(n Node, dir Direction) bag.ScaledPoint {
 	var sumwd bag.ScaledPoint
 	for e := n; e != nil; e = e.Next() {
-		sumwd += getWidth(e)
+		sumwd += getWidth(e, dir)
 	}
 	return sumwd
 }
@@ -217,7 +228,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			}
 
 		default:
-			nonGlueSumWd += getWidth(v)
+			nonGlueSumWd += getWidth(v, Horizontal)
 		}
 
 		if e == lastNode {
@@ -299,8 +310,8 @@ func Vpack(firstNode Node) *VList {
 
 	var lastNode Node
 	for e := firstNode; e != nil; e = e.Next() {
-		sumht += getHeight(e)
-		if wd := getWidth(e); wd > maxwd {
+		sumht += getHeight(e, Vertical)
+		if wd := getWidth(e, Vertical); wd > maxwd {
 			maxwd = wd
 		}
 		lastNode = e
@@ -313,10 +324,13 @@ func Vpack(firstNode Node) *VList {
 	return vl
 }
 
-func getWidth(n Node) bag.ScaledPoint {
+func getWidth(n Node, dir Direction) bag.ScaledPoint {
 	switch t := n.(type) {
 	case *Glue:
-		return t.Width
+		if dir == Horizontal {
+			return t.Width
+		}
+		return 0
 	case *Glyph:
 		return t.Width
 	case *Penalty:
@@ -337,7 +351,7 @@ func getWidth(n Node) bag.ScaledPoint {
 	return 0
 }
 
-func getHeight(n Node) bag.ScaledPoint {
+func getHeight(n Node, dir Direction) bag.ScaledPoint {
 	switch t := n.(type) {
 	case *HList:
 		return t.Height + t.Depth
@@ -348,7 +362,10 @@ func getHeight(n Node) bag.ScaledPoint {
 	case *Rule:
 		return t.Height
 	case *Glue:
-		return t.Width
+		if dir == Vertical {
+			return t.Width
+		}
+		return 0
 	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
 		return 0
 	default:

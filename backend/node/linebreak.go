@@ -90,7 +90,7 @@ sum:
 		case *Disc:
 			break sum
 		default:
-			sumwd += getWidth(e)
+			sumwd += getWidth(e, Horizontal)
 		}
 	}
 	return sumwd
@@ -103,7 +103,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 	case *Penalty:
 		desiredLineWidth += t.Width
 	case *Disc:
-		desiredLineWidth += Dimensions(t.Pre)
+		desiredLineWidth += Dimensions(t.Pre, Horizontal)
 	}
 
 	r := 0.0
@@ -428,7 +428,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			lb.mainLoop(t)
 		default:
 			prevItemBox = true
-			wd := getWidth(e)
+			wd := getWidth(e, Horizontal)
 			lb.sumW += wd
 		}
 		endNode = e
