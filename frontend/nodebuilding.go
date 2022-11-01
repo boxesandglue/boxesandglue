@@ -125,21 +125,22 @@ func (st SettingType) String() string {
 // TypesettingSettings is a set of settings for text rendering.
 type TypesettingSettings map[SettingType]any
 
-// Paragraph associates all items with the given settings. Items can be
-// text (string), images, other instances of a Paragraph or nodes.
-type Paragraph struct {
+// Text associates all items with the given settings. Items can be text
+// (string), images, other instances of Text or nodes. Text behaves like a span
+// in HTML or it just contains a collection of Go strings.
+type Text struct {
 	Settings TypesettingSettings
 	Items    []any
 }
 
-// NewParagraph returns an initialized typesetting element.
-func NewParagraph() *Paragraph {
-	te := Paragraph{}
+// NewText returns an initialized text element.
+func NewText() *Text {
+	te := Text{}
 	te.Settings = make(TypesettingSettings)
 	return &te
 }
 
-func (ts *Paragraph) String() string {
+func (ts *Text) String() string {
 	ret := []string{}
 	ret = append(ret, "Settings:")
 	for k, v := range ts.Settings {
@@ -201,7 +202,7 @@ func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
 
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph.
-func (fe *Document) FormatParagraph(te *Paragraph, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
+func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
 	p := &paragraph{
 		language: fe.Doc.DefaultLanguage,
 		hsize:    hsize,
@@ -412,7 +413,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 // Mknodes creates a list of nodes which which can be formatted to a given
 // width. The returned head and the tail are the beginning and the end of the
 // node list.
-func (fe *Document) Mknodes(ts *Paragraph) (head node.Node, tail node.Node, err error) {
+func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error) {
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}
@@ -430,7 +431,7 @@ func (fe *Document) Mknodes(ts *Paragraph) (head node.Node, tail node.Node, err 
 			}
 			head = node.InsertAfter(head, tail, nl)
 			tail = node.Tail(nl)
-		case *Paragraph:
+		case *Text:
 			for k, v := range newSettings {
 				if _, found := t.Settings[k]; !found {
 					t.Settings[k] = v

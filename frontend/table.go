@@ -48,7 +48,7 @@ type TableCell struct {
 	CalculatedHeight            bag.ScaledPoint
 	HAlign                      HorizontalAlignment
 	VAlign                      VerticalAlignment
-	Contents                    []*Paragraph
+	Contents                    []*Text
 	ExtraColspan                int
 	ExtraRowspan                int
 	calculatedBorderLeftWidth   bag.ScaledPoint
