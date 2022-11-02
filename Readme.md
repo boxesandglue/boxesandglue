@@ -90,7 +90,7 @@ func typesetSample() error {
 
 	// Create a recursive data structure for typesetting initialized with the
 	// text from the top (but with space normalized).
-	para := frontend.NewParagraph()
+	para := frontend.NewText()
 	para.Items = []any{strings.Join(strings.Fields(str), " ")}
 
 	// Format the text into a paragraph. Some of these settings (font family and
