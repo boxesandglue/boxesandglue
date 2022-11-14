@@ -37,16 +37,19 @@ type Font struct {
 // NewFont creates a new font instance.
 func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 	f := face.Font.Face()
-	factor := 100 / (float64(f.AscenderPDF()) + float64(f.DescenderPDF()*-1))
-	mag := int(size) / int(face.UnitsPerEM)
+	ascend := float64(f.AscenderPDF())
+	descend := float64(-1 * f.DescenderPDF())
+	factor := descend / (ascend + descend) * 1000
 	fnt := &Font{
 		Space:        size * 333 / 1000,
 		SpaceStretch: size * 167 / 1000,
 		SpaceShrink:  size * 111 / 1000,
 		Size:         size,
 		Face:         face,
-		Mag:          mag,
-		Depth:        size * bag.ScaledPoint(float64(-1*f.DescenderPDF())*factor) / 100,
+		Mag:          int(size) / int(face.UnitsPerEM),
+		// Somehow the extra 10% needs to be added. This is not fixed
+		// if we find a proper solution, this should change.
+		Depth: size * bag.ScaledPoint(factor) * 11 / 10000,
 	}
 	hyphenchar := fnt.Shape("-", []harfbuzz.Feature{})
 	if len(hyphenchar) == 1 {

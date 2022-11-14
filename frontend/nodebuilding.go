@@ -208,7 +208,11 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		hsize:    hsize,
 	}
 	if ha, ok := te.Settings[SettingHAlign]; ok {
-		p.alignment = ha.(HorizontalAlignment)
+		if ha != nil {
+			p.alignment = ha.(HorizontalAlignment)
+		} else {
+			p.alignment = HAlignDefault
+		}
 	}
 	for _, opt := range opts {
 		opt(p)

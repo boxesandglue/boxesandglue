@@ -17,18 +17,38 @@ func Debug(n Node) {
 	w.WriteTo(os.Stdout)
 }
 
+// DebugToFile writes an XML file with the node list.
+func DebugToFile(n Node, fn string) error {
+	w, err := os.Create(fn)
+	if err != nil {
+		return err
+	}
+	enc := xml.NewEncoder(w)
+	enc.Indent("", "    ")
+	debugNode(n, enc, 0)
+	enc.Flush()
+	return w.Close()
+}
+
 type kv struct {
 	key   string
 	value any
 }
 
-func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv) {
+func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv, extraAttributes H) error {
 	for _, attr := range attributes {
 		start.Attr = append(start.Attr, xml.Attr{
 			Name:  xml.Name{Local: attr.key},
 			Value: fmt.Sprint(attr.value),
 		})
 	}
+	for k, v := range extraAttributes {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Local: k},
+			Value: fmt.Sprint(fmt.Sprintf("%v", v)),
+		})
+	}
+	return enc.EncodeToken(*start)
 }
 
 func debugNode(n Node, enc *xml.Encoder, level int) {
@@ -38,44 +58,32 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 		var err error
 		switch v := e.(type) {
 		case *VList:
-			attr := []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"wd", v.Width},
 				{"ht", v.Height},
 				{"dp", v.Depth},
-			}
-			for k, v := range v.Attributes {
-				attr = append(attr, kv{k, v})
-			}
-			encodeAttributes(enc, &start, attr)
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 			debugNode(v.List, enc, level+1)
 		case *HList:
-			attr := []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"wd", v.Width},
 				{"ht", v.Height},
 				{"dp", v.Depth},
 				{"r", v.GlueSet},
-			}
-			for k, v := range v.Attributes {
-				attr = append(attr, kv{k, v})
-			}
-
-			encodeAttributes(enc, &start, attr)
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 			debugNode(v.List, enc, level+1)
 		case *Disc:
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Glyph:
 			var fontid int
 			if fnt := v.Font; fnt != nil {
 				fontid = fnt.Face.FaceID
 			}
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"components", v.Components},
 				{"wd", v.Width},
@@ -83,10 +91,9 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 				{"dp", v.Depth},
 				{"codepoint", v.Codepoint},
 				{"face", fontid},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Glue:
-			attr := []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"wd", v.Width},
 				{"stretch", v.Stretch},
@@ -94,12 +101,7 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 				{"shrink", v.Shrink},
 				{"shrinkorder", v.ShrinkOrder},
 				{"subtype", v.Subtype},
-			}
-			for k, v := range v.Attributes {
-				attr = append(attr, kv{k, v})
-			}
-			encodeAttributes(enc, &start, attr)
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Image:
 			var filename string
 			if v.Img != nil && v.Img.ImageFile != nil {
@@ -107,17 +109,15 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 			} else {
 				filename = "(image object not set)"
 			}
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"filename", filename},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Kern:
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"kern", v.Kern},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Lang:
 			var langname string
 			if v.Lang != nil {
@@ -125,31 +125,27 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 			} else {
 				langname = "-"
 			}
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"lang", langname},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Penalty:
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"penalty", v.Penalty},
 				{"width", v.Width},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *Rule:
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"wd", v.Width},
 				{"ht", v.Height},
 				{"dp", v.Depth},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		case *StartStop:
-			encodeAttributes(enc, &start, []kv{
+			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
-			})
-			err = enc.EncodeToken(start)
+			}, v.Attributes)
 		default:
 			err = enc.EncodeToken(start)
 			panic("unhandled token")

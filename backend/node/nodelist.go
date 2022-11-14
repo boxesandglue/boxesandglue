@@ -295,7 +295,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 
 	hl := NewHList()
 	hl.List = firstNode
-	hl.Width = width
+	hl.Width = sumwd
 	hl.Depth = maxdp
 	hl.Height = maxht
 	hl.GlueSet = r
