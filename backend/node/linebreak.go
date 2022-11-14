@@ -472,6 +472,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			startPos = InsertBefore(startPos, startPos, settings.LineStartGlue.Copy())
 
 			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
+			hl.Attributes = H{"origin": "line"}
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {

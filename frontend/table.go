@@ -15,6 +15,8 @@ type Table struct {
 	MaxWidth     bag.ScaledPoint
 	Stretch      bool
 	FontFamily   *FontFamily
+	FontSize     bag.ScaledPoint
+	Leading      bag.ScaledPoint
 	Rows         TableRows
 	ColSpec      []ColSpec
 	doc          *Document
@@ -51,6 +53,10 @@ type TableCell struct {
 	Contents                    []*Text
 	ExtraColspan                int
 	ExtraRowspan                int
+	PaddingTop                  bag.ScaledPoint
+	PaddingBottom               bag.ScaledPoint
+	PaddingLeft                 bag.ScaledPoint
+	PaddingRight                bag.ScaledPoint
 	calculatedBorderLeftWidth   bag.ScaledPoint
 	calculatedBorderRightWidth  bag.ScaledPoint
 	calculatedBorderTopWidth    bag.ScaledPoint
@@ -84,11 +90,13 @@ func (cell *TableCell) String() string {
 	return fmt.Sprintf("%d/%d", cell.colStart, cell.rowStart)
 }
 
+// make the smallest possible paragraph and see how wide the longest lines are.
+// TODO: also take into account the other possible elements.
 func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	minwd := bag.ScaledPoint(0)
 
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc, 1*bag.Factor, Family(cell.row.table.FontFamily))
+		_, info, err := cell.row.table.doc.FormatParagraph(cc, 1*bag.Factor, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
 		if err != nil {
 			return 0, err
 		}
@@ -98,13 +106,14 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 			}
 		}
 	}
-	return minwd + cell.BorderLeftWidth + cell.BorderRightWidth, nil
+	return minwd + cell.PaddingLeft + cell.PaddingRight + cell.BorderLeftWidth + cell.BorderRightWidth, nil
 }
 
+// Format the cell with maximum size and find out the longest line.
 func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	maxwd := bag.ScaledPoint(0)
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc, bag.MaxSP, Family(cell.row.table.FontFamily))
+		_, info, err := cell.row.table.doc.FormatParagraph(cc, bag.MaxSP, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
 		if err != nil {
 			return 0, err
 		}
@@ -119,110 +128,130 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 }
 
 func (cell *TableCell) build() (*node.VList, error) {
-	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth
+	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
 	var head node.Node
 	var vl *node.VList
 	for _, cc := range cell.Contents {
-		para, _, err := cell.row.table.doc.FormatParagraph(cc, paraWidth, Family(cell.row.table.FontFamily), HorizontalAlign(cell.HAlign))
+		para, _, err := cell.row.table.doc.FormatParagraph(cc, paraWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize), HorizontalAlign(cell.HAlign))
 		if err != nil {
 			return nil, err
 		}
 		head = node.InsertAfter(head, node.Tail(head), para)
 	}
 	vl = node.Vpack(head)
+	vl.Attributes = node.H{"origin": "cell contents"}
 	cellHeight := cell.CalculatedHeight
 	if cellHeight == 0 {
-		cellHeight = vl.Height + vl.Depth + cell.calculatedBorderTopWidth + cell.calculatedBorderBottomWidth
+		cellHeight = vl.Height + vl.Depth + cell.calculatedBorderTopWidth + cell.calculatedBorderBottomWidth + cell.PaddingBottom + cell.PaddingTop
 	}
+	head = vl
 
-	vl.Attributes = make(node.H)
-	vl.Attributes["origin"] = "cell mknodes"
-	head = nil
-	topBottomRuleWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth
-	if cell.calculatedBorderTopWidth > 0 {
-		if cell.BorderTopColor == nil {
-			cell.BorderTopColor = cell.row.table.doc.GetColor("black")
-		}
-		toprule := node.NewRule()
-		toprule.Width = topBottomRuleWidth
-		toprule.Height = cell.calculatedBorderTopWidth
-		toprule.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderTopColor).String()
-		toprule.Post = pdfdraw.New().Restore().String()
-		toprule.Attributes = node.H{"origin": "toprule"}
-		head = toprule
-	}
-	glueHeight := cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth - vl.Height - vl.Depth
-
+	glueHeight := cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth - vl.Height - vl.Depth - cell.PaddingTop - cell.PaddingBottom
 	valign := cell.VAlign
 	if valign == VAlignDefault {
 		valign = cell.row.VAlign
 	}
+	glueTopWidth := cell.PaddingTop
+	glueBottomWidth := cell.PaddingBottom
 
 	if valign == VAlignDefault || valign == VAlignMiddle {
-		glueHeight /= 2
+		glueTopWidth += glueHeight / 2
+		glueBottomWidth += glueHeight / 2
+	} else if valign == VAlignTop {
+		glueBottomWidth += glueHeight
+	} else if valign == VAlignBottom {
+		glueTopWidth += glueHeight
 	}
 
-	if valign != VAlignTop {
-		topglue := node.NewGlue()
-		topglue.Width = glueHeight
-		head = node.InsertAfter(head, node.Tail(head), topglue)
-		head = node.InsertAfter(head, topglue, vl)
-	} else {
-		head = node.InsertAfter(head, head, vl)
+	if glueTopWidth != 0 {
+		g := node.NewGlue()
+		g.Width = glueTopWidth
+		g.Attributes = node.H{"origin": "padding top / vertical alignment"}
+		head = node.InsertBefore(head, vl, g)
 	}
 
-	if valign != VAlignBottom {
-		bottomglue := node.NewGlue()
-		bottomglue.Width = glueHeight
-		head = node.InsertAfter(head, vl, bottomglue)
-	} else {
-		head = node.InsertAfter(head, vl, node.NewGlue())
-	}
-
-	if cell.calculatedBorderBottomWidth > 0 {
-		if cell.BorderBottomColor == nil {
-			cell.BorderBottomColor = cell.row.table.doc.GetColor("black")
-		}
-		bottomrule := node.NewRule()
-		bottomrule.Width = topBottomRuleWidth
-		bottomrule.Height = cell.calculatedBorderBottomWidth
-		bottomrule.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderBottomColor).String()
-		bottomrule.Post = pdfdraw.New().Restore().String()
-		head = node.InsertAfter(head, node.Tail(vl), bottomrule)
+	if glueBottomWidth != 0 {
+		g := node.NewGlue()
+		g.Width = glueBottomWidth
+		g.Attributes = node.H{"origin": "padding bottom / vertical alignment"}
+		head = node.InsertAfter(head, vl, g)
 	}
 
 	vl = node.Vpack(head)
 	vl.Attributes = node.H{"origin": "vertical cell part"}
+	vl.Height = vl.Height + vl.Depth
+	vl.Depth = 0
 	head = nil
-	if cell.calculatedBorderLeftWidth > 0 {
+	if cell.calculatedBorderLeftWidth != 0 {
 		if cell.BorderLeftColor == nil {
 			cell.BorderLeftColor = cell.row.table.doc.GetColor("black")
 		}
-		leftrule := node.NewRule()
-		leftrule.Height = cellHeight
-		leftrule.Width = cell.calculatedBorderLeftWidth
-		leftrule.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderLeftColor).String()
-		leftrule.Post = pdfdraw.New().Restore().String()
-		leftrule.Attributes = node.H{"origin": "leftrule"}
-		head = leftrule
+		r := node.NewRule()
+		r.Height = cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth
+		r.Width = cell.calculatedBorderLeftWidth
+		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderLeftColor).String()
+		r.Post = pdfdraw.New().Restore().String()
+		r.Attributes = node.H{"origin": "left rule"}
+		head = r
+	}
+
+	if cell.PaddingLeft != 0 {
+		g := node.NewGlue()
+		g.Width = cell.PaddingLeft
+		g.Attributes = node.H{"origin": "left glue"}
+		head = node.InsertAfter(head, head, g)
 	}
 	head = node.InsertAfter(head, node.Tail(head), vl)
+	if cell.PaddingRight != 0 {
+		g := node.NewGlue()
+		g.Width = cell.PaddingRight
+		g.Attributes = node.H{"origin": "right glue"}
+		head = node.InsertAfter(head, node.Tail(head), g)
+	}
 
-	if cell.calculatedBorderRightWidth > 0 {
+	if cell.calculatedBorderRightWidth != 0 {
 		if cell.BorderRightColor == nil {
 			cell.BorderRightColor = cell.row.table.doc.GetColor("black")
 		}
-		rightrule := node.NewRule()
-		rightrule.Height = cellHeight
-		rightrule.Width = cell.calculatedBorderRightWidth
-		rightrule.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderRightColor).String()
-		rightrule.Post = pdfdraw.New().Restore().String()
-		rightrule.Attributes = node.H{"origin": "leftrule"}
-		head = node.InsertAfter(head, node.Tail(head), rightrule)
+		r := node.NewRule()
+		r.Height = cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth
+		r.Width = cell.calculatedBorderRightWidth
+		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderRightColor).String()
+		r.Post = pdfdraw.New().Restore().String()
+		r.Attributes = node.H{"origin": "right rule"}
+		head = node.InsertAfter(head, node.Tail(head), r)
 	}
 	hl := node.Hpack(head)
 	hl.Attributes = node.H{"origin": "hpack cell"}
-	vl = node.Vpack(hl)
+	head = hl
+
+	if cell.calculatedBorderTopWidth != 0 {
+		if cell.BorderTopColor == nil {
+			cell.BorderTopColor = cell.row.table.doc.GetColor("black")
+		}
+		r := node.NewRule()
+		r.Width = hl.Width
+		r.Height = cell.calculatedBorderTopWidth
+		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderTopColor).String()
+		r.Post = pdfdraw.New().Restore().String()
+		r.Attributes = node.H{"origin": "top rule"}
+		head = node.InsertBefore(head, head, r)
+	}
+	if cell.calculatedBorderBottomWidth != 0 {
+		if cell.BorderBottomColor == nil {
+			cell.BorderBottomColor = cell.row.table.doc.GetColor("black")
+		}
+		r := node.NewRule()
+		r.Width = hl.Width
+		r.Height = cell.calculatedBorderBottomWidth
+		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderBottomColor).String()
+		r.Post = pdfdraw.New().Restore().String()
+		r.Attributes = node.H{"origin": "bottom rule"}
+		head = node.InsertAfter(head, node.Tail(head), r)
+	}
+
+	vl = node.Vpack(head)
+	vl.Attributes = node.H{"origin": "td"}
 	return vl, nil
 }
 
@@ -295,9 +324,11 @@ func (row *TableRow) build() (*node.HList, error) {
 			tail = vl
 			x += cellptr.cell.ExtraColspan
 		} else {
+			// dummy cell because of rowspan
 			g := node.NewGlue()
 			g.Stretch = bag.Factor
 			g.StretchOrder = 1
+			g.Attributes = node.H{"origin": "rowspan skip"}
 			hl := node.HpackTo(g, row.table.columnWidths[x])
 			vl := node.Vpack(hl)
 			head = node.InsertAfter(head, tail, vl)
@@ -305,9 +336,7 @@ func (row *TableRow) build() (*node.HList, error) {
 		}
 	}
 	hl := node.Hpack(head)
-	hl.Attributes = make(node.H)
-	hl.Attributes["origin"] = "table row"
-
+	hl.Attributes = node.H{"origin": "table row"}
 	return hl, nil
 }
 
@@ -339,7 +368,6 @@ func (tr *TableRows) calculateHeights() error {
 			}
 		}
 	}
-
 	for _, row := range *tr {
 		for _, cell := range row.Cells {
 			cell.CalculatedHeight = 0
@@ -525,7 +553,6 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	tbl.doc = fe
 	var head, tail node.Node
 	tbl.analyzeTable()
-
 	tbl.columnWidths = make([]bag.ScaledPoint, tbl.nCol)
 	tbl.rowHeights = make([]bag.ScaledPoint, tbl.nRow)
 	colspans := []span{}
@@ -568,7 +595,12 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		for _, max := range colmax {
 			sumCols += max
 		}
-
+		if !tbl.Stretch {
+			if sumCols < tbl.MaxWidth {
+				tbl.MaxWidth = sumCols
+			}
+		}
+		// adjust the column widths
 		if tbl.MaxWidth < sumCols {
 			// shrink
 			r := tbl.MaxWidth.ToPT() / sumCols.ToPT()
@@ -634,6 +666,7 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		// rows with rowspan might have a different height than requested by the
 		// calculated row height, so we need to adjust
 		hl.Height = tbl.rowHeights[i]
+		hl.Depth = 0
 		head = node.InsertAfter(head, tail, hl)
 		tail = hl
 	}
