@@ -102,6 +102,8 @@ const (
 	SettingFontFamily
 	// SettingSize sets the font size.
 	SettingSize
+	// SettingLeading determines the distance between two base lines (line height).
+	SettingLeading
 	// SettingHyperlink defines an external hyperlink.
 	SettingHyperlink
 	// SettingMarginLeft sets the left margin.
@@ -119,7 +121,38 @@ const (
 )
 
 func (st SettingType) String() string {
-	return fmt.Sprintf("%d", st)
+	var settingName string
+	switch st {
+	case SettingFontWeight:
+		settingName = "SettingFontWeight"
+	case SettingColor:
+	case SettingStyle:
+		settingName = "SettingStyle"
+	case SettingFontFamily:
+		settingName = "SettingFontFamily"
+	case SettingSize:
+		settingName = "SettingSize"
+	case SettingLeading:
+		settingName = "SettingLeading"
+	case SettingHyperlink:
+		settingName = "SettingHyperlink"
+	case SettingMarginLeft:
+		settingName = "SettingMarginLeft"
+	case SettingMarginRight:
+		settingName = "SettingMarginRight"
+	case SettingMarginBottom:
+		settingName = "SettingMarginBottom"
+	case SettingMarginTop:
+		settingName = "SettingMarginTop"
+	case SettingOpenTypeFeature:
+		settingName = "SettingOpenTypeFeature"
+	case SettingHAlign:
+		settingName = "SettingHAlign"
+
+	default:
+		settingName = fmt.Sprintf("%d", st)
+	}
+	return fmt.Sprintf("%s", settingName)
 }
 
 // TypesettingSettings is a set of settings for text rendering.
@@ -234,7 +267,11 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	ls := node.NewLinebreakSettings()
 	ls.HSize = p.hsize
 	if p.leading == 0 {
-		ls.LineHeight = p.fontsize * 120 / 100
+		if l, ok := te.Settings[SettingLeading]; ok {
+			ls.LineHeight = l.(bag.ScaledPoint)
+		} else {
+			ls.LineHeight = p.fontsize * 120 / 100
+		}
 	} else {
 		ls.LineHeight = p.leading
 	}
@@ -307,7 +344,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
 			// ignore
-		case SettingHAlign:
+		case SettingHAlign, SettingLeading:
 			// ignore
 		default:
 			bag.Logger.DPanicf("Unknown setting %v", k)

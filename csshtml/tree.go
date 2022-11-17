@@ -397,7 +397,7 @@ func (c *CSS) dumpTree() (*goquery.Selection, error) {
 	return c.document.Find(":root"), nil
 }
 
-func papersize(typ string) (string, string) {
+func PapersizeWdHt(typ string) (string, string) {
 	typ = strings.ToLower(typ)
 	var width, height string
 	portrait := true

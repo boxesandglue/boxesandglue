@@ -9,26 +9,34 @@ import (
 )
 
 type gluTestData struct {
-	gluewd       int
-	gluestretch  int
-	glueshrink   int
+	wd           bag.ScaledPoint
+	stretch      bag.ScaledPoint
+	shrink       bag.ScaledPoint
 	stretchOrder GlueOrder
 	shrinkOrder  GlueOrder
 }
 
 func (g gluTestData) String() string {
-	ret := []string{fmt.Sprintf("%spt", bag.ScaledPoint(g.gluewd)*bag.Factor)}
+	ret := []string{fmt.Sprintf("%dpt", g.wd)}
 
-	if g.stretchOrder > 0 {
+	if g.stretch > 0 {
 		ret = append(ret, " plus ")
-		ret = append(ret, fmt.Sprintf("%d", int(g.gluestretch/65536)))
-		ret = append(ret, "fi"+strings.Repeat("l", int(g.stretchOrder)))
+		if g.stretchOrder > 0 {
+			ret = append(ret, fmt.Sprintf("%d", int(g.stretch/65536)))
+			ret = append(ret, "fi"+strings.Repeat("l", int(g.stretchOrder)))
+		} else {
+			ret = append(ret, fmt.Sprintf("%dpt", g.stretch))
+		}
 	}
 
-	if g.shrinkOrder > 0 {
+	if g.shrink > 0 {
 		ret = append(ret, " minus ")
-		ret = append(ret, fmt.Sprintf("%d", int(g.shrinkOrder/65536)))
-		ret = append(ret, "fi"+strings.Repeat("l", int(g.shrinkOrder)))
+		if g.shrinkOrder > 0 {
+			ret = append(ret, fmt.Sprintf("%d", int(g.shrinkOrder/65536)))
+			ret = append(ret, "fi"+strings.Repeat("l", int(g.shrinkOrder)))
+		} else {
+			ret = append(ret, fmt.Sprintf("%dpt", g.stretch))
+		}
 	}
 	return strings.Join(ret, "")
 }
@@ -40,11 +48,12 @@ type testdata struct {
 }
 
 func (td testdata) String() string {
-	ret := []string{fmt.Sprintf("badness: %d, dw: %s", td.badness, td.desiredWidth)}
+	ret := []string{}
+	head := fmt.Sprintf("badness: %d, dw: %spt, glues: ", td.badness, td.desiredWidth)
 	for _, g := range td.glues {
 		ret = append(ret, g.String())
 	}
-	return strings.Join(ret, ", ")
+	return head + strings.Join(ret, ", ")
 }
 
 func TestHpack(t *testing.T) {
@@ -64,20 +73,20 @@ func TestHpack(t *testing.T) {
 	}
 	for i, d := range data {
 		var head, cur Node
-		for _, g := range d.glues {
-			gluenode := NewGlue()
-			gluenode.Width = bag.ScaledPoint(g.gluewd) * bag.Factor
-			gluenode.Stretch = bag.ScaledPoint(g.gluestretch) * bag.Factor
-			gluenode.Shrink = bag.ScaledPoint(g.glueshrink) * bag.Factor
-			gluenode.ShrinkOrder = g.shrinkOrder
-			gluenode.StretchOrder = g.stretchOrder
-			head = InsertAfter(head, cur, gluenode)
-			cur = gluenode
+		for _, glue := range d.glues {
+			g := NewGlue()
+			g.Width = glue.wd * bag.Factor
+			g.Stretch = glue.stretch * bag.Factor
+			g.Shrink = glue.shrink * bag.Factor
+			g.ShrinkOrder = glue.shrinkOrder
+			g.StretchOrder = glue.stretchOrder
+			head = InsertAfter(head, cur, g)
+			cur = g
 		}
 		hl := HpackTo(head, d.desiredWidth)
 
 		if hl.Width != d.desiredWidth {
-			t.Errorf("hl.Width %d (%s) want %d (%s) tc %d", hl.Width, hl.Width, d.desiredWidth, d, i)
+			t.Errorf("hl.Width %spt want %s test case %d (%s)", hl.Width, d.desiredWidth, i, d)
 		}
 		if hl.Badness != d.badness {
 			t.Errorf("badness = %d, want %d", hl.Badness, d.badness)

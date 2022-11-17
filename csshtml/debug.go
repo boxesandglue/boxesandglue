@@ -57,8 +57,8 @@ func (c *CSS) dump() {
 	// }
 	for name, pg := range c.Pages {
 		w(" Page", name)
-		w("   Size", pg.papersize)
-		styles, _ := ResolveAttributes(pg.attributes)
+		w("   Size", pg.Papersize)
+		styles, _ := ResolveAttributes(pg.Attributes)
 		w("   Margin: ", styles["margin-top"], styles["margin-right"], styles["margin-bottom"], styles["margin-left"])
 		for areaname, rules := range pg.pagearea {
 			w("   @", areaname)

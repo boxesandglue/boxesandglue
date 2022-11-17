@@ -50,7 +50,7 @@ type TableCell struct {
 	CalculatedHeight            bag.ScaledPoint
 	HAlign                      HorizontalAlignment
 	VAlign                      VerticalAlignment
-	Contents                    []*Text
+	Contents                    []any
 	ExtraColspan                int
 	ExtraRowspan                int
 	PaddingTop                  bag.ScaledPoint
@@ -96,7 +96,7 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	minwd := bag.ScaledPoint(0)
 
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc, 1*bag.Factor, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+		_, info, err := cell.row.table.doc.FormatParagraph(cc.(*Text), 1*bag.Factor, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
 		if err != nil {
 			return 0, err
 		}
@@ -113,7 +113,7 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	maxwd := bag.ScaledPoint(0)
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc, bag.MaxSP, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+		_, info, err := cell.row.table.doc.FormatParagraph(cc.(*Text), bag.MaxSP, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
 		if err != nil {
 			return 0, err
 		}
@@ -132,13 +132,23 @@ func (cell *TableCell) build() (*node.VList, error) {
 	var head node.Node
 	var vl *node.VList
 	for _, cc := range cell.Contents {
-		para, _, err := cell.row.table.doc.FormatParagraph(cc, paraWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize), HorizontalAlign(cell.HAlign))
-		if err != nil {
-			return nil, err
+		switch t := cc.(type) {
+		case *Text:
+			para, _, err := cell.row.table.doc.FormatParagraph(t, paraWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize), HorizontalAlign(cell.HAlign))
+			if err != nil {
+				return nil, err
+			}
+			head = node.InsertAfter(head, node.Tail(head), para)
+		case *node.HList:
+			head = node.InsertAfter(head, node.Tail(head), node.CopyList(t))
+		default:
+			bag.Logger.DPanicf("table cell build(): unknown node type %T", t)
 		}
-		head = node.InsertAfter(head, node.Tail(head), para)
 	}
-	vl = node.Vpack(head)
+	hl := node.HpackTo(head, paraWidth)
+	hl.Attributes = node.H{"origin": "hpack cell"}
+
+	vl = node.Vpack(hl)
 	vl.Attributes = node.H{"origin": "cell contents"}
 	cellHeight := cell.CalculatedHeight
 	if cellHeight == 0 {
@@ -221,7 +231,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 		r.Attributes = node.H{"origin": "right rule"}
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
-	hl := node.Hpack(head)
+	hl = node.Hpack(head)
 	hl.Attributes = node.H{"origin": "hpack cell"}
 	head = hl
 

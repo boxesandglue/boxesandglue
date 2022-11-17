@@ -27,10 +27,11 @@ type SBlock struct {
 	Rules           []qrule     // the key-value pairs
 }
 
-type cssPage struct {
+// Page defines a page.
+type Page struct {
 	pagearea   map[string][]qrule
-	attributes []html.Attribute
-	papersize  string
+	Attributes []html.Attribute
+	Papersize  string
 }
 
 // CSS has all the information
@@ -39,7 +40,7 @@ type CSS struct {
 	dirstack         []string
 	document         *goquery.Document
 	Stylesheet       []SBlock
-	Pages            map[string]cssPage
+	Pages            map[string]Page
 }
 
 // // FontSource has URL/file names for fonts
@@ -282,24 +283,24 @@ func (c *CSS) doFontFace(ff []qrule) {
 			if i, err := strconv.Atoi(value); err == nil {
 				fontweight = frontend.FontWeight(i)
 			} else {
-				switch value {
-				case "Thin", "Hairline":
+				switch strings.ToLower(value) {
+				case "thin", "hairline":
 					fontweight = 100
-				case "Extra Light", "Ultra Light":
+				case "extra light", "ultra light":
 					fontweight = 200
-				case "Light":
+				case "light":
 					fontweight = 300
-				case "Normal":
+				case "normal":
 					fontweight = 400
-				case "Medium":
+				case "medium":
 					fontweight = 500
-				case "Semi Bold", "Demi Bold":
+				case "semi bold", "demi bold":
 					fontweight = 600
-				case "Bold":
+				case "bold":
 					fontweight = 700
-				case "Extra Bold", "Ultra Bold":
+				case "extra bold", "ultra bold":
 					fontweight = 800
-				case "Black", "Heavy":
+				case "black", "heavy":
 					fontweight = 900
 				}
 			}
@@ -329,10 +330,10 @@ func (c *CSS) doPage(block *SBlock) {
 	for _, v := range block.Rules {
 		switch v.Key.String() {
 		case "size":
-			pg.papersize = v.Value.String()
+			pg.Papersize = v.Value.String()
 		default:
 			a := html.Attribute{Key: v.Key.String(), Val: stringValue(v.Value)}
-			pg.attributes = append(pg.attributes, a)
+			pg.Attributes = append(pg.Attributes, a)
 		}
 	}
 	for _, rule := range block.ChildAtRules {
@@ -342,7 +343,7 @@ func (c *CSS) doPage(block *SBlock) {
 }
 
 func (c *CSS) processAtRules() {
-	c.Pages = make(map[string]cssPage)
+	c.Pages = make(map[string]Page)
 	for _, stylesheet := range c.Stylesheet {
 		for _, atrule := range stylesheet.ChildAtRules {
 			switch atrule.Name {
@@ -364,6 +365,19 @@ func NewCSSParser() *CSS {
 	return &CSS{}
 }
 
+// NewCSSParserWithDefaults returns a new CSS object with the default stylesheet included.
+func NewCSSParserWithDefaults() *CSS {
+	c := &CSS{}
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
+	return c
+}
+
+// AddCSSText parses CSS text and saves the rules for later.
+func (c *CSS) AddCSSText(fragment string) {
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(fragment), false))
+	c.processAtRules()
+}
+
 // ParseHTMLFragment takes the HTML text and the CSS text and goquery selection.
 func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*goquery.Selection, error) {
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
@@ -374,5 +388,4 @@ func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*goquery.Selection, e
 	}
 	c.processAtRules()
 	return c.ApplyCSS()
-
 }

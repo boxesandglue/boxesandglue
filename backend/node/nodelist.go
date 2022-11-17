@@ -229,6 +229,12 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 
 		default:
 			nonGlueSumWd += getWidth(v, Horizontal)
+			if ht := getHeight(v, Horizontal); ht > maxht {
+				maxht = ht
+			}
+			if dp := getDepth(v); dp > maxdp {
+				maxdp = dp
+			}
 		}
 
 		if e == lastNode {
@@ -295,7 +301,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 
 	hl := NewHList()
 	hl.List = firstNode
-	hl.Width = sumwd
+	hl.Width = width
 	hl.Depth = maxdp
 	hl.Height = maxht
 	hl.GlueSet = r
@@ -382,7 +388,7 @@ func getDepth(n Node) bag.ScaledPoint {
 		return t.Depth
 	case *Rule:
 		return t.Depth
-	case *StartStop, *Disc, *Lang, *Glue, *Penalty:
+	case *StartStop, *Disc, *Lang, *Glue, *Penalty, *Kern:
 		return 0
 	case *VList:
 		return t.Depth
