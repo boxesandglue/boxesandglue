@@ -390,7 +390,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 		colStart := node.NewStartStop()
 		colStart.Position = node.PDFOutputPage
 		colStart.Callback = func(n node.Node) string {
-			return col.PDFStringStroking() + " "
+			return col.PDFStringNonStroking() + " "
 		}
 		if head != nil {
 			head = node.InsertAfter(head, head, colStart)

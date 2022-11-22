@@ -14,6 +14,7 @@ func Debug(n Node) {
 	enc.Indent("", "    ")
 	debugNode(n, enc, 0)
 	enc.Flush()
+	w.WriteString("\n")
 	w.WriteTo(os.Stdout)
 }
 

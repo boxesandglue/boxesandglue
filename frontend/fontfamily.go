@@ -174,6 +174,14 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 		return FontWeight800
 	case "black", "heavy":
 		return FontWeight900
+	case "bolder":
+		if inheritedValue < 400 {
+			return FontWeight400
+		} else if inheritedValue < 600 {
+			return FontWeight700
+		} else {
+			return FontWeight900
+		}
 	}
 
 	i, err := strconv.Atoi(fw)
