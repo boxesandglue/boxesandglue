@@ -40,9 +40,17 @@ This library is still under development. Expect API changes.
 ## Contact
 
 Patrick Gundlach, <gundlach@speedata.de><br>
-[@speedata](https://twitter.com/speedata), [@boxesandglue](https://twitter.com/boxesandglue)
+mastodon: [@speedata](https://typo.social/@speedata), [@boxesandglue](https://typo.social/@boxesandglue)
 
 ## Sample code
+
+See the [bagme library](https://github.com/speedata/bagme) and [boxesandglue-examples](https://github.com/speedata/boxesandglue-examples) for code using boxes and glue.
+
+For a starter here is a simple `main.go` to play with. The result is
+
+<img src="https://i.imgur.com/cwGQTzQ.png" alt="typeset text from the frog king" width="200"/>
+
+
 
 ```go
 package main
@@ -143,8 +151,4 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 	}
 ```
 
-
-The result is
-
-<img src="https://i.imgur.com/cwGQTzQ.png" alt="typeset text from the frog king" width="200"/>
 
