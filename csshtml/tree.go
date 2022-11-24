@@ -1,6 +1,7 @@
 package csshtml
 
 import (
+	"bufio"
 	"io"
 	"regexp"
 	"sort"
@@ -17,9 +18,10 @@ var (
 	level int
 	out   io.Writer
 
-	dimen              = regexp.MustCompile(`px|mm|cm|in|pt|pc|ch|em|ex|lh|rem|0`)
+	dimen              = regexp.MustCompile(`^^[+\-]?(?:(?:0|[1-9]\d*)(?:\.\d*)?|\.\d+)(px|mm|cm|in|pt|pc|ch|em|ex|lh|rem|0)$`)
 	zeroDimen          = regexp.MustCompile(`^0+(px|mm|cm|in|pt|pc|ch|em|ex|lh|rem)?`)
 	style              = regexp.MustCompile(`^none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset$`)
+	colorMatcher       = regexp.MustCompile(`^rgba?\s*\(`)
 	toprightbottomleft = [...]string{"top", "right", "bottom", "left"}
 )
 
@@ -119,31 +121,79 @@ func isBorderStyle(str string) (bool, string) {
 // to four values in margin/padding etc.
 func getFourValues(str string) map[string]string {
 	fields := strings.Fields(str)
-	fourvalues := make(map[string]string)
+	fourValues := make(map[string]string)
 	switch len(fields) {
 	case 1:
-		fourvalues["top"] = fields[0]
-		fourvalues["bottom"] = fields[0]
-		fourvalues["left"] = fields[0]
-		fourvalues["right"] = fields[0]
+		fourValues["top"] = fields[0]
+		fourValues["right"] = fields[0]
+		fourValues["bottom"] = fields[0]
+		fourValues["left"] = fields[0]
 	case 2:
-		fourvalues["top"] = fields[0]
-		fourvalues["bottom"] = fields[0]
-		fourvalues["left"] = fields[1]
-		fourvalues["right"] = fields[1]
+		fourValues["top"] = fields[0]
+		fourValues["right"] = fields[1]
+		fourValues["bottom"] = fields[0]
+		fourValues["left"] = fields[1]
 	case 3:
-		fourvalues["top"] = fields[0]
-		fourvalues["left"] = fields[1]
-		fourvalues["right"] = fields[1]
-		fourvalues["bottom"] = fields[2]
+		fourValues["top"] = fields[0]
+		fourValues["right"] = fields[1]
+		fourValues["bottom"] = fields[2]
+		fourValues["left"] = fields[1]
 	case 4:
-		fourvalues["top"] = fields[0]
-		fourvalues["right"] = fields[1]
-		fourvalues["bottom"] = fields[2]
-		fourvalues["left"] = fields[3]
+		fourValues["top"] = fields[0]
+		fourValues["right"] = fields[1]
+		fourValues["bottom"] = fields[2]
+		fourValues["left"] = fields[3]
 	}
 
-	return fourvalues
+	return fourValues
+}
+
+// parseBorderAttribute splits "1pt solid black" into three parts.
+func parseBorderAttribute(input string) (width string, style string, color string) {
+	s := bufio.NewScanner(strings.NewReader(input))
+	s.Split(bufio.ScanWords)
+
+	width = "1pt"
+	style = "none"
+	color = "currentcolor"
+	// 0 = width, 1 = style, 2 = color
+	where := 0
+	for s.Scan() {
+		t := s.Text()
+		if where == 0 {
+			// looking for width
+			ok, wd := isDimension(t)
+			where = 1
+			if ok {
+				width = wd
+				continue
+			}
+		}
+		if where == 1 {
+			// looking for style
+			where = 2
+			if t := t; t == "none" || t == "hidden" || t == "dotted" || t == "dashed" || t == "solid" || t == "double" || t == "groove" || t == "ridge" || t == "inset" || t == "outset" {
+				style = t
+				continue
+			}
+		}
+		if where == 2 {
+			if strings.HasPrefix(t, "#") {
+				color = t
+				return
+			}
+			if colorMatcher.MatchString(t) {
+				color = t
+				for s.Scan() {
+					color += " " + s.Text()
+				}
+				return
+			}
+			color = t
+			return
+		}
+	}
+	return
 }
 
 // ResolveAttributes returns the resolved styles and the attributes of the node.
@@ -189,23 +239,11 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 				resolved["padding-"+padding] = values[padding]
 			}
 		case "border":
+			wd, style, color := parseBorderAttribute(attr.Val)
 			for _, loc := range toprightbottomleft {
-				resolved["border-"+loc+"-style"] = "none"
-				resolved["border-"+loc+"-width"] = "1pt"
-				resolved["border-"+loc+"-color"] = "currentcolor"
-			}
-
-			// This does not work with colors such as rgb(1 , 2 , 4) which have spaces in them
-			for _, part := range strings.Split(attr.Val, " ") {
-				for _, border := range toprightbottomleft {
-					if ok, str := isBorderStyle(part); ok {
-						resolved["border-"+border+"-style"] = str
-					} else if ok, str := isDimension(part); ok {
-						resolved["border-"+border+"-width"] = str
-					} else {
-						resolved["border-"+border+"-color"] = part
-					}
-				}
+				resolved["border-"+loc+"-style"] = style
+				resolved["border-"+loc+"-width"] = wd
+				resolved["border-"+loc+"-color"] = color
 			}
 		case "border-radius":
 			for _, lr := range []string{"left", "right"} {
@@ -214,19 +252,7 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 				}
 			}
 		case "border-top", "border-right", "border-bottom", "border-left":
-			resolved[key+"-width"] = "1pt"
-			resolved[key+"-style"] = "none"
-			resolved[key+"-color"] = "currentcolor"
-
-			for _, part := range strings.Split(attr.Val, " ") {
-				if ok, str := isDimension(part); ok {
-					resolved[key+"-width"] = str
-				} else if ok, str := isBorderStyle(part); ok {
-					resolved[key+"-style"] = str
-				} else {
-					resolved[key+"-color"] = str
-				}
-			}
+			resolved[key+"-width"], resolved[key+"-style"], resolved[key+"-color"] = parseBorderAttribute(attr.Val)
 		case "border-color":
 			values := getFourValues(attr.Val)
 			for _, loc := range toprightbottomleft {
@@ -310,7 +336,6 @@ func (c *CSS) ApplyCSS() (*goquery.Selection, error) {
 
 	rules := map[int][]selRule{}
 
-	c.document.Each(resolveStyle)
 	for _, stylesheet := range c.Stylesheet {
 		for _, block := range stylesheet.Blocks {
 			selector := block.ComponentValues.String()
@@ -346,6 +371,7 @@ func (c *CSS) ApplyCSS() (*goquery.Selection, error) {
 			}
 		}
 	}
+	c.document.Each(resolveStyle)
 
 	return c.document.Find(":root"), nil
 }
@@ -397,6 +423,9 @@ func (c *CSS) dumpTree() (*goquery.Selection, error) {
 	return c.document.Find(":root"), nil
 }
 
+// PapersizeWdHt converts the typ to the width and height. The parameter can be
+// a known paper size (such as A4 or letter) or a one or two parameter string
+// such as 20cm 20cm.
 func PapersizeWdHt(typ string) (string, string) {
 	typ = strings.ToLower(typ)
 	var width, height string

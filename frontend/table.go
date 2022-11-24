@@ -124,7 +124,7 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 		}
 	}
 
-	return maxwd + cell.BorderLeftWidth + cell.BorderRightWidth, nil
+	return maxwd + cell.BorderLeftWidth + cell.BorderRightWidth + cell.PaddingLeft + cell.PaddingRight, nil
 }
 
 func (cell *TableCell) build() (*node.VList, error) {
@@ -298,9 +298,9 @@ func (row *TableRow) setHeight() ([]span, error) {
 
 func (row *TableRow) calculateWidths() ([]bag.ScaledPoint, []bag.ScaledPoint, []span, error) {
 	colspans := []span{}
-	colwidthsMin := make([]bag.ScaledPoint, len(row.Cells))
-	colwidthsMax := make([]bag.ScaledPoint, len(row.Cells))
-	for i, c := range row.Cells {
+	colwidthsMin := make([]bag.ScaledPoint, row.table.nCol)
+	colwidthsMax := make([]bag.ScaledPoint, row.table.nCol)
+	for _, c := range row.Cells {
 		c.row = row
 		minwd, err := c.minWidth()
 		if err != nil {
@@ -311,8 +311,8 @@ func (row *TableRow) calculateWidths() ([]bag.ScaledPoint, []bag.ScaledPoint, []
 			return nil, nil, nil, err
 		}
 		if c.ExtraColspan == 0 {
-			colwidthsMin[i] = minwd
-			colwidthsMax[i] = maxwd
+			colwidthsMin[c.colStart] = minwd
+			colwidthsMax[c.colStart] = maxwd
 		} else {
 			colspans = append(colspans, span{start: c.colStart, end: c.colStart + c.ExtraColspan, size: maxwd})
 		}
