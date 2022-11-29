@@ -232,7 +232,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
 	hl = node.Hpack(head)
-	hl.Attributes = node.H{"origin": "hpack cell"}
+	hl.Attributes = node.H{"origin": "hpack cell (2)"}
 	head = hl
 
 	if cell.calculatedBorderTopWidth != 0 {

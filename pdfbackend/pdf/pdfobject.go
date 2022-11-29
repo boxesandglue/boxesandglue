@@ -9,6 +9,8 @@ import (
 	"unicode/utf16"
 )
 
+var pdfStringReplacer = strings.NewReplacer(`(`, `\(`, `)`, `\)`, `\`, `\\`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "\b", `\b`, "\t", `\t`)
+
 // Dest represents a PDF destination
 type Dest struct {
 	Objectnumber     Objectnumber
@@ -20,7 +22,20 @@ type Dest struct {
 
 // StringToPDF returns an escaped string suitable to be used as a PDF object.
 func StringToPDF(str string) string {
+	isASCII := true
+	for _, g := range str {
+		if g > 127 {
+			isASCII = false
+			break
+		}
+	}
 	var out strings.Builder
+	if isASCII {
+		out.WriteRune('(')
+		out.WriteString(pdfStringReplacer.Replace(str))
+		out.WriteRune(')')
+		return out.String()
+	}
 	out.WriteString("<feff")
 	for _, i := range utf16.Encode([]rune(str)) {
 		out.WriteString(fmt.Sprintf("%04x", i))

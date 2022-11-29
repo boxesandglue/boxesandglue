@@ -879,7 +879,7 @@ type StartStop struct {
 }
 
 func (d *StartStop) String() string {
-	return "start"
+	return "startstop"
 }
 
 // NewStartStop creates an initialized Start node
@@ -916,7 +916,7 @@ func (d *StartStop) GetID() int {
 
 // Name returns the name of the node
 func (d *StartStop) Name() string {
-	return "start"
+	return "startstop"
 }
 
 // Type returns the type of the node

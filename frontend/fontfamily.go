@@ -61,7 +61,11 @@ type FontSource struct {
 }
 
 func (fs *FontSource) String() string {
-	return fmt.Sprintf("%s->%s:%d", fs.Name, fs.Source, fs.Index)
+	name := fs.Name
+	if name == "" {
+		name = "<undefined>"
+	}
+	return fmt.Sprintf("%s->%s:%d (feat: %s)", name, fs.Source, fs.Index, fs.FontFeatures)
 }
 
 // FontFamily is a struct that keeps font with different weights and styles together.
@@ -208,12 +212,6 @@ func ResolveFontStyle(fs string) FontStyle {
 
 func (ff FontFamily) String() string {
 	ret := []string{}
-	ret = append(ret, fmt.Sprintf("id:%d, name: %s, ", ff.ID, ff.Name))
-	for a, fm := range ff.familyMember {
-		for b, f := range fm {
-			ret = append(ret, fmt.Sprintf("%s/%s(%s)", a, b, f))
-
-		}
-	}
+	ret = append(ret, fmt.Sprintf("id: %d, name: %s", ff.ID, ff.Name))
 	return strings.Join(ret, "")
 }

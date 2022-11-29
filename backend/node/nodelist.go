@@ -42,6 +42,26 @@ func NewLinebreakSettings() *LinebreakSettings {
 	return ls
 }
 
+// DeleteFromList removes the node cur from the list starting at head. The
+// possible new head is returned.
+func DeleteFromList(head, cur Node) Node {
+	if cur == nil {
+		return head
+	}
+	p := cur.Prev()
+	n := cur.Next()
+	if head == cur {
+		head = n
+	}
+	if p != nil {
+		p.SetNext(n)
+	}
+	if n != nil {
+		n.SetPrev(p)
+	}
+	return head
+}
+
 // InsertAfter inserts the node insert right after cur. If cur is nil then
 // insert is the new head. This method returns the head node.
 func InsertAfter(head, cur, insert Node) Node {
@@ -226,13 +246,23 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			if v.Depth > maxdp {
 				maxdp = v.Depth
 			}
+		case *VList:
+			nonGlueSumWd += getWidth(v, Vertical)
+			ht, dp := getHeight(v, Vertical)
+			if ht > maxht {
+				maxht = ht
+			}
+			if dp > maxdp {
+				maxdp = dp
+			}
 
 		default:
 			nonGlueSumWd += getWidth(v, Horizontal)
-			if ht := getHeight(v, Horizontal); ht > maxht {
+			ht, dp := getHeight(v, Vertical)
+			if ht > maxht {
 				maxht = ht
 			}
-			if dp := getDepth(v); dp > maxdp {
+			if dp > maxdp {
 				maxdp = dp
 			}
 		}
@@ -298,7 +328,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 		}
 		sumwd += g.Width
 	}
-
 	hl := NewHList()
 	hl.List = firstNode
 	hl.Width = width
@@ -316,7 +345,8 @@ func Vpack(firstNode Node) *VList {
 
 	var lastNode Node
 	for e := firstNode; e != nil; e = e.Next() {
-		sumht += getHeight(e, Vertical)
+		ht, dp := getHeight(e, Vertical)
+		sumht += ht + dp
 		if wd := getWidth(e, Vertical); wd > maxwd {
 			maxwd = wd
 		}
@@ -357,27 +387,30 @@ func getWidth(n Node, dir Direction) bag.ScaledPoint {
 	return 0
 }
 
-func getHeight(n Node, dir Direction) bag.ScaledPoint {
+// getHeight returns the height and the depth of the node list starting at n.
+// Depending on the progressing direction, the height of a glue is either 0 or
+// the glue width.
+func getHeight(n Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint) {
 	switch t := n.(type) {
 	case *HList:
-		return t.Height + t.Depth
+		return t.Height, t.Depth
 	case *Glyph:
-		return t.Height + t.Depth
+		return t.Height, t.Depth
 	case *VList:
-		return t.Height + t.Depth
+		return t.Height, t.Depth
 	case *Rule:
-		return t.Height
+		return t.Height, t.Depth
 	case *Glue:
 		if dir == Vertical {
-			return t.Width
+			return t.Width, 0
 		}
-		return 0
+		return 0, 0
 	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
-		return 0
+		return 0, 0
 	default:
 		bag.Logger.DPanicf("getHeight: unknown node type %T", n)
 	}
-	return 0
+	return 0, 0
 }
 
 func getDepth(n Node) bag.ScaledPoint {

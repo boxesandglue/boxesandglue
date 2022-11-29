@@ -294,6 +294,32 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	return vlist, info, nil
 }
 
+func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
+	fontfeatures := []harfbuzz.Feature{}
+	switch t := featurelist.(type) {
+	case string:
+		for _, str := range strings.Split(t, ",") {
+			f, err := harfbuzz.ParseFeature(str)
+			if err != nil {
+				bag.Logger.Errorf("cannot parse OpenType feature tag %q.", str)
+			}
+			fontfeatures = append(fontfeatures, f)
+		}
+	case []string:
+		for _, single := range t {
+			for _, str := range strings.Split(single, ",") {
+				f, err := harfbuzz.ParseFeature(str)
+				if err != nil {
+					bag.Logger.Errorf("cannot parse OpenType feature tag %q.", str)
+				}
+				fontfeatures = append(fontfeatures, f)
+			}
+
+		}
+	}
+	return fontfeatures
+}
+
 func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
@@ -306,7 +332,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	for _, f := range fe.DefaultFeatures {
 		fontfeatures = append(fontfeatures, f)
 	}
-
+	var settingFontFeatures []harfbuzz.Feature
 	for k, v := range ts {
 		switch k {
 		case SettingFontWeight:
@@ -335,13 +361,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingStyle:
 			fontstyle = v.(FontStyle)
 		case SettingOpenTypeFeature:
-			for _, str := range strings.Split(v.(string), ",") {
-				f, err := harfbuzz.ParseFeature(str)
-				if err != nil {
-					bag.Logger.Errorf("cannot parse OpenType feature tag %q.", str)
-				}
-				fontfeatures = append(fontfeatures, f)
-			}
+			settingFontFeatures = parseHarfbuzzFontFeatures(v)
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
 			// ignore
 		case SettingHAlign, SettingLeading:
@@ -358,6 +378,11 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}
+	// First the font source default features should get applied, then the
+	// features from the current settings.
+	fontfeatures = append(fontfeatures, parseHarfbuzzFontFeatures(fs.FontFeatures)...)
+	fontfeatures = append(fontfeatures, settingFontFeatures...)
+
 	if face, err = fe.LoadFace(fs); err != nil {
 		return nil, err
 	}
@@ -463,9 +488,20 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	for k, v := range ts.Settings {
 		newSettings[k] = v
 	}
+	var hyperlinkStartNode *node.StartStop
+	var hyperlinkDest string
 	for _, itm := range ts.Items {
 		switch t := itm.(type) {
 		case string:
+			if hyperlinkStartNode != nil {
+				endHL := node.NewStartStop()
+				endHL.Action = node.ActionNone
+				endHL.StartNode = hyperlinkStartNode
+				hyperlinkStartNode = nil
+				node.InsertAfter(head, tail, endHL)
+				tail = endHL
+			}
+
 			nl, err = fe.buildNodelistFromString(newSettings, t)
 			if err != nil {
 				return nil, nil, err
@@ -473,11 +509,34 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			head = node.InsertAfter(head, tail, nl)
 			tail = node.Tail(nl)
 		case *Text:
+			if hyperlinkStartNode == nil {
+				// we are within a hyperlink, so lets remove all startstop
+				if hlSetting, ok := t.Settings[SettingHyperlink]; ok {
+					hl := hlSetting.(document.Hyperlink)
+					// insert a startstop with the hyperlink
+					hyperlinkDest = hl.URI
+					startHL := node.NewStartStop()
+					startHL.Action = node.ActionHyperlink
+					startHL.Value = &hl
+					hyperlinkStartNode = startHL
+					head = node.InsertAfter(head, tail, startHL)
+					tail = startHL
+				}
+			} else {
+				if hlSetting, ok := t.Settings[SettingHyperlink]; ok && hlSetting.(document.Hyperlink).URI == hyperlinkDest {
+					// same destination
+				} else {
+					// probably no hyperlink, TODO: insert end startstop here?
+				}
+			}
+			// copy current settings to the child if not already set.
 			for k, v := range newSettings {
 				if _, found := t.Settings[k]; !found {
 					t.Settings[k] = v
 				}
 			}
+			// we don't want to inherit hyperlinks
+			delete(t.Settings, SettingHyperlink)
 			nl, end, err = fe.Mknodes(t)
 			if err != nil {
 				return nil, nil, err
@@ -492,6 +551,13 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 		default:
 			bag.Logger.DPanicf("Mknodes: unknown item type %T", t)
 		}
+	}
+	if hyperlinkStartNode != nil {
+		endHL := node.NewStartStop()
+		endHL.Action = node.ActionNone
+		endHL.StartNode = hyperlinkStartNode
+		node.InsertAfter(head, tail, endHL)
+		tail = endHL
 	}
 	return head, tail, nil
 }

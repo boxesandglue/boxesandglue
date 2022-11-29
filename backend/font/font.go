@@ -39,7 +39,7 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 	f := face.Font.Face()
 	ascend := float64(f.AscenderPDF())
 	descend := float64(-1 * f.DescenderPDF())
-	factor := descend / (ascend + descend) * 1000
+	factor := size.ToPT() / (ascend + descend)
 	fnt := &Font{
 		Space:        size * 333 / 1000,
 		SpaceStretch: size * 167 / 1000,
@@ -47,9 +47,7 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Size:         size,
 		Face:         face,
 		Mag:          int(size) / int(face.UnitsPerEM),
-		// Somehow the extra 10% needs to be added. This is not fixed
-		// if we find a proper solution, this should change.
-		Depth: size * bag.ScaledPoint(factor) * 11 / 10000,
+		Depth:        bag.ScaledPointFromFloat(factor * descend),
 	}
 	hyphenchar := fnt.Shape("-", []harfbuzz.Feature{})
 	if len(hyphenchar) == 1 {

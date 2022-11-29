@@ -281,7 +281,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
 		case *node.StartStop:
 			posX := x + sumX
-			posY := y - hlist.Depth
+			posY := y
 
 			isStartNode := true
 			action := v.Action
@@ -302,7 +302,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					hyperlink.startposX = posX
 					hyperlink.startposY = posY
 				} else {
-					rectHT := posY + hlist.Height + hlist.Depth - hyperlink.startposY
+					rectHT := posY - hyperlink.startposY - hlist.Height - hlist.Depth
 					rectWD := posX - hyperlink.startposX
 					a := pdf.Annotation{
 						Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
@@ -697,7 +697,7 @@ type PDFDocument struct {
 	Title                string
 	Author               string
 	Creator              string
-	Producer             string
+	producer             string
 	Keywords             string
 	Subject              string
 	Spotcolors           []*color.Color
@@ -719,10 +719,10 @@ func NewDocument(w io.Writer) *PDFDocument {
 	d := &PDFDocument{
 		DefaultPageWidth:  bag.MustSp("210mm"),
 		DefaultPageHeight: bag.MustSp("297mm"),
-		Producer:          "speedata/boxesandglue",
 		Languages:         make(map[string]*lang.Lang),
 		PDFWriter:         pdf.NewPDFWriter(w),
 		CompressLevel:     9,
+		producer:          "speedata/boxesandglue",
 		usedPDFImages:     make(map[string]*pdf.Imagefile),
 		outputDebug: &outputDebug{
 			Name: "pdfdocument",
@@ -922,7 +922,7 @@ func (d *PDFDocument) Finish() error {
 	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight
 
 	d.PDFWriter.InfoDict = pdf.Dict{
-		"/Producer": "(speedata/boxesandglue)",
+		"/Producer": pdf.StringToPDF(d.producer),
 	}
 	if t := d.Title; t != "" {
 		d.PDFWriter.InfoDict["/Title"] = pdf.StringToPDF(t)
@@ -935,6 +935,9 @@ func (d *PDFDocument) Finish() error {
 	}
 	if t := d.Subject; t != "" {
 		d.PDFWriter.InfoDict["/Subject"] = pdf.StringToPDF(t)
+	}
+	if t := d.Keywords; t != "" {
+		d.PDFWriter.InfoDict["/Keywords"] = pdf.StringToPDF(t)
 	}
 	d.PDFWriter.InfoDict["/CreationDate"] = time.Now().Format("(D:20060102150405)")
 

@@ -31,7 +31,7 @@ func (d *PDFDocument) getMetadata() string {
 		<xmp:CreatorTool>%[6]s</xmp:CreatorTool>
 	 </rdf:Description>
 	 <rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
-	   <pdf:Producer>%[7]s</pdf:Producer>
+	   <pdf:Producer>%[7]s</pdf:Producer>%[10]s
 	 </rdf:Description>
 	 <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
 	   <dc:title>%[8]s</dc:title>
@@ -42,6 +42,11 @@ func (d *PDFDocument) getMetadata() string {
 <?xpacket end="r"?>`
 
 	var pdfuaident string
+	var keywords string
+	if d.Keywords != "" {
+		keywords = fmt.Sprintf(`
+        <pdf:keywords>%s</pdf:keywords>`, xmlescape.Replace(d.Keywords))
+	}
 	if d.RootStructureElement != nil {
 		pdfuaident = `
 <rdf:Description rdf:about="" xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/">
@@ -55,9 +60,10 @@ func (d *PDFDocument) getMetadata() string {
 		pdfuaident,
 		isoformatted,
 		xmlescape.Replace(d.Creator),
-		xmlescape.Replace(d.Producer),
+		xmlescape.Replace(d.producer),
 		xmlescape.Replace(d.Title),
 		xmlescape.Replace(d.Author),
+		keywords,
 	)
 
 }

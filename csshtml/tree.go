@@ -157,41 +157,32 @@ func parseBorderAttribute(input string) (width string, style string, color strin
 	style = "none"
 	color = "currentcolor"
 	// 0 = width, 1 = style, 2 = color
-	where := 0
 	for s.Scan() {
 		t := s.Text()
-		if where == 0 {
-			// looking for width
-			ok, wd := isDimension(t)
-			where = 1
-			if ok {
-				width = wd
-				continue
-			}
+		// looking for width
+		ok, wd := isDimension(t)
+		if ok {
+			width = wd
+			continue
 		}
-		if where == 1 {
-			// looking for style
-			where = 2
-			if t := t; t == "none" || t == "hidden" || t == "dotted" || t == "dashed" || t == "solid" || t == "double" || t == "groove" || t == "ridge" || t == "inset" || t == "outset" {
-				style = t
-				continue
-			}
+		// looking for style
+		if t := t; t == "none" || t == "hidden" || t == "dotted" || t == "dashed" || t == "solid" || t == "double" || t == "groove" || t == "ridge" || t == "inset" || t == "outset" {
+			style = t
+			continue
 		}
-		if where == 2 {
-			if strings.HasPrefix(t, "#") {
-				color = t
-				return
-			}
-			if colorMatcher.MatchString(t) {
-				color = t
-				for s.Scan() {
-					color += " " + s.Text()
-				}
-				return
-			}
+		if strings.HasPrefix(t, "#") {
 			color = t
 			return
 		}
+		if colorMatcher.MatchString(t) {
+			color = t
+			for s.Scan() {
+				color += " " + s.Text()
+			}
+			return
+		}
+
+		color = t
 	}
 	return
 }

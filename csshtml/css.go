@@ -1,6 +1,8 @@
 package csshtml
 
 import (
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -29,9 +31,13 @@ type SBlock struct {
 
 // Page defines a page.
 type Page struct {
-	pagearea   map[string][]qrule
-	Attributes []html.Attribute
-	Papersize  string
+	pagearea     map[string][]qrule
+	Attributes   []html.Attribute
+	Papersize    string
+	MarginLeft   string
+	MarginRight  string
+	MarginTop    string
+	MarginBottom string
 }
 
 // CSS has all the information
@@ -43,26 +49,8 @@ type CSS struct {
 	Pages            map[string]Page
 }
 
-// // FontSource has URL/file names for fonts
-// type FontSource struct {
-// 	Local string
-// 	URL   string
-// }
-
-// func (f FontSource) String() string {
-// 	ret := []string{}
-// 	if f.Local != "" {
-// 		ret = append(ret, fmt.Sprintf(`["local"] = %q`, f.Local))
-// 	}
-// 	if f.URL != "" {
-// 		ret = append(ret, fmt.Sprintf("url = %q", f.URL))
-// 	}
-// 	return "{" + strings.Join(ret, ",") + "}"
-// }
-
 // CSSdefaults contains browser-like styling of some elements.
 var CSSdefaults = `
-a               { text-decoration: underline; color: blue; }
 li              { display: list-item; padding-inline-start: 40pt; }
 head            { display: none }
 table           { display: table }
@@ -244,8 +232,10 @@ func ConsumeBlock(toks Tokenstream, inblock bool) SBlock {
 					start++
 					i++
 				}
+			case ",", ")":
+				// ignore
 			default:
-				// w("unknown delimiter", t.Value)
+				w("unknown delimiter", t.Value)
 			}
 		}
 		i++
@@ -312,6 +302,34 @@ func (c *CSS) doFontFace(ff []qrule) {
 					fontsource.Source = c.FrontendDocument.FindFile(v.Value)
 				}
 			}
+		case "font-feature-settings":
+			settingOn := true
+			r := regexp.MustCompile(`(on|off|\d+)\s*$`)
+			if r.MatchString(value) {
+				idx := r.FindAllStringIndex(value, -1)
+				if idx != nil {
+					sw := value[idx[0][0]:idx[0][1]]
+					if sw == "on" {
+						// keep on
+					} else if sw == "off" || sw == "0" {
+						settingOn = false
+					} else if sw >= "1" && sw <= "9" {
+						// keep on
+					}
+				}
+				value = value[:idx[0][0]]
+			}
+			var prefix string
+			for _, v := range strings.Split(value, ",") {
+				if settingOn {
+					prefix = "+"
+				} else {
+					prefix = "-"
+				}
+				fontsource.FontFeatures = append(fontsource.FontFeatures, prefix+strings.TrimSpace(v))
+			}
+		default:
+			fmt.Println("unhandled font setting", key)
 		}
 	}
 	fam := c.FrontendDocument.FindFontFamily(fontfamily)
@@ -331,6 +349,12 @@ func (c *CSS) doPage(block *SBlock) {
 		switch v.Key.String() {
 		case "size":
 			pg.Papersize = v.Value.String()
+		case "margin":
+			fv := getFourValues(v.Value.String())
+			pg.MarginTop = fv["top"]
+			pg.MarginBottom = fv["bottom"]
+			pg.MarginLeft = fv["left"]
+			pg.MarginRight = fv["right"]
 		default:
 			a := html.Attribute{Key: v.Key.String(), Val: stringValue(v.Value)}
 			pg.Attributes = append(pg.Attributes, a)
@@ -351,6 +375,8 @@ func (c *CSS) processAtRules() {
 				c.doFontFace(atrule.Rules)
 			case "page":
 				c.doPage(atrule)
+			default:
+				fmt.Println("unknown at rule", atrule)
 			}
 		}
 
@@ -373,9 +399,14 @@ func NewCSSParserWithDefaults() *CSS {
 }
 
 // AddCSSText parses CSS text and saves the rules for later.
-func (c *CSS) AddCSSText(fragment string) {
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(fragment), false))
+func (c *CSS) AddCSSText(fragment string) error {
+	toks, err := c.ParseCSSString(fragment)
+	if err != nil {
+		return err
+	}
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(toks, false))
 	c.processAtRules()
+	return nil
 }
 
 // ParseHTMLFragment takes the HTML text and the CSS text and goquery selection.

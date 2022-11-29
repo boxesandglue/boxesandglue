@@ -144,8 +144,14 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 				{"dp", v.Depth},
 			}, v.Attributes)
 		case *StartStop:
+			startNode := "-"
+			if v.StartNode != nil {
+				startNode = fmt.Sprintf("%d", v.StartNode.ID)
+			}
 			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
+				{"action", v.Action},
+				{"start", startNode},
 			}, v.Attributes)
 		default:
 			err = enc.EncodeToken(start)
