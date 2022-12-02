@@ -65,7 +65,6 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 	buf := harfbuzz.NewBuffer()
 	buf.AddRunes([]rune(text), 0, -1)
 	buf.Flags = harfbuzz.RemoveDefaultIgnorables
-
 	ha := f.Face.Font.Face().HorizontalAdvance
 
 	buf.GuessSegmentProperties()
@@ -84,7 +83,7 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 			glyphs = append(glyphs, Atom{
 				IsSpace:    true,
 				Advance:    bag.ScaledPoint(advanceWant),
-				Components: " ",
+				Components: string(char),
 				Codepoint:  int(r.Glyph),
 			})
 		} else {

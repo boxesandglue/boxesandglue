@@ -92,63 +92,81 @@ const (
 )
 
 const (
-	// SettingFontWeight represents a font weight setting.
-	SettingFontWeight SettingType = iota
+	// SettingDummy is a no op.
+	SettingDummy SettingType = iota
 	// SettingColor sets a predefined color.
 	SettingColor
-	// SettingStyle represents a font style such as italic or normal.
-	SettingStyle
 	// SettingFontFamily selects a font family.
 	SettingFontFamily
-	// SettingSize sets the font size.
-	SettingSize
-	// SettingLeading determines the distance between two base lines (line height).
-	SettingLeading
+	// SettingFontWeight represents a font weight setting.
+	SettingFontWeight
+	// SettingHAlign sets the horizontal alignment of the paragraph.
+	SettingHAlign
 	// SettingHyperlink defines an external hyperlink.
 	SettingHyperlink
+	// SettingIndentLeft inserts a left margin
+	SettingIndentLeft
+	// SettingIndentLeftRows determines the number of rows to be indented (positive value), or the number of rows not indented (negative values). 0 means all rows.
+	SettingIndentLeftRows
+	// SettingLeading determines the distance between two base lines (line height).
+	SettingLeading
+	// SettingMarginBottom sets the bottom margin.
+	SettingMarginBottom
 	// SettingMarginLeft sets the left margin.
 	SettingMarginLeft
 	// SettingMarginRight sets the right margin.
 	SettingMarginRight
-	// SettingMarginBottom sets the bottom margin.
-	SettingMarginBottom
 	// SettingMarginTop sets the top margin.
 	SettingMarginTop
 	// SettingOpenTypeFeature allows the user to (de)select OpenType features such as ligatures.
 	SettingOpenTypeFeature
-	// SettingHAlign sets the horizontal alignment of the paragraph
-	SettingHAlign
+	// SettingPreserveWhitespace makes a monospace paragraph with newlines.
+	SettingPreserveWhitespace
+	// SettingSize sets the font size.
+	SettingSize
+	// SettingStyle represents a font style such as italic or normal.
+	SettingStyle
+	// SettingYOffset shifts the glyph.
+	SettingYOffset
 )
 
 func (st SettingType) String() string {
 	var settingName string
 	switch st {
-	case SettingFontWeight:
-		settingName = "SettingFontWeight"
 	case SettingColor:
-	case SettingStyle:
-		settingName = "SettingStyle"
+		settingName = "SettingColor"
 	case SettingFontFamily:
 		settingName = "SettingFontFamily"
-	case SettingSize:
-		settingName = "SettingSize"
-	case SettingLeading:
-		settingName = "SettingLeading"
+	case SettingFontWeight:
+		settingName = "SettingFontWeight"
+	case SettingHAlign:
+		settingName = "SettingHAlign"
 	case SettingHyperlink:
 		settingName = "SettingHyperlink"
+	case SettingIndentLeft:
+		settingName = "SettingIndentLeft"
+	case SettingIndentLeftRows:
+		settingName = "SettingIndentLeftRows"
+	case SettingLeading:
+		settingName = "SettingLeading"
+	case SettingMarginBottom:
+		settingName = "SettingMarginBottom"
 	case SettingMarginLeft:
 		settingName = "SettingMarginLeft"
 	case SettingMarginRight:
 		settingName = "SettingMarginRight"
-	case SettingMarginBottom:
-		settingName = "SettingMarginBottom"
 	case SettingMarginTop:
 		settingName = "SettingMarginTop"
 	case SettingOpenTypeFeature:
 		settingName = "SettingOpenTypeFeature"
-	case SettingHAlign:
-		settingName = "SettingHAlign"
-
+	case SettingPreserveWhitespace:
+		settingName = "SettingPreserveWhitespace"
+	case SettingSize:
+		settingName = "SettingSize"
+	case SettingStyle:
+		settingName = "SettingStyle"
+	case SettingYOffset:
+		settingName = "SettingYOffset"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -187,12 +205,14 @@ func (ts *Text) String() string {
 }
 
 type paragraph struct {
-	fontsize   bag.ScaledPoint
-	fontfamily *FontFamily
-	hsize      bag.ScaledPoint
-	leading    bag.ScaledPoint
-	language   *lang.Lang
-	alignment  HorizontalAlignment
+	alignment      HorizontalAlignment
+	fontfamily     *FontFamily
+	fontsize       bag.ScaledPoint
+	hsize          bag.ScaledPoint
+	indentLeft     bag.ScaledPoint
+	indentLeftRows int
+	language       *lang.Lang
+	leading        bag.ScaledPoint
 }
 
 // TypesettingOption controls the formatting of the paragraph.
@@ -219,6 +239,14 @@ func FontSize(size bag.ScaledPoint) TypesettingOption {
 	}
 }
 
+// IndentLeft sets the left indent.
+func IndentLeft(size bag.ScaledPoint, rows int) TypesettingOption {
+	return func(p *paragraph) {
+		p.indentLeft = size
+		p.indentLeftRows = rows
+	}
+}
+
 // Family sets the font family for the paragraph.
 func Family(fam *FontFamily) TypesettingOption {
 	return func(p *paragraph) {
@@ -236,6 +264,11 @@ func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
+	if len(te.Items) == 0 {
+		g := node.NewGlue()
+		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
+		return node.Vpack(g), nil, nil
+	}
 	p := &paragraph{
 		language: fe.Doc.DefaultLanguage,
 		hsize:    hsize,
@@ -262,10 +295,13 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	}
 
 	Hyphenate(hlist, p.language)
-	node.AppendLineEndAfter(tail)
+	node.AppendLineEndAfter(hlist, tail)
 
 	ls := node.NewLinebreakSettings()
 	ls.HSize = p.hsize
+	ls.Indent = p.indentLeft
+	ls.IndentRows = p.indentLeftRows
+
 	if p.leading == 0 {
 		if l, ok := te.Settings[SettingLeading]; ok {
 			ls.LineHeight = l.(bag.ScaledPoint)
@@ -289,7 +325,6 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		lg.Subtype = node.GlueLineStart
 		ls.LineStartGlue = lg
 	}
-
 	vlist, info := node.Linebreak(hlist, ls)
 	return vlist, info, nil
 }
@@ -320,7 +355,7 @@ func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
 	return fontfeatures
 }
 
-func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
+func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
@@ -332,6 +367,8 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	for _, f := range fe.DefaultFeatures {
 		fontfeatures = append(fontfeatures, f)
 	}
+	preserveWhitespace := false
+	yoffset := bag.ScaledPoint(0)
 	var settingFontFeatures []harfbuzz.Feature
 	for k, v := range ts {
 		switch k {
@@ -364,8 +401,12 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 			settingFontFeatures = parseHarfbuzzFontFeatures(v)
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
 			// ignore
-		case SettingHAlign, SettingLeading:
+		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows:
 			// ignore
+		case SettingPreserveWhitespace:
+			preserveWhitespace = v.(bool)
+		case SettingYOffset:
+			yoffset = v.(bag.ScaledPoint)
 		default:
 			bag.Logger.DPanicf("Unknown setting %v", k)
 		}
@@ -377,6 +418,10 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	var err error
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
+	}
+	// fs.SizeAdjust is CSS size-adjust normalized so that 0 = 100% and negative = shrinking.
+	if fs.SizeAdjust != 0 {
+		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
 	}
 	// First the font source default features should get applied, then the
 	// features from the current settings.
@@ -427,14 +472,39 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 	atoms := fnt.Shape(str, fontfeatures)
 	for _, r := range atoms {
 		if r.IsSpace {
-			if lastglue == nil {
-				g := node.NewGlue()
-				g.Width = fnt.Space
-				g.Stretch = fnt.SpaceStretch
-				g.Shrink = fnt.SpaceShrink
-				head = node.InsertAfter(head, cur, g)
-				cur = g
-				lastglue = g
+			if preserveWhitespace {
+				switch r.Components {
+				case " ":
+					g := node.NewRule()
+					g.Width = fnt.Space
+					head = node.InsertAfter(head, cur, g)
+					cur = g
+					lastglue = g
+				case "\t":
+					// tab size...
+					for i := 0; i < 4; i++ {
+						g := node.NewRule()
+						g.Width = fnt.Space
+						head = node.InsertAfter(head, cur, g)
+						cur = g
+						lastglue = g
+					}
+				case "\n":
+					head, cur = node.AppendLineEndAfter(head, cur)
+					lastglue = cur
+				default:
+					panic("unhandled whitespace type")
+				}
+			} else {
+				if lastglue == nil {
+					g := node.NewGlue()
+					g.Width = fnt.Space
+					g.Stretch = fnt.SpaceStretch
+					g.Shrink = fnt.SpaceShrink
+					head = node.InsertAfter(head, cur, g)
+					cur = g
+					lastglue = g
+				}
 			}
 		} else {
 			n := node.NewGlyph()
@@ -445,6 +515,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string) 
 			n.Width = r.Advance
 			n.Height = r.Height
 			n.Depth = r.Depth
+			n.YOffset = yoffset
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil
@@ -502,12 +573,14 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				tail = endHL
 			}
 
-			nl, err = fe.buildNodelistFromString(newSettings, t)
+			nl, err = fe.BuildNodelistFromString(newSettings, t)
 			if err != nil {
 				return nil, nil, err
 			}
-			head = node.InsertAfter(head, tail, nl)
-			tail = node.Tail(nl)
+			if nl != nil {
+				head = node.InsertAfter(head, tail, nl)
+				tail = node.Tail(nl)
+			}
 		case *Text:
 			if hyperlinkStartNode == nil {
 				// we are within a hyperlink, so lets remove all startstop

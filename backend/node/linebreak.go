@@ -105,28 +105,30 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 	case *Disc:
 		desiredLineWidth += Dimensions(t.Pre, Horizontal)
 	}
+	// subtract left glue setting
+	maxwd := lb.settings.HSize - lb.getIndent(a.Line)
 
 	r := 0.0
-	if desiredLineWidth < lb.settings.HSize {
+	if desiredLineWidth < maxwd {
 		y := lb.sumY - a.sumY
 		if y > 0 {
 			if lb.stretchFil > 0 || lb.stretchFill > 0 || lb.stretchFilll > 0 {
 				return 0
 			}
-			r = float64(lb.settings.HSize-desiredLineWidth) / float64(lb.sumY-a.sumY)
+			r = float64(maxwd-desiredLineWidth) / float64(lb.sumY-a.sumY)
 		} else {
 			r = positiveInf
 		}
-	} else if lb.settings.HSize < desiredLineWidth {
+	} else if maxwd < desiredLineWidth {
 		z := lb.sumZ - a.sumZ
 		if z > 0 {
-			r = float64(lb.settings.HSize-desiredLineWidth) / float64(z)
+			r = float64(maxwd-desiredLineWidth) / float64(z)
 		} else {
 			r = negativeInf
 		}
 	}
 	if r == negativeInf || r == positiveInf {
-		if desiredLineWidth+getNextNodeWidth(n, lb.settings.HSize) > lb.settings.HSize {
+		if desiredLineWidth+getNextNodeWidth(n, maxwd) > maxwd {
 			return negativeInf
 		}
 	}
@@ -239,6 +241,26 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 		demerits = math.MaxInt
 	}
 	return
+}
+
+func (lb *linebreaker) getIndent(row int) bag.ScaledPoint {
+	rows := lb.settings.IndentRows
+	switch {
+	case rows == 0:
+		return lb.settings.Indent
+	case rows < 0:
+		if row >= -1*rows {
+			return lb.settings.Indent
+		}
+		return bag.ScaledPoint(0)
+
+	case rows > 0:
+		if rows > row {
+			return lb.settings.Indent
+		}
+		return bag.ScaledPoint(0)
+	}
+	return bag.ScaledPoint(0)
 }
 
 func (lb *linebreaker) mainLoop(n Node) {
@@ -469,13 +491,17 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		if startPos != nil {
 			// if PDF/UA is written, the line end should have a space at the end.
 			InsertAfter(startPos, endNode.Prev(), settings.LineEndGlue.Copy())
-			startPos = InsertBefore(startPos, startPos, settings.LineStartGlue.Copy())
+
+			// indentation
+			leftskip := settings.LineStartGlue.Copy().(*Glue)
+			leftskip.Width += lb.getIndent(e.Line)
+			startPos = InsertBefore(startPos, startPos, leftskip)
 
 			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
 			hl.Attributes = H{"origin": "line"}
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
-			if e.next != nil {
+			if e.next != nil || !settings.OmitLastLeading {
 				lineskip := NewGlue()
 				lineskip.Attributes = H{"origin": "lineskip"}
 				if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
@@ -497,19 +523,23 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 }
 
 // AppendLineEndAfter adds a penalty 10000, glue 0pt plus 1fil, penalty -10000
-// after n.
-func AppendLineEndAfter(n Node) {
+// after n (the node lists starting with head). It returns the new head (if head
+// is nil) and the penalty node (the tail of the list).
+func AppendLineEndAfter(head, n Node) (Node, Node) {
+	if head == nil {
+		head = n
+	}
 	p := NewPenalty()
 	p.Penalty = 10000
-	InsertAfter(n, n, p)
-
+	head = InsertAfter(head, n, p)
 	g := NewGlue()
 	g.Width = 0
 	g.Stretch = 1 * bag.Factor
 	g.StretchOrder = 1
-	InsertAfter(n, p, g)
+	head = InsertAfter(head, p, g)
 
 	p = NewPenalty()
 	p.Penalty = -10000
-	n = InsertAfter(n, g, p)
+	head = InsertAfter(head, g, p)
+	return head, p
 }

@@ -72,6 +72,7 @@ type objectContext struct {
 	p                *Page
 	pageObjectnumber pdf.Objectnumber
 	currentFont      *font.Font
+	currentShift     bag.ScaledPoint
 	textmode         uint8
 	usedFaces        map[*pdf.Face]bool
 	usedImages       map[*pdf.Imagefile]bool
@@ -193,6 +194,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					"fontsize":   v.Font.Size,
 					"faceid":     v.Font.Face.FaceID,
 					"components": v.Components,
+					"xoffset":    v.XOffset,
 				}}
 			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			if v.Font != oc.currentFont {
@@ -200,6 +202,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				fmt.Fprintf(oc.s, "\n%s %s Tf ", v.Font.Face.InternalName(), v.Font.Size)
 				oc.usedFaces[v.Font.Face] = true
 				oc.currentFont = v.Font
+			}
+			if v.YOffset != oc.currentShift {
+				oc.gotoTextMode(3)
+				fmt.Fprintf(oc.s, "%s Ts", v.YOffset)
+				oc.currentShift = v.YOffset
 			}
 			if oc.textmode > 3 {
 				oc.gotoTextMode(3)

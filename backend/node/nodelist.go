@@ -18,14 +18,17 @@ const (
 
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
-	HSize                bag.ScaledPoint
-	LineHeight           bag.ScaledPoint
-	Hyphenpenalty        int
 	DemeritsFitness      int
 	DoublehyphenDemerits int
-	Tolerance            float64
-	LineStartGlue        *Glue
+	HSize                bag.ScaledPoint
+	Hyphenpenalty        int
+	Indent               bag.ScaledPoint
+	IndentRows           int
 	LineEndGlue          *Glue
+	LineHeight           bag.ScaledPoint
+	LineStartGlue        *Glue
+	OmitLastLeading      bool
+	Tolerance            float64
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.

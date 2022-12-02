@@ -194,7 +194,7 @@ favor|ite play|thing.`
 		}
 	}
 
-	AppendLineEndAfter(cur)
+	AppendLineEndAfter(head, cur)
 
 	settings := NewLinebreakSettings()
 	settings.HSize = 390 * bag.Factor
@@ -234,7 +234,7 @@ func TestLinebreakOneWord(t *testing.T) {
 		head = InsertAfter(head, cur, g)
 		cur = g
 	}
-	AppendLineEndAfter(cur)
+	AppendLineEndAfter(head, cur)
 
 	settings := NewLinebreakSettings()
 	settings.HSize = 390 * bag.Factor

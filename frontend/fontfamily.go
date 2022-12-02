@@ -54,6 +54,7 @@ type FontSource struct {
 	Name         string
 	FontFeatures []string
 	Source       string
+	SizeAdjust   float64 // 1 - SizeAdjust is the relative adjustment.
 	// The sub font index within the font file.
 	Index int
 	// Used to save a face once it is loaded.

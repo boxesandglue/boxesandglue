@@ -51,6 +51,7 @@ type CSS struct {
 
 // CSSdefaults contains browser-like styling of some elements.
 var CSSdefaults = `
+html            { font-size: 10pt; }
 li              { display: list-item; padding-inline-start: 40pt; }
 head            { display: none }
 table           { display: table }
@@ -62,7 +63,7 @@ td, th          { display: table-cell }
 caption         { display: table-caption }
 th              { font-weight: bold; text-align: center }
 caption         { text-align: center }
-body            { margin: 0pt; font-family: sans-serif; font-size: 10pt; line-height: 1.2; hyphens: auto; font-weight: normal; }
+body            { margin: 0pt; font-family: sans-serif; line-height: 1.2; hyphens: auto; font-weight: normal; }
 h1              { font-size: 2em; margin: .67em 0 }
 h2              { font-size: 1.5em; margin: .75em 0 }
 h3              { font-size: 1.17em; margin: .83em 0 }
@@ -232,10 +233,10 @@ func ConsumeBlock(toks Tokenstream, inblock bool) SBlock {
 					start++
 					i++
 				}
-			case ",", ")":
+			case ",", ")", ".":
 				// ignore
 			default:
-				w("unknown delimiter", t.Value)
+				// w("unknown delimiter", t.Value)
 			}
 		}
 		i++
@@ -256,7 +257,7 @@ func (c *CSS) doFontFace(ff []qrule) {
 	var fontsource frontend.FontSource
 	for _, rule := range ff {
 		key := strings.TrimSpace(rule.Key.String())
-		value := strings.TrimSpace(rule.Value.String())
+		value := strings.TrimSpace(stringValue(rule.Value))
 		switch key {
 		case "font-family":
 			fontfamily = value
@@ -328,6 +329,13 @@ func (c *CSS) doFontFace(ff []qrule) {
 				}
 				fontsource.FontFeatures = append(fontsource.FontFeatures, prefix+strings.TrimSpace(v))
 			}
+		case "size-adjust":
+			v := strings.TrimSuffix(value, "%")
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				panic(err)
+			}
+			fontsource.SizeAdjust = 1 - (f / 100)
 		default:
 			fmt.Println("unhandled font setting", key)
 		}
