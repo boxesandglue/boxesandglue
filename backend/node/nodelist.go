@@ -221,8 +221,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 	maxht := bag.ScaledPoint(0)
 	maxdp := bag.ScaledPoint(0)
 
-	nonGlueSumWd := bag.ScaledPoint(0) // used for real width calculation
-
 	totalStretchability := [4]bag.ScaledPoint{0, 0, 0, 0}
 	totalShrinkability := [4]bag.ScaledPoint{0, 0, 0, 0}
 
@@ -234,7 +232,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			totalShrinkability[v.StretchOrder] += v.Shrink
 			glues = append(glues, v)
 		case *Glyph:
-			nonGlueSumWd = nonGlueSumWd + v.Width
+			sumwd += v.Width
 			if v.Height > maxht {
 				maxht = v.Height
 			}
@@ -242,7 +240,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 				maxdp = v.Depth
 			}
 		case *Rule:
-			nonGlueSumWd = nonGlueSumWd + v.Width
+			sumwd += v.Width
 			if v.Height > maxht {
 				maxht = v.Height
 			}
@@ -250,7 +248,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 				maxdp = v.Depth
 			}
 		case *VList:
-			nonGlueSumWd += getWidth(v, Vertical)
+			sumwd += getWidth(v, Vertical)
 			ht, dp := getHeight(v, Vertical)
 			if ht > maxht {
 				maxht = ht
@@ -260,7 +258,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			}
 
 		default:
-			nonGlueSumWd += getWidth(v, Horizontal)
+			sumwd += getWidth(v, Horizontal)
 			ht, dp := getHeight(v, Vertical)
 			if ht > maxht {
 				maxht = ht
@@ -278,7 +276,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			break
 		}
 	}
-	sumwd += nonGlueSumWd
 
 	var highestOrderStretch, highestOrderShrink GlueOrder
 	stretchability, shrinkability := totalStretchability[0], totalShrinkability[0]
@@ -317,9 +314,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 		badness = 0
 	}
 
-	// calculate the real width: non-glue widths + new glue widths
-	sumwd = nonGlueSumWd
-
 	for _, g := range glues {
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
@@ -329,7 +323,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			// g.Width -= bag.ScaledPoint(g.Shrink)
 			// r = -1.0
 		}
-		sumwd += g.Width
 	}
 	hl := NewHList()
 	hl.List = firstNode

@@ -14,6 +14,7 @@ func TestParseBorder(t *testing.T) {
 		{"solid black", "1pt", "solid", "black"},
 		{"1pt solid black", "1pt", "solid", "black"},
 		{"solid black 1pt", "1pt", "solid", "black"},
+		{"solid 00pt black", "00pt", "solid", "black"},
 		{"solid 1pt black", "1pt", "solid", "black"},
 		{"black solid 1pt", "1pt", "solid", "black"},
 		{"1pt green", "1pt", "none", "green"},

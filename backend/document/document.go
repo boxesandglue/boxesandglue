@@ -226,7 +226,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					"width": v.Width,
 				},
 			})
-
+			if oc.textmode == 2 {
+				oc.gotoTextMode(1)
+			}
 			if oc.textmode == 1 {
 				var goBackwards bag.ScaledPoint
 				if curFont := oc.currentFont; curFont != nil {

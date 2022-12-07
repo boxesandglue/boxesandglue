@@ -94,6 +94,38 @@ const (
 const (
 	// SettingDummy is a no op.
 	SettingDummy SettingType = iota
+	// SettingBorderBottomWidth sets the bottom border width.
+	SettingBorderBottomWidth
+	// SettingBorderLeftWidth sets the left border width.
+	SettingBorderLeftWidth
+	// SettingBorderRightWidth sets the right border width.
+	SettingBorderRightWidth
+	// SettingBorderTopWidth sets the top border width.
+	SettingBorderTopWidth
+	// SettingBorderBottomColor sets the bottom border color.
+	SettingBorderBottomColor
+	// SettingBorderLeftColor sets the left border color.
+	SettingBorderLeftColor
+	// SettingBorderRightColor sets the right border color.
+	SettingBorderRightColor
+	// SettingBorderTopColor sets the top border color.
+	SettingBorderTopColor
+	// SettingBorderBottomStyle sets the bottom border style.
+	SettingBorderBottomStyle
+	// SettingBorderLeftStyle sets the left border style.
+	SettingBorderLeftStyle
+	// SettingBorderRightStyle sets the right border style.
+	SettingBorderRightStyle
+	// SettingBorderTopStyle sets the top border style.
+	SettingBorderTopStyle
+	// SettingBorderTopLeftRadius sets the top left radius (x and y are the same).
+	SettingBorderTopLeftRadius
+	// SettingBorderTopRightRadius sets the top right radius (x and y are the same).
+	SettingBorderTopRightRadius
+	// SettingBorderBottomLeftRadius sets the bottom left radius (x and y are the same).
+	SettingBorderBottomLeftRadius
+	// SettingBorderBottomRightRadius sets the bottom right radius (x and y are the same).
+	SettingBorderBottomRightRadius
 	// SettingColor sets a predefined color.
 	SettingColor
 	// SettingFontFamily selects a font family.
@@ -120,12 +152,24 @@ const (
 	SettingMarginTop
 	// SettingOpenTypeFeature allows the user to (de)select OpenType features such as ligatures.
 	SettingOpenTypeFeature
+	// SettingPaddingBottom is the bottom padding.
+	SettingPaddingBottom
+	// SettingPaddingLeft is the left hand padding.
+	SettingPaddingLeft
+	// SettingPaddingRight is the right hand padding.
+	SettingPaddingRight
+	// SettingPaddingTop is the top padding.
+	SettingPaddingTop
 	// SettingPreserveWhitespace makes a monospace paragraph with newlines.
 	SettingPreserveWhitespace
 	// SettingSize sets the font size.
 	SettingSize
 	// SettingStyle represents a font style such as italic or normal.
 	SettingStyle
+	// SettingTabSizeSpaces is the amount of spaces for a tab
+	SettingTabSizeSpaces
+	// SettingTabSize is the tab width.
+	SettingTabSize
 	// SettingYOffset shifts the glyph.
 	SettingYOffset
 )
@@ -133,6 +177,38 @@ const (
 func (st SettingType) String() string {
 	var settingName string
 	switch st {
+	case SettingBorderBottomWidth:
+		settingName = "SettingBorderBottomWidth"
+	case SettingBorderTopWidth:
+		settingName = "SettingBorderTopWidth"
+	case SettingBorderRightWidth:
+		settingName = "SettingBorderRightWidth"
+	case SettingBorderLeftWidth:
+		settingName = "SettingBorderLeftWidth"
+	case SettingBorderBottomColor:
+		settingName = "SettingBorderBottomColor"
+	case SettingBorderTopColor:
+		settingName = "SettingBorderTopColor"
+	case SettingBorderRightColor:
+		settingName = "SettingBorderRightColor"
+	case SettingBorderLeftColor:
+		settingName = "SettingBorderLeftColor"
+	case SettingBorderBottomStyle:
+		settingName = "SettingBorderBottomStyle"
+	case SettingBorderTopStyle:
+		settingName = "SettingBorderTopStyle"
+	case SettingBorderRightStyle:
+		settingName = "SettingBorderRightStyle"
+	case SettingBorderLeftStyle:
+		settingName = "SettingBorderLeftStyle"
+	case SettingBorderTopLeftRadius:
+		settingName = "SettingBorderTopLeftRadius"
+	case SettingBorderTopRightRadius:
+		settingName = "SettingBorderTopRightRadius"
+	case SettingBorderBottomLeftRadius:
+		settingName = "SettingBorderBottomLeftRadius"
+	case SettingBorderBottomRightRadius:
+		settingName = "SettingBorderBottomRightRadius"
 	case SettingColor:
 		settingName = "SettingColor"
 	case SettingFontFamily:
@@ -159,12 +235,24 @@ func (st SettingType) String() string {
 		settingName = "SettingMarginTop"
 	case SettingOpenTypeFeature:
 		settingName = "SettingOpenTypeFeature"
+	case SettingPaddingBottom:
+		settingName = "SettingPaddingBottom"
+	case SettingPaddingRight:
+		settingName = "SettingPaddingRight"
+	case SettingPaddingLeft:
+		settingName = "SettingPaddingLeft"
+	case SettingPaddingTop:
+		settingName = "SettingPaddingTop"
 	case SettingPreserveWhitespace:
 		settingName = "SettingPreserveWhitespace"
 	case SettingSize:
 		settingName = "SettingSize"
 	case SettingStyle:
 		settingName = "SettingStyle"
+	case SettingTabSize:
+		settingName = "SettingTabSize"
+	case SettingTabSizeSpaces:
+		settingName = "SettingTabSizeSpaces"
 	case SettingYOffset:
 		settingName = "SettingYOffset"
 	default:
@@ -293,7 +381,6 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if err != nil {
 		return nil, nil, err
 	}
-
 	Hyphenate(hlist, p.language)
 	node.AppendLineEndAfter(hlist, tail)
 
@@ -355,6 +442,8 @@ func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
 	return fontfeatures
 }
 
+// BuildNodelistFromString returns a node list containing glyphs from the string
+// with the settings in ts.
 func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
@@ -399,9 +488,17 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			fontstyle = v.(FontStyle)
 		case SettingOpenTypeFeature:
 			settingFontFeatures = parseHarfbuzzFontFeatures(v)
-		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft:
+		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft, SettingPaddingRight, SettingPaddingBottom, SettingPaddingTop, SettingPaddingLeft:
 			// ignore
-		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows:
+		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingTabSize, SettingTabSizeSpaces:
+			// ignore
+		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
+			// ignore
+		case SettingBorderBottomColor, SettingBorderLeftColor, SettingBorderRightColor, SettingBorderTopColor:
+			// ignore
+		case SettingBorderBottomStyle, SettingBorderLeftStyle, SettingBorderRightStyle, SettingBorderTopStyle:
+			// ignore
+		case SettingBorderBottomLeftRadius, SettingBorderBottomRightRadius, SettingBorderTopLeftRadius, SettingBorderTopRightRadius:
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)
@@ -482,13 +579,26 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					lastglue = g
 				case "\t":
 					// tab size...
-					for i := 0; i < 4; i++ {
-						g := node.NewRule()
-						g.Width = fnt.Space
-						head = node.InsertAfter(head, cur, g)
-						cur = g
-						lastglue = g
+					g := node.NewGlue()
+					hasTabsize := false
+					if wd, ok := ts[SettingTabSize]; ok {
+						if tabsize, ok := wd.(bag.ScaledPoint); ok && tabsize > 0 {
+							hasTabsize = true
+							g.Width = bag.ScaledPoint(tabsize)
+						}
 					}
+					if tw, ok := ts[SettingTabSizeSpaces]; ok && !hasTabsize {
+						if nspaces, ok := tw.(int); ok {
+							g.Width = bag.ScaledPoint(nspaces) * fnt.Space
+							hasTabsize = true
+						}
+					}
+					if !hasTabsize {
+						g.Width = 4 * fnt.Space
+					}
+					head = node.InsertAfter(head, cur, g)
+					cur = g
+					lastglue = g
 				case "\n":
 					head, cur = node.AppendLineEndAfter(head, cur)
 					lastglue = cur
@@ -578,6 +688,15 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				return nil, nil, err
 			}
 			if nl != nil {
+				if pr, ok := ts.Settings[SettingPaddingRight]; ok {
+					paddingRight := pr.(bag.ScaledPoint)
+					if paddingRight > 0 {
+						g := node.NewGlue()
+						g.Width = paddingRight
+						g.Attributes = node.H{"origin": "padding right"}
+						node.InsertAfter(nl, node.Tail(nl), g)
+					}
+				}
 				head = node.InsertAfter(head, tail, nl)
 				tail = node.Tail(nl)
 			}

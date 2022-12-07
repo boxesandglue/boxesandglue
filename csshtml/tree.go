@@ -18,7 +18,7 @@ var (
 	level int
 	out   io.Writer
 
-	dimen              = regexp.MustCompile(`^^[+\-]?(?:(?:0|[1-9]\d*)(?:\.\d*)?|\.\d+)(px|mm|cm|in|pt|pc|ch|em|ex|lh|rem|0)$`)
+	dimen              = regexp.MustCompile(`^^[+\-]?(?:(?:0+|[1-9]\d*)(?:\.\d*)?|\.\d+)(px|mm|cm|in|pt|pc|ch|em|ex|lh|rem|0)$`)
 	zeroDimen          = regexp.MustCompile(`^0+(px|mm|cm|in|pt|pc|ch|em|ex|lh|rem)?`)
 	style              = regexp.MustCompile(`^none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset$`)
 	colorMatcher       = regexp.MustCompile(`^rgba?\s*\(`)
