@@ -2,6 +2,7 @@ package csshtml
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"regexp"
 	"sort"
@@ -37,8 +38,10 @@ func stringValue(toks Tokenstream) string {
 		prevNegative = negative
 		negative = false
 		switch tok.Type {
-		case scanner.Ident, scanner.String:
+		case scanner.Ident:
 			ret = append(ret, tok.Value)
+		case scanner.String:
+			ret = append(ret, fmt.Sprintf("%q", tok.Value))
 		case scanner.Number, scanner.Dimension:
 			if prevNegative {
 				ret = append(ret, "-"+tok.Value)

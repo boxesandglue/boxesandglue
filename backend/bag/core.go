@@ -143,3 +143,24 @@ func MustSp(unit string) ScaledPoint {
 	}
 	return val
 }
+
+// Max returns the maximum of the two scaled points.
+func Max(a, b ScaledPoint) ScaledPoint {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// Min returns the minimum of the two scaled points.
+func Min(a, b ScaledPoint) ScaledPoint {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// MultiplyFloat returns a multiplied by f.
+func MultiplyFloat(a ScaledPoint, f float64) ScaledPoint {
+	return ScaledPoint(a.ToPT() * f * float64(Factor))
+}

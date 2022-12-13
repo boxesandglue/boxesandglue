@@ -75,6 +75,20 @@ func (t Type) String() string {
 	}
 }
 
+// VerticalAlignment sets the alignment in horizontal lists (hlist). The default
+// alignment is VAlignBaseline which means that all items in the hlist have the
+// same base line.
+type VerticalAlignment uint
+
+const (
+	// VAlignBaseline is the default alignment in hlists which has all items
+	// aligned at the base line.
+	VAlignBaseline VerticalAlignment = 0
+	// VAlignTop has all items in a hlist hanging down from the top like
+	// stalactites in a cave.
+	VAlignTop = 1
+)
+
 // H is a shortcut for map[string]any
 type H map[string]any
 
@@ -465,6 +479,7 @@ type HList struct {
 	GlueOrder GlueOrder       // The level of infinity
 	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
 	List      Node            // The list itself.
+	VAlign    VerticalAlignment
 	basenode
 }
 
@@ -932,7 +947,7 @@ func (d *StartStop) Copy() Node {
 	return n
 }
 
-// A VList is a horizontal list.
+// A VList is a vertical list.
 type VList struct {
 	basenode
 	Width    bag.ScaledPoint

@@ -501,7 +501,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			hl.Attributes = H{"origin": "line"}
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
-			if e.next != nil || !settings.OmitLastLeading {
+			if e.next != nil {
 				lineskip := NewGlue()
 				lineskip.Attributes = H{"origin": "lineskip"}
 				if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
@@ -517,7 +517,16 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	for i, j := 0, len(bps)-1; i < j; i, j = i+1, j-1 {
 		bps[i], bps[j] = bps[j], bps[i]
 	}
+	if !settings.OmitLastLeading {
+		lineskip := NewGlue()
+		lineskip.Attributes = H{"origin": "last lineskip"}
+		hl := Tail(vert).(*HList)
 
+		if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
+			lineskip.Width = settings.LineHeight - totalHeightHL
+		}
+		vert = InsertAfter(vert, hl, lineskip)
+	}
 	vl := Vpack(vert)
 	return vl, bps
 }

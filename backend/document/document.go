@@ -165,11 +165,12 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 }
 
 // outputHorizontalItems outputs a list of horizontal item and advances the
-// cursor.
+// cursor. x and y must be the start of the base line coordinate.
 func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node.HList) {
 	od := &outputDebug{
 		Name: "hlist",
 		Attributes: map[string]any{
+			"valign": hlist.VAlign,
 			"width":  hlist.Width,
 			"height": hlist.Height,
 			"depth":  hlist.Depth,
@@ -212,7 +213,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.gotoTextMode(3)
 			}
 			if oc.textmode > 2 {
-				oc.moveto(x+oc.shiftX+sumX, (y - hlist.Height))
+				yPos := y
+				if hlist.VAlign == node.VAlignTop {
+					yPos -= v.Height
+				}
+				oc.moveto(x+oc.shiftX+sumX, yPos)
 				oc.shiftX = 0
 			}
 			v.Font.Face.RegisterChar(v.Codepoint)
@@ -236,10 +241,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					fmt.Fprintf(oc.s, "%04x", curFont.SpaceChar.Codepoint)
 					curFont.Face.RegisterChar(curFont.SpaceChar.Codepoint)
 					goBackwards = curFont.SpaceChar.Advance
-				}
-				if oc.currentFont.Size != 0 {
-					oc.gotoTextMode(2)
-					fmt.Fprintf(oc.s, " %d ", -1*1000*(v.Width-goBackwards)/oc.currentFont.Size)
+
+					if oc.currentFont.Size != 0 {
+						oc.gotoTextMode(2)
+						fmt.Fprintf(oc.s, " %d ", -1*1000*(v.Width-goBackwards)/oc.currentFont.Size)
+					}
 				}
 			}
 			sumX += v.Width
@@ -259,13 +265,16 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.gotoTextMode(4)
 			posX := x + sumX
 			posY := y
+			if hlist.VAlign == node.VAlignTop {
+				posY = y - v.Height - v.Depth
+			}
 			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
 
 			if v.Pre != "" {
 				pdfinstructions = append(pdfinstructions, v.Pre)
 			}
 			if !v.Hide {
-				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, -1*(v.Height+v.Depth)))
+				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, v.Height+v.Depth))
 			}
 			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
@@ -392,13 +401,22 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		case *node.Disc:
 			// ignore
 		case *node.HList:
-			oc.outputHorizontalItems(x+sumX, y, v)
+			moveY := y
+			if hlist.VAlign == node.VAlignTop {
+				moveY = moveY - v.Height
+			}
+			oc.outputHorizontalItems(x+sumX, moveY, v)
 			sumX += v.Width
 		case *node.VList:
+			oc.gotoTextMode(4)
 			saveX := x
 			saveY := y
+			moveY := y + v.Height
+			if hlist.VAlign == node.VAlignTop {
+				moveY = y
+			}
 			x += sumX
-			oc.outputVerticalItems(x, y, v)
+			oc.outputVerticalItems(x, moveY, v)
 			sumX += v.Width
 			x = saveX
 			y = saveY
@@ -429,7 +447,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
 		switch v := vItem.(type) {
 		case *node.HList:
-			oc.outputHorizontalItems(x, y-sumV, v)
+			shiftDown := y - sumV - v.Height
+			if v.VAlign == node.VAlignTop {
+				shiftDown = y - sumV
+			}
+			oc.outputHorizontalItems(x, shiftDown, v)
 			sumV += v.Height
 			sumV += v.Depth
 			if oc.textmode < 3 {

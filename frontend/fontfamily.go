@@ -36,7 +36,6 @@ func (fe *Document) FindFontFamily(name string) *FontFamily {
 
 // LoadFace loads a font from a TrueType or OpenType collection.
 func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
-	bag.Logger.Debugf("LoadFace %s", fs)
 	if fs.face != nil {
 		return fs.face, nil
 	}

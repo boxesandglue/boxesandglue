@@ -94,6 +94,10 @@ const (
 const (
 	// SettingDummy is a no op.
 	SettingDummy SettingType = iota
+	// SettingBox signals that this text element contains items that should be arranged vertically.
+	SettingBox
+	// SettingBackgroundColor sets the background color.
+	SettingBackgroundColor
 	// SettingBorderBottomWidth sets the bottom border width.
 	SettingBorderBottomWidth
 	// SettingBorderLeftWidth sets the left border width.
@@ -128,6 +132,8 @@ const (
 	SettingBorderBottomRightRadius
 	// SettingColor sets a predefined color.
 	SettingColor
+	// SettingDebug can contain debugging information
+	SettingDebug
 	// SettingFontFamily selects a font family.
 	SettingFontFamily
 	// SettingFontWeight represents a font weight setting.
@@ -160,6 +166,8 @@ const (
 	SettingPaddingRight
 	// SettingPaddingTop is the top padding.
 	SettingPaddingTop
+	// SettingPrepend contains a node list which should be prepended to the list.
+	SettingPrepend
 	// SettingPreserveWhitespace makes a monospace paragraph with newlines.
 	SettingPreserveWhitespace
 	// SettingSize sets the font size.
@@ -177,6 +185,10 @@ const (
 func (st SettingType) String() string {
 	var settingName string
 	switch st {
+	case SettingBox:
+		settingName = "SettingBox"
+	case SettingBackgroundColor:
+		settingName = "SettingBackgroundColor"
 	case SettingBorderBottomWidth:
 		settingName = "SettingBorderBottomWidth"
 	case SettingBorderTopWidth:
@@ -211,6 +223,8 @@ func (st SettingType) String() string {
 		settingName = "SettingBorderBottomRightRadius"
 	case SettingColor:
 		settingName = "SettingColor"
+	case SettingDebug:
+		settingName = "SettingDebug"
 	case SettingFontFamily:
 		settingName = "SettingFontFamily"
 	case SettingFontWeight:
@@ -243,6 +257,8 @@ func (st SettingType) String() string {
 		settingName = "SettingPaddingLeft"
 	case SettingPaddingTop:
 		settingName = "SettingPaddingTop"
+	case SettingPrepend:
+		settingName = "SettingPrepend"
 	case SettingPreserveWhitespace:
 		settingName = "SettingPreserveWhitespace"
 	case SettingSize:
@@ -499,6 +515,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingBorderBottomStyle, SettingBorderLeftStyle, SettingBorderRightStyle, SettingBorderTopStyle:
 			// ignore
 		case SettingBorderBottomLeftRadius, SettingBorderBottomRightRadius, SettingBorderTopLeftRadius, SettingBorderTopRightRadius:
+			// ignore
+		case SettingBackgroundColor, SettingPrepend, SettingDebug:
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)
