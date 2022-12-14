@@ -18,17 +18,18 @@ const (
 
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
-	DemeritsFitness      int
-	DoublehyphenDemerits int
-	HSize                bag.ScaledPoint
-	Hyphenpenalty        int
-	Indent               bag.ScaledPoint
-	IndentRows           int
-	LineEndGlue          *Glue
-	LineHeight           bag.ScaledPoint
-	LineStartGlue        *Glue
-	OmitLastLeading      bool
-	Tolerance            float64
+	DemeritsFitness       int
+	DoublehyphenDemerits  int
+	HangingPunctuationEnd bool
+	HSize                 bag.ScaledPoint
+	Hyphenpenalty         int
+	Indent                bag.ScaledPoint
+	IndentRows            int
+	LineEndGlue           *Glue
+	LineHeight            bag.ScaledPoint
+	LineStartGlue         *Glue
+	OmitLastLeading       bool
+	Tolerance             float64
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.
@@ -324,9 +325,19 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
-			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
+			minWd := g.Width - g.Shrink
+			if shrink := bag.ScaledPoint(r * float64(g.Shrink)); shrink < minWd {
+				g.Width = minWd
+			} else {
+				g.Width = shrink
+			}
 		} else if r < -1 && highestOrderShrink == g.ShrinkOrder {
-			g.Width = bag.ScaledPoint(r * float64(g.Shrink))
+			minWd := g.Width - g.Shrink
+			if shrink := bag.ScaledPoint(r * float64(g.Shrink)); shrink < minWd {
+				g.Width = minWd
+			} else {
+				g.Width = shrink
+			}
 		}
 	}
 	hl := NewHList()

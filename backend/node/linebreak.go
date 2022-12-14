@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 )
@@ -103,7 +104,17 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 	case *Penalty:
 		desiredLineWidth += t.Width
 	case *Disc:
-		desiredLineWidth += Dimensions(t.Pre, Horizontal)
+		if !lb.settings.HangingPunctuationEnd {
+			desiredLineWidth += Dimensions(t.Pre, Horizontal)
+		}
+	case *Glue:
+		if lb.settings.HangingPunctuationEnd {
+			if p := t.Prev(); p.Type() == TypeGlyph {
+				if g := p.(*Glyph); len(g.Components) == 1 && unicode.IsPunct(rune(g.Components[0])) {
+					desiredLineWidth -= g.Width
+				}
+			}
+		}
 	}
 	// subtract left glue setting
 	maxwd := lb.settings.HSize - lb.getIndent(a.Line)
@@ -479,6 +490,16 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	var vert Node
 	bps = append(bps, lastNode)
 	for e := lastNode; e != nil; e = e.from {
+		if settings.HangingPunctuationEnd {
+			if e.Position.Type() == TypeDisc {
+				e.Position.(*Disc).Pre.(*Glyph).Width = 0
+			}
+			if glyf, ok := e.Position.Prev().(*Glyph); ok {
+				if len(glyf.Components) == 1 && unicode.IsPunct(rune(glyf.Components[0])) {
+					glyf.Width = 0
+				}
+			}
+		}
 		startPos := e.Position
 		// startPos.Prev() is nil at paragraph start
 		if startPos.Prev() != nil {

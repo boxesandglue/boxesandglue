@@ -308,12 +308,12 @@ func (d *Document) HTMLBorder(vl *node.VList, hv HTMLValues) *node.VList {
 	paddingLeftGlue, paddingRightGlue := node.NewGlue(), node.NewGlue()
 	paddingTopGlue, paddingBottomGlue := node.NewGlue(), node.NewGlue()
 	paddingLeftGlue.Attributes = node.H{"origin": "paddingLeft + borderLeft"}
-	paddingRightGlue.Attributes = node.H{"origin": "paddingRight"}
+	paddingRightGlue.Attributes = node.H{"origin": "paddingRight + borderRight"}
 	paddingTopGlue.Attributes = node.H{"origin": "html border top glue"}
 	paddingBottomGlue.Attributes = node.H{"origin": "html border bottom glue"}
 
 	paddingLeftGlue.Width = hv.PaddingLeft + hv.BorderLeftWidth
-	paddingRightGlue.Width = hv.PaddingRight + hv.BorderLeftWidth
+	paddingRightGlue.Width = hv.PaddingRight + hv.BorderRightWidth
 	paddingTopGlue.Width = hv.PaddingTop + hv.BorderTopWidth
 	paddingBottomGlue.Width = hv.PaddingBottom + hv.BorderBottomWidth
 	vl.List = node.InsertBefore(vl.List, vl.List, rbg)

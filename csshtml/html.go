@@ -11,8 +11,8 @@ import (
 // OpenHTMLFile opens an HTML file
 func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	dir, fn := filepath.Split(filename)
-	c.dirstack = append(c.dirstack, dir)
-	dirs := strings.Join(c.dirstack, "")
+	c.Dirstack = append(c.Dirstack, dir)
+	dirs := strings.Join(c.Dirstack, "")
 	r, err := os.Open(filepath.Join(dirs, fn))
 	if err != nil {
 		return nil, err

@@ -13,7 +13,7 @@ import (
 func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 	var tokens Tokenstream
 	var err error
-	c.dirstack = append(c.dirstack, "")
+	c.Dirstack = append(c.Dirstack, "")
 	tokens = ParseCSSString(css)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 			finalTokens = append(finalTokens, tok)
 		}
 	}
-	c.dirstack = c.dirstack[:len(c.dirstack)-1]
+	c.Dirstack = c.Dirstack[:len(c.Dirstack)-1]
 	return finalTokens, nil
 }
 
@@ -70,8 +70,8 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 	var tokens Tokenstream
 	var err error
 	dir, fn := filepath.Split(filename)
-	c.dirstack = append(c.dirstack, dir)
-	dirs := strings.Join(c.dirstack, "")
+	c.Dirstack = append(c.Dirstack, dir)
+	dirs := filepath.Join(c.Dirstack...)
 	tokens, err = parseCSSBody(filepath.Join(dirs, fn))
 	if err != nil {
 		return nil, err
@@ -112,11 +112,22 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 					break
 				}
 			}
+		} else if tok.Type == scanner.URI {
+			var loc string
+			if strings.HasPrefix(tok.Value, "http") {
+				loc = tok.Value
+			} else {
+				joinedStack := filepath.Join(c.Dirstack...)
+				loc = filepath.Join(joinedStack, tok.Value)
+			}
+			tok.Value = loc
+
+			finalTokens = append(finalTokens, tok)
 		} else {
 			finalTokens = append(finalTokens, tok)
 		}
 	}
-	c.dirstack = c.dirstack[:len(c.dirstack)-1]
+	c.Dirstack = c.Dirstack[:len(c.Dirstack)-1]
 	return finalTokens, nil
 }
 
@@ -136,6 +147,14 @@ func parseCSSBody(filename string) (Tokenstream, error) {
 		}
 		switch token.Type {
 		case scanner.Comment:
+			// ignore
+		case scanner.S:
+			if len(tokens) > 0 && tokens[len(tokens)-1].Type == scanner.S {
+				// ignore
+			} else {
+				tokens = append(tokens, token)
+			}
+
 		default:
 			tokens = append(tokens, token)
 		}
@@ -156,6 +175,12 @@ func ParseCSSString(contents string) Tokenstream {
 		switch token.Type {
 		case scanner.Comment:
 			// ignore
+		case scanner.S:
+			if len(tokens) > 0 && tokens[len(tokens)-1].Type == scanner.S {
+				// ignore
+			} else {
+				tokens = append(tokens, token)
+			}
 		default:
 			tokens = append(tokens, token)
 		}

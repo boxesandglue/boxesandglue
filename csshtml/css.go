@@ -31,19 +31,20 @@ type SBlock struct {
 
 // Page defines a page.
 type Page struct {
-	pagearea     map[string][]qrule
-	Attributes   []html.Attribute
-	Papersize    string
-	MarginLeft   string
-	MarginRight  string
-	MarginTop    string
-	MarginBottom string
+	PageArea      map[string]map[string]string // key value pairs for the page areas
+	Attributes    []html.Attribute
+	Papersize     string
+	MarginLeft    string
+	MarginRight   string
+	MarginTop     string
+	MarginBottom  string
+	pageareaRules map[string][]qrule
 }
 
 // CSS has all the information
 type CSS struct {
 	FrontendDocument *frontend.Document
-	dirstack         []string
+	Dirstack         []string
 	document         *goquery.Document
 	Stylesheet       []SBlock
 	Pages            map[string]Page
@@ -186,6 +187,8 @@ func ConsumeBlock(toks Tokenstream, inblock bool) SBlock {
 	}
 	start := i
 	colon := 0
+
+outer:
 	for {
 		if i == len(toks) {
 			break
@@ -205,6 +208,12 @@ func ConsumeBlock(toks Tokenstream, inblock bool) SBlock {
 				b.Rules = append(b.Rules, q)
 				colon = 0
 				start = i + 1
+				if start < len(toks) && toks[start].Type == scanner.S {
+					start++
+				}
+				if start == len(toks) {
+					break outer
+				}
 			case "{":
 				var nb SBlock
 				// l is the length of the sub block
@@ -348,10 +357,11 @@ func (c *CSS) doFontFace(ff []qrule) {
 }
 
 func (c *CSS) doPage(block *SBlock) {
-	selector := block.ComponentValues.String()
+
+	selector := strings.Trim(block.ComponentValues.String(), " ")
 	pg := c.Pages[selector]
-	if pg.pagearea == nil {
-		pg.pagearea = make(map[string][]qrule)
+	if pg.pageareaRules == nil {
+		pg.pageareaRules = make(map[string][]qrule)
 	}
 	for _, v := range block.Rules {
 		switch v.Key.String() {
@@ -364,13 +374,25 @@ func (c *CSS) doPage(block *SBlock) {
 			pg.MarginLeft = fv["left"]
 			pg.MarginRight = fv["right"]
 		default:
-			a := html.Attribute{Key: v.Key.String(), Val: stringValue(v.Value)}
+			a := html.Attribute{Key: "!" + v.Key.String(), Val: stringValue(v.Value)}
 			pg.Attributes = append(pg.Attributes, a)
 		}
 	}
 	for _, rule := range block.ChildAtRules {
-		pg.pagearea[rule.Name] = rule.Rules
+		pg.pageareaRules[rule.Name] = rule.Rules
 	}
+	if pg.PageArea == nil {
+		pg.PageArea = make(map[string]map[string]string)
+	}
+	for k, v := range pg.pageareaRules {
+		attrs := make([]html.Attribute, 0, len(v))
+		for _, r := range v {
+			attrs = append(attrs, html.Attribute{Key: "!" + r.Key.String(), Val: stringValue(r.Value)})
+		}
+		a, _ := ResolveAttributes(attrs)
+		pg.PageArea[strings.TrimPrefix(k, "@")] = a
+	}
+
 	c.Pages[selector] = pg
 }
 

@@ -225,12 +225,16 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			fmt.Fprintf(oc.s, "%04x", v.Codepoint)
 			sumX += v.Width
 		case *node.Glue:
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, &outputDebug{
+			od := &outputDebug{
 				Name: "glue",
 				Attributes: map[string]any{
 					"width": v.Width,
-				},
-			})
+				}}
+
+			if origin, ok := v.Attributes["origin"]; ok {
+				od.Attributes["origin"] = origin
+			}
+			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			if oc.textmode == 2 {
 				oc.gotoTextMode(1)
 			}

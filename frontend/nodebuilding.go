@@ -140,6 +140,10 @@ const (
 	SettingFontWeight
 	// SettingHAlign sets the horizontal alignment of the paragraph.
 	SettingHAlign
+	// SettingHangingPunctuation sets the margin protrusion.
+	SettingHangingPunctuation
+	// SettingHeight sets the height of a box if it should be vertically aligned.
+	SettingHeight
 	// SettingHyperlink defines an external hyperlink.
 	SettingHyperlink
 	// SettingIndentLeft inserts a left margin
@@ -174,10 +178,14 @@ const (
 	SettingSize
 	// SettingStyle represents a font style such as italic or normal.
 	SettingStyle
-	// SettingTabSizeSpaces is the amount of spaces for a tab
+	// SettingTabSizeSpaces is the amount of spaces for a tab.
 	SettingTabSizeSpaces
 	// SettingTabSize is the tab width.
 	SettingTabSize
+	// SettingWidth sets alternative widths for the text.
+	SettingWidth
+	// SettingVAlign sets the vertical alignment. A height should be set.
+	SettingVAlign
 	// SettingYOffset shifts the glyph.
 	SettingYOffset
 )
@@ -231,6 +239,10 @@ func (st SettingType) String() string {
 		settingName = "SettingFontWeight"
 	case SettingHAlign:
 		settingName = "SettingHAlign"
+	case SettingHangingPunctuation:
+		settingName = "SettingHangingPunctuation"
+	case SettingHeight:
+		settingName = "SettingHeight"
 	case SettingHyperlink:
 		settingName = "SettingHyperlink"
 	case SettingIndentLeft:
@@ -269,8 +281,12 @@ func (st SettingType) String() string {
 		settingName = "SettingTabSize"
 	case SettingTabSizeSpaces:
 		settingName = "SettingTabSizeSpaces"
+	case SettingVAlign:
+		settingName = "SettingVAlign"
 	case SettingYOffset:
 		settingName = "SettingYOffset"
+	case SettingWidth:
+		settingName = "SettingWidth"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -404,6 +420,11 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	ls.HSize = p.hsize
 	ls.Indent = p.indentLeft
 	ls.IndentRows = p.indentLeftRows
+	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
+		if hps, ok := hp.(HangingPunctuation); ok {
+			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
+		}
+	}
 
 	if p.leading == 0 {
 		if l, ok := te.Settings[SettingLeading]; ok {
@@ -429,6 +450,38 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		ls.LineStartGlue = lg
 	}
 	vlist, info := node.Linebreak(hlist, ls)
+
+	if htt, ok := te.Settings[SettingHeight]; ok {
+		if ht, ok := htt.(bag.ScaledPoint); ok {
+			moreHeight := ht - vlist.Height - vlist.Depth
+			topGlue := node.NewGlue()
+			bottomGlue := node.NewGlue()
+			var valign = VAlignMiddle
+			if vat, ok := te.Settings[SettingVAlign]; ok {
+				if va, ok := vat.(VerticalAlignment); ok {
+					valign = va
+				}
+			}
+			switch valign {
+			case VAlignTop:
+				bottomGlue.Width = moreHeight
+			case VAlignBottom:
+				topGlue.Width = moreHeight
+			default:
+				bottomGlue.Width = moreHeight / 2
+				topGlue.Width = moreHeight / 2
+			}
+			var head node.Node
+			if topGlue.Width != 0 {
+				head = topGlue
+			}
+			head = node.InsertAfter(head, head, vlist)
+			if bottomGlue.Width != 0 {
+				head = node.InsertAfter(head, vlist, bottomGlue)
+			}
+			vlist = node.Vpack(head)
+		}
+	}
 	return vlist, info, nil
 }
 
@@ -516,7 +569,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingBorderBottomLeftRadius, SettingBorderBottomRightRadius, SettingBorderTopLeftRadius, SettingBorderTopRightRadius:
 			// ignore
-		case SettingBackgroundColor, SettingPrepend, SettingDebug:
+		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)

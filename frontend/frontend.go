@@ -62,6 +62,16 @@ func (fe *Document) Finish() error {
 	return fe.Doc.Finish()
 }
 
+// HangingPunctuation determines if the right or the left side should have
+// hanging punctuation. Values should be or'ed together.
+type HangingPunctuation uint8
+
+const (
+	// HangingPunctuationAllowEnd allows hanging punctuation at the end of a
+	// line.
+	HangingPunctuationAllowEnd = 1
+)
+
 // HorizontalAlignment is the horizontal alignment.
 type HorizontalAlignment int
 
