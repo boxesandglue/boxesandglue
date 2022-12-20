@@ -126,7 +126,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
 			if lb.stretchFil > 0 || lb.stretchFill > 0 || lb.stretchFilll > 0 {
 				return 0
 			}
-			r = float64(maxwd-desiredLineWidth) / float64(lb.sumY-a.sumY)
+			r = float64(maxwd-desiredLineWidth) / float64(y)
 		} else {
 			r = positiveInf
 		}
@@ -233,15 +233,14 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 	}
 
 	// calculate fitness class
-	c := calculateFitnessClass(r)
-
-	// if c and active.Fitness differs by more then 1, add DemeritsFitness
-	if c > active.Fitness {
-		if c-active.Fitness > 1 {
+	fitnessClass = calculateFitnessClass(r)
+	// if fitnessClass and active.Fitness differs by more then 1, add DemeritsFitness
+	if fitnessClass > active.Fitness {
+		if fitnessClass-active.Fitness > 1 {
 			demerits += lb.settings.DemeritsFitness
 		}
 	} else {
-		if active.Fitness-c > 1 {
+		if active.Fitness-fitnessClass > 1 {
 			demerits += lb.settings.DemeritsFitness
 		}
 	}

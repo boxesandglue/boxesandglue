@@ -325,12 +325,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
-			minWd := g.Width - g.Shrink
-			if shrink := bag.ScaledPoint(r * float64(g.Shrink)); shrink < minWd {
-				g.Width = minWd
-			} else {
-				g.Width = shrink
-			}
+			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 		} else if r < -1 && highestOrderShrink == g.ShrinkOrder {
 			minWd := g.Width - g.Shrink
 			if shrink := bag.ScaledPoint(r * float64(g.Shrink)); shrink < minWd {
