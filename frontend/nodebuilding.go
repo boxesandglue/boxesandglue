@@ -134,6 +134,8 @@ const (
 	SettingColor
 	// SettingDebug can contain debugging information
 	SettingDebug
+	// SettingFontExpansion is the amount of expansion / shrinkage allowed. Value is a float between 0 (no expansion) and 1 (100% of the glyph width).
+	SettingFontExpansion
 	// SettingFontFamily selects a font family.
 	SettingFontFamily
 	// SettingFontWeight represents a font weight setting.
@@ -233,6 +235,8 @@ func (st SettingType) String() string {
 		settingName = "SettingColor"
 	case SettingDebug:
 		settingName = "SettingDebug"
+	case SettingFontExpansion:
+		settingName = "SettingFontExpansion"
 	case SettingFontFamily:
 		settingName = "SettingFontFamily"
 	case SettingFontWeight:
@@ -420,9 +424,15 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	ls.HSize = p.hsize
 	ls.Indent = p.indentLeft
 	ls.IndentRows = p.indentLeftRows
+	ls.Tolerance = 4
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
+		}
+	}
+	if fe, ok := te.Settings[SettingFontExpansion]; ok {
+		if fef, ok := fe.(float64); ok {
+			ls.FontExpansion = fef
 		}
 	}
 
@@ -553,6 +563,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingHyperlink:
 			hyperlink = v.(document.Hyperlink)
 			hasHyperlink = true
+		case SettingFontExpansion:
+			// ignore
 		case SettingStyle:
 			fontstyle = v.(FontStyle)
 		case SettingOpenTypeFeature:
@@ -570,6 +582,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingBorderBottomLeftRadius, SettingBorderBottomRightRadius, SettingBorderTopLeftRadius, SettingBorderTopRightRadius:
 			// ignore
 		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
+			// ignore
+		case SettingWidth:
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)

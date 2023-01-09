@@ -21,6 +21,7 @@ type LinebreakSettings struct {
 	DemeritsFitness       int
 	DoublehyphenDemerits  int
 	HangingPunctuationEnd bool
+	FontExpansion         float64
 	HSize                 bag.ScaledPoint
 	Hyphenpenalty         int
 	Indent                bag.ScaledPoint
@@ -149,6 +150,20 @@ func Dimensions(n Node, dir Direction) bag.ScaledPoint {
 	return sumwd
 }
 
+type hpackSetting struct {
+	fontexpansion float64
+}
+
+// HpackOption controls the packaging of the box.
+type HpackOption func(*hpackSetting)
+
+// FontExpansion sets the allowed font expansion (0-1).
+func FontExpansion(amount float64) HpackOption {
+	return func(p *hpackSetting) {
+		p.fontexpansion = amount
+	}
+}
+
 // Hpack returns a HList node with the node list as its list
 func Hpack(firstNode Node) *HList {
 	sumwd := bag.ScaledPoint(0)
@@ -221,15 +236,21 @@ func HpackTo(firstNode Node, width bag.ScaledPoint) *HList {
 
 // HpackToWithEnd returns a HList node with nl as its list. The width is the
 // desired width. The list stops at lastNode (including lastNode).
-func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList {
+func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts ...HpackOption) *HList {
+	hs := &hpackSetting{}
+	for _, opt := range opts {
+		opt(hs)
+	}
 	glues := []*Glue{}
 
 	sumwd := bag.ScaledPoint(0)
+	sumGlyph := bag.ScaledPoint(0)
 	maxht := bag.ScaledPoint(0)
 	maxdp := bag.ScaledPoint(0)
 
 	totalStretchability := [4]bag.ScaledPoint{0, 0, 0, 0}
 	totalShrinkability := [4]bag.ScaledPoint{0, 0, 0, 0}
+	totalExtend := bag.ScaledPoint(0)
 
 	for e := firstNode; e != nil; e = e.Next() {
 		switch v := e.(type) {
@@ -246,6 +267,11 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 			if v.Depth > maxdp {
 				maxdp = v.Depth
 			}
+			if hs.fontexpansion != 0 {
+				extend := bag.MultiplyFloat(v.Width, hs.fontexpansion)
+				totalExtend += extend
+			}
+			sumGlyph += v.Width
 		case *Rule:
 			sumwd += v.Width
 			if v.Height > maxht {
@@ -320,19 +346,20 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 	if highestOrderShrink > 0 || highestOrderStretch > 0 {
 		badness = 0
 	}
-
+	useExpand := false
+	if hs.fontexpansion != 0 {
+		if r < -1 {
+			r = -1
+			useExpand = true
+		}
+	}
 	for _, g := range glues {
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 		} else if r < -1 && highestOrderShrink == g.ShrinkOrder {
-			minWd := g.Width - g.Shrink
-			if shrink := bag.ScaledPoint(r * float64(g.Shrink)); shrink < minWd {
-				g.Width = minWd
-			} else {
-				g.Width = shrink
-			}
+			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 		}
 	}
 	hl := NewHList()
@@ -342,6 +369,10 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint) *HList
 	hl.Height = maxht
 	hl.GlueSet = r
 	hl.Badness = badness
+	if useExpand {
+		a := (sumwd - width - shrinkability).ToPT() / sumGlyph.ToPT()
+		hl.Attributes = H{"expand": int(-1 * a * 100)}
+	}
 	return hl
 }
 

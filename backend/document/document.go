@@ -72,6 +72,7 @@ type objectContext struct {
 	p                *Page
 	pageObjectnumber pdf.Objectnumber
 	currentFont      *font.Font
+	currentExpand    int
 	currentShift     bag.ScaledPoint
 	textmode         uint8
 	usedFaces        map[*pdf.Face]bool
@@ -151,6 +152,10 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 				fmt.Fprintf(oc.s, "/%s<</MCID %d>>BDC ", oc.tag.Role, oc.tag.ID)
 			}
 			fmt.Fprint(oc.s, "BT ")
+			if oc.currentExpand != 0 {
+				fmt.Fprint(oc.s, "100 Tz ")
+				oc.currentExpand = 0
+			}
 			oc.textmode = 3
 		}
 		if oc.textmode == 3 && newMode < oc.textmode {
@@ -204,6 +209,21 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.usedFaces[v.Font.Face] = true
 				oc.currentFont = v.Font
 			}
+			if exp, ok := hlist.Attributes["expand"]; ok {
+				if ex, ok := exp.(int); ok {
+					if ex != oc.currentExpand {
+						oc.gotoTextMode(3)
+						fmt.Fprintf(oc.s, "%d Tz ", 100+ex)
+						oc.currentExpand = ex
+					}
+				}
+			} else {
+				if oc.currentExpand != 0 {
+					oc.gotoTextMode(3)
+					fmt.Fprint(oc.s, "100 Tz ")
+					oc.currentExpand = 0
+				}
+			}
 			if v.YOffset != oc.currentShift {
 				oc.gotoTextMode(3)
 				fmt.Fprintf(oc.s, "%s Ts", v.YOffset)
@@ -223,7 +243,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			v.Font.Face.RegisterChar(v.Codepoint)
 			oc.gotoTextMode(1)
 			fmt.Fprintf(oc.s, "%04x", v.Codepoint)
-			sumX += v.Width
+			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
 			od := &outputDebug{
 				Name: "glue",
@@ -252,7 +272,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					}
 				}
 			}
-			sumX += v.Width
+			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Rule:
 			od = &outputDebug{
 				Name: "rule",

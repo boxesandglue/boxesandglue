@@ -38,6 +38,8 @@ type Breakpoint struct {
 	Fitness                               int
 	Width                                 bag.ScaledPoint
 	sumW, sumY, sumZ                      bag.ScaledPoint
+	sumExpand                             bag.ScaledPoint
+	calculatedExpand                      bag.ScaledPoint
 	stretchFil, stretchFill, stretchFilll bag.ScaledPoint
 	R                                     float64
 	Demerits                              int
@@ -58,6 +60,7 @@ type linebreaker struct {
 	inactiveNodesP   *Breakpoint
 	preva            *Breakpoint
 	sumW, sumY, sumZ bag.ScaledPoint
+	sumExpand        bag.ScaledPoint
 	stretchFil       bag.ScaledPoint
 	stretchFill      bag.ScaledPoint
 	stretchFilll     bag.ScaledPoint
@@ -97,59 +100,61 @@ sum:
 	return sumwd
 }
 
-func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) float64 {
+func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, bag.ScaledPoint) {
 	// compute the adjustment ratio r from a to n
-	desiredLineWidth := lb.sumW - a.sumW
+	thisLineWidth := lb.sumW - a.sumW
 	switch t := n.(type) {
 	case *Penalty:
-		desiredLineWidth += t.Width
+		thisLineWidth += t.Width
 	case *Disc:
 		if !lb.settings.HangingPunctuationEnd {
-			desiredLineWidth += Dimensions(t.Pre, Horizontal)
+			thisLineWidth += Dimensions(t.Pre, Horizontal)
 		}
 	case *Glue:
 		if lb.settings.HangingPunctuationEnd {
 			if p := t.Prev(); p.Type() == TypeGlyph {
 				if g := p.(*Glyph); len(g.Components) == 1 && unicode.IsPunct(rune(g.Components[0])) {
-					desiredLineWidth -= g.Width
+					thisLineWidth -= g.Width
 				}
 			}
 		}
 	}
 	// subtract left glue setting
 	maxwd := lb.settings.HSize - lb.getIndent(a.Line)
-
+	maxExpand := lb.sumExpand - a.sumExpand
 	r := 0.0
-	if desiredLineWidth < maxwd {
-		y := lb.sumY - a.sumY
+	if thisLineWidth < maxwd {
+		y := lb.sumY - a.sumY + maxExpand
 		if y > 0 {
 			if lb.stretchFil > 0 || lb.stretchFill > 0 || lb.stretchFilll > 0 {
-				return 0
+				r = 0
+			} else {
+				r = float64(maxwd-thisLineWidth) / float64(y)
 			}
-			r = float64(maxwd-desiredLineWidth) / float64(y)
 		} else {
 			r = positiveInf
 		}
-	} else if maxwd < desiredLineWidth {
-		z := lb.sumZ - a.sumZ
+	} else if maxwd < thisLineWidth {
+		z := lb.sumZ - a.sumZ + maxExpand
 		if z > 0 {
-			r = float64(maxwd-desiredLineWidth) / float64(z)
+			r = float64(maxwd-thisLineWidth) / float64(z)
 		} else {
 			r = negativeInf
 		}
 	}
 	if r == negativeInf || r == positiveInf {
-		if desiredLineWidth+getNextNodeWidth(n, maxwd) > maxwd {
-			return negativeInf
+		if thisLineWidth+getNextNodeWidth(n, maxwd) > maxwd {
+			r = negativeInf
 		}
 	}
-	return r
+	return r, maxExpand
 }
 
 // computeSum computes the sum of all glues from n
-func (lb *linebreaker) computeSum(n Node) (bag.ScaledPoint, bag.ScaledPoint, bag.ScaledPoint) {
+func (lb *linebreaker) computeSum(n Node) (bag.ScaledPoint, bag.ScaledPoint, bag.ScaledPoint, bag.ScaledPoint) {
 	// compute tw=(sum w)after(b), ty=(sum y)after(b), and tz=(sum z)after(b)
 	w, y, z := lb.sumW, lb.sumY, lb.sumZ
+	e := lb.sumExpand
 	stretchFil, stretchFill, stretchFilll := lb.stretchFil, lb.stretchFill, lb.stretchFilll
 compute:
 	for e := n; e != nil; e = e.Next() {
@@ -175,7 +180,7 @@ compute:
 			break compute
 		}
 	}
-	return w, y, z
+	return w, e, y, z
 }
 
 func (lb *linebreaker) removeActiveNode(active *Breakpoint) {
@@ -283,6 +288,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 		dc := [4]int{math.MaxInt, math.MaxInt, math.MaxInt, math.MaxInt}
 		ac := [4]*Breakpoint{}
 		rc := [4]float64{}
+		ec := [4]bag.ScaledPoint{}
 
 		// The inner loop deactivates all unreachable breakpoints and calculates
 		// demerits/dmin.
@@ -292,7 +298,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 			// For each active breakpoint check if the breakpoint is still
 			// active (= reachable from the current position backward). If not,
 			// remove them from the current list of active nodes.
-			r := lb.computeAdjustmentRatio(n, active)
+			r, sumExpand := lb.computeAdjustmentRatio(n, active)
 
 			if p, ok := n.(*Penalty); r < -1 || ok && p.Penalty == -10000 {
 				// If line is too wide or a forced break, we can remove the node
@@ -317,6 +323,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 					dc[c] = demerits
 					ac[c] = active
 					rc[c] = r
+					ec[c] = sumExpand
 					if demerits < dmin {
 						dmin = demerits
 					}
@@ -336,10 +343,10 @@ func (lb *linebreaker) mainLoop(n Node) {
 			}
 		}
 		if dmin < math.MaxInt {
-			lb.appendBreakpointHere(n, dmin, dc, ac, rc, active)
+			lb.appendBreakpointHere(n, dmin, dc, ac, rc, ec, active)
 		}
 		if dmin == math.MaxInt && lb.activeNodesA == nil {
-			W, Y, Z := lb.computeSum(n)
+			W, E, Y, Z := lb.computeSum(n)
 			lastInactive := lb.inactiveNodesP
 			width := lb.sumW
 			var pre Node
@@ -352,27 +359,29 @@ func (lb *linebreaker) mainLoop(n Node) {
 			}
 
 			bp := &Breakpoint{
-				id:       <-breakpointIDs,
-				Position: n,
-				Pre:      pre,
-				Line:     lastInactive.Line + 1,
-				from:     lastInactive,
-				next:     active,
-				Fitness:  3,
-				Width:    lb.sumW - lastInactive.sumW,
-				sumW:     W,
-				sumY:     Y,
-				sumZ:     Z,
-				R:        0,
-				Demerits: lastInactive.Demerits + 1000,
+				id:               <-breakpointIDs,
+				Position:         n,
+				Pre:              pre,
+				Line:             lastInactive.Line + 1,
+				from:             lastInactive,
+				next:             active,
+				Fitness:          3,
+				Width:            lb.sumW - lastInactive.sumW,
+				sumW:             W,
+				sumExpand:        E,
+				sumY:             Y,
+				sumZ:             Z,
+				calculatedExpand: lb.sumExpand - lastInactive.sumExpand,
+				R:                0,
+				Demerits:         lastInactive.Demerits + 1000,
 			}
 			lb.appendNewBreakpoint(bp)
 		}
 	}
 }
 
-func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*Breakpoint, rc [4]float64, active *Breakpoint) {
-	W, Y, Z := lb.computeSum(n)
+func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*Breakpoint, rc [4]float64, ec [4]bag.ScaledPoint, active *Breakpoint) {
+	W, E, Y, Z := lb.computeSum(n)
 
 	width := lb.sumW
 	var pre Node
@@ -387,19 +396,21 @@ func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*
 	for c := 0; c < 4; c++ {
 		if dc[c] <= dmin+lb.settings.DemeritsFitness {
 			bp := &Breakpoint{
-				id:       <-breakpointIDs,
-				Position: n,
-				Pre:      pre,
-				Line:     ac[c].Line + 1,
-				from:     ac[c],
-				next:     active,
-				Fitness:  c,
-				Width:    width - ac[c].Width,
-				sumW:     W,
-				sumY:     Y,
-				sumZ:     Z,
-				R:        rc[c],
-				Demerits: dc[c],
+				id:               <-breakpointIDs,
+				Position:         n,
+				Pre:              pre,
+				Line:             ac[c].Line + 1,
+				from:             ac[c],
+				next:             active,
+				Fitness:          c,
+				Width:            width - ac[c].Width,
+				sumW:             W,
+				sumExpand:        E,
+				sumY:             Y,
+				sumZ:             Z,
+				calculatedExpand: ec[c],
+				R:                rc[c],
+				Demerits:         dc[c],
 			}
 			lb.appendNewBreakpoint(bp)
 		}
@@ -448,7 +459,6 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			default:
 				lb.sumY += t.Stretch
 			}
-
 			prevItemBox = false
 		case *Penalty:
 			prevItemBox = false
@@ -458,6 +468,13 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		case *Disc:
 			prevItemBox = false
 			lb.mainLoop(t)
+		case *Glyph:
+			prevItemBox = true
+			lb.sumW += t.Width
+			if lb.settings.FontExpansion != 0 {
+				extend := bag.MultiplyFloat(t.Width, settings.FontExpansion)
+				lb.sumExpand += extend
+			}
 		default:
 			prevItemBox = true
 			wd := getWidth(e, Horizontal)
@@ -516,9 +533,12 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			leftskip := settings.LineStartGlue.Copy().(*Glue)
 			leftskip.Width += lb.getIndent(e.Line)
 			startPos = InsertBefore(startPos, startPos, leftskip)
-
-			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize)
-			hl.Attributes = H{"origin": "line"}
+			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize, FontExpansion(lb.settings.FontExpansion))
+			if hl.Attributes == nil {
+				hl.Attributes = H{"origin": "line"}
+			} else {
+				hl.Attributes["origin"] = "line"
+			}
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {
