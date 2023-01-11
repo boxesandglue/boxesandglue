@@ -274,61 +274,85 @@ func (d *Document) HTMLBorder(vl *node.VList, hv HTMLValues) *node.VList {
 	ybg3 := ybg0 - height - hv.PaddingTop - hv.BorderTopWidth - hv.PaddingBottom - hv.BorderBottomWidth
 	ybg2 := ybg3 + maxTrapezoidThickness
 
-	inner, outer := getBorderPaths(x0, y0, x1, y1, x2, y2, x3, y3, hv)
-	inner.Clip().Endpath()
-	// for debugging:
-	// inner.Stroke().Endpath()
+	if hv.BackgroundColor != nil && hv.BackgroundColor.Space != color.ColorNone {
+		// this is the rule node for the background
+		rbg := node.NewRule()
+		rbg.Hide = true
+		var innerBG *pdfdraw.Object
+		innerBG, _ = getBorderPaths(xbg0, ybg0, xbg1, ybg1, xbg2, ybg2, xbg3, ybg3, hv)
+		innerBG.Clip().Endpath()
+		innerBG.ColorNonstroking(*hv.BackgroundColor).Rect(xbg0, ybg3, xbg3-xbg0, ybg0-ybg3).Fill()
+		rbg.Pre = "q " + innerBG.String() + " Q"
+		rbg.Attributes = node.H{"origin": "html background color"}
+		vl.List = node.InsertBefore(vl.List, vl.List, rbg)
+	}
 
-	// Draw the four trapezoids
-	inner.ColorNonstroking(*hv.BorderTopColor).Moveto(x0, y0).Lineto(x1, y1).Lineto(x2, y1).Lineto(x3, y0).Close().Fill()
-	inner.ColorNonstroking(*hv.BorderLeftColor).Moveto(x0, y3).Lineto(x1, y2).Lineto(x1, y1).Lineto(x0, y0).Close().Fill()
-	inner.ColorNonstroking(*hv.BorderBottomColor).Moveto(x0, y3).Lineto(x3, y3).Lineto(x2, y2).Lineto(x1, y2).Close().Fill()
-	inner.ColorNonstroking(*hv.BorderRightColor).Moveto(x2, y2).Lineto(x3, y3).Lineto(x3, y0).Lineto(x2, y1).Close().Fill()
+	lgWd := hv.PaddingLeft + hv.BorderLeftWidth
+	rgWd := hv.PaddingRight + hv.BorderRightWidth
+	tgWd := hv.PaddingTop + hv.BorderTopWidth
+	bgWd := hv.PaddingBottom + hv.BorderBottomWidth
 
-	// this is the border rule node
-	r := node.NewRule()
-	r.Hide = true
+	if lgWd == 0 && rgWd == 0 && tgWd == 0 && bgWd == 0 {
+		return vl
+	}
+
+	var head, tail node.Node
+	head = vl
+	tail = vl
+	if lgWd != 0 {
+		paddingLeftGlue := node.NewGlue()
+		paddingLeftGlue.Width = lgWd
+		paddingLeftGlue.Attributes = node.H{"origin": "paddingLeft + borderLeft"}
+		head = node.InsertBefore(head, vl, paddingLeftGlue)
+		tail = vl
+	}
+	if rgWd != 0 {
+		paddingRightGlue := node.NewGlue()
+		paddingRightGlue.Attributes = node.H{"origin": "paddingRight + borderRight"}
+		paddingRightGlue.Width = rgWd
+		head = node.InsertAfter(head, tail, paddingRightGlue)
+		tail = paddingRightGlue
+	}
+
 	if hv.hasBorder() {
-		r.Pre = "q " + outer.String() + " " + inner.String() + " Q"
-	}
+		// this is the border rule node
+		r := node.NewRule()
+		r.Attributes = node.H{"origin": "html border + clipping"}
+		r.Hide = true
 
-	// this is the rule node for the background
-	rbg := node.NewRule()
-	rbg.Hide = true
-	if hv.BackgroundColor != nil {
-		inner, _ = getBorderPaths(xbg0, ybg0, xbg1, ybg1, xbg2, ybg2, xbg3, ybg3, hv)
+		inner, outer := getBorderPaths(x0, y0, x1, y1, x2, y2, x3, y3, hv)
 		inner.Clip().Endpath()
-		// inners.Stroke().Endpath()
-		inner.ColorNonstroking(*hv.BackgroundColor).Rect(xbg0, ybg3, xbg3-xbg0, ybg0-ybg3).Fill()
-		if hv.BackgroundColor != nil {
-			rbg.Pre = "q " + inner.String() + " Q"
-		}
+		// for debugging:
+		// inner.Stroke().Endpath()
+
+		// Draw the four trapezoids
+		inner.ColorNonstroking(*hv.BorderTopColor).Moveto(x0, y0).Lineto(x1, y1).Lineto(x2, y1).Lineto(x3, y0).Close().Fill()
+		inner.ColorNonstroking(*hv.BorderLeftColor).Moveto(x0, y3).Lineto(x1, y2).Lineto(x1, y1).Lineto(x0, y0).Close().Fill()
+		inner.ColorNonstroking(*hv.BorderBottomColor).Moveto(x0, y3).Lineto(x3, y3).Lineto(x2, y2).Lineto(x1, y2).Close().Fill()
+		inner.ColorNonstroking(*hv.BorderRightColor).Moveto(x2, y2).Lineto(x3, y3).Lineto(x3, y0).Lineto(x2, y1).Close().Fill()
+
+		r.Pre = "q " + outer.String() + " " + inner.String() + " Q"
+		head = node.InsertAfter(head, tail, r)
 	}
 
-	paddingLeftGlue, paddingRightGlue := node.NewGlue(), node.NewGlue()
-	paddingTopGlue, paddingBottomGlue := node.NewGlue(), node.NewGlue()
-	paddingLeftGlue.Attributes = node.H{"origin": "paddingLeft + borderLeft"}
-	paddingRightGlue.Attributes = node.H{"origin": "paddingRight + borderRight"}
-	paddingTopGlue.Attributes = node.H{"origin": "html border top glue"}
-	paddingBottomGlue.Attributes = node.H{"origin": "html border bottom glue"}
-
-	paddingLeftGlue.Width = hv.PaddingLeft + hv.BorderLeftWidth
-	paddingRightGlue.Width = hv.PaddingRight + hv.BorderRightWidth
-	paddingTopGlue.Width = hv.PaddingTop + hv.BorderTopWidth
-	paddingBottomGlue.Width = hv.PaddingBottom + hv.BorderBottomWidth
-	vl.List = node.InsertBefore(vl.List, vl.List, rbg)
-
-	var head node.Node
-	head = node.InsertAfter(head, paddingLeftGlue, vl)
-	head = node.InsertAfter(head, vl, paddingRightGlue)
-	head = node.InsertAfter(head, paddingRightGlue, r)
 	hl := node.Hpack(head)
 	hl.Attributes = node.H{"origin": "hpack padding"}
+	head = hl
+	tail = hl
+	if tgWd != 0 {
+		paddingTopGlue := node.NewGlue()
+		paddingTopGlue.Width = tgWd
+		paddingTopGlue.Attributes = node.H{"origin": "html border top glue"}
+		head = node.InsertBefore(head, hl, paddingTopGlue)
+	}
+	if bgWd != 0 {
+		paddingBottomGlue := node.NewGlue()
+		paddingBottomGlue.Width = bgWd
+		paddingBottomGlue.Attributes = node.H{"origin": "html border bottom glue"}
+		head = node.InsertAfter(head, tail, paddingBottomGlue)
+	}
 
-	node.InsertAfter(paddingTopGlue, paddingTopGlue, hl)
-	node.InsertAfter(paddingTopGlue, hl, paddingBottomGlue)
-
-	vl = node.Vpack(paddingTopGlue)
+	vl = node.Vpack(head)
 	vl.Attributes = node.H{"origin": "vpack padding"}
 
 	return vl
