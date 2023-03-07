@@ -413,7 +413,27 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if p.fontfamily != nil {
 		te.Settings[SettingFontFamily] = p.fontfamily
 	}
-	hlist, tail, err := fe.Mknodes(te)
+	if len(te.Items) > 0 {
+		if tbl, ok := te.Items[0].(*Table); ok {
+			if sWd, ok := te.Settings[SettingWidth]; ok {
+				if wd, ok := sWd.(string); ok {
+					if wd == "100%" {
+						tbl.Stretch = true
+					}
+				}
+			}
+			tbl.MaxWidth = hsize
+			vls, err := fe.BuildTable(tbl)
+			if err != nil {
+				return nil, nil, err
+			}
+			vl := vls[0]
+			return vl, nil, nil
+		}
+	}
+	var hlist, tail node.Node
+	var err error
+	hlist, tail, err = fe.Mknodes(te)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -583,7 +603,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
 			// ignore
-		case SettingWidth:
+		case SettingWidth, SettingBox:
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)
@@ -825,6 +845,11 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 		case node.Node:
 			head = node.InsertAfter(head, tail, t)
 			tail = t
+		case *Table:
+			s := node.NewStartStop()
+			s.Attributes = node.H{"table": t}
+			head = node.InsertAfter(head, tail, s)
+			tail = s
 		default:
 			bag.Logger.DPanicf("Mknodes: unknown item type %T", t)
 		}

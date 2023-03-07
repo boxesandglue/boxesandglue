@@ -34,6 +34,12 @@ func (fe *Document) FindFontFamily(name string) *FontFamily {
 	return fe.FontFamilies[name]
 }
 
+// DefineFontFamilyAlias defines the font family with the new name.
+func (fe *Document) DefineFontFamilyAlias(ff *FontFamily, alias string) {
+	bag.Logger.Infof("Define font family alias %q", alias)
+	fe.FontFamilies[alias] = ff
+}
+
 // LoadFace loads a font from a TrueType or OpenType collection.
 func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	if fs.face != nil {

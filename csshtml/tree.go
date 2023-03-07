@@ -252,6 +252,7 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 			for _, loc := range toprightbottomleft {
 				resolved["border-"+loc+"-color"] = values[loc]
 			}
+			resolved[key] = attr.Val
 		case "border-style":
 			values := getFourValues(attr.Val)
 			for _, loc := range toprightbottomleft {
@@ -262,6 +263,7 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 			for _, loc := range toprightbottomleft {
 				resolved["border-"+loc+"-width"] = values[loc]
 			}
+			resolved[key] = attr.Val
 		case "font":
 			fontstyle := "normal"
 			fontweight := "normal"
@@ -366,7 +368,7 @@ func (c *CSS) ApplyCSS() (*goquery.Selection, error) {
 		}
 	}
 	c.document.Each(resolveStyle)
-
+	c.processAtRules()
 	return c.document.Find(":root"), nil
 }
 
@@ -474,26 +476,4 @@ func PapersizeWdHt(typ string) (string, string) {
 		return width, height
 	}
 	return height, width
-}
-
-// ReadHTMLChunk reads the HTML text.
-func (c *CSS) ReadHTMLChunk(htmltext string) error {
-	var err error
-	r := strings.NewReader(htmltext)
-	c.document, err = goquery.NewDocumentFromReader(r)
-	if err != nil {
-		return err
-	}
-	var errcond error
-	c.document.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
-		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile)
-			if err != nil {
-				errcond = err
-			}
-			parsedStyles := ConsumeBlock(block, false)
-			c.Stylesheet = append(c.Stylesheet, parsedStyles)
-		}
-	})
-	return errcond
 }

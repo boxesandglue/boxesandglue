@@ -56,6 +56,93 @@ func (hv HTMLValues) hasBorder() bool {
 		hv.BorderRightWidth > 0 && hv.BorderRightStyle != BorderStyleNone
 }
 
+func (d *Document) SettingsToValues(s TypesettingSettings) HTMLValues {
+	hv := HTMLValues{}
+	if c, ok := s[SettingBackgroundColor]; ok {
+		hv.BackgroundColor = c.(*color.Color)
+	}
+	if bw, ok := s[SettingBorderTopWidth]; ok {
+		hv.BorderTopWidth = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderBottomWidth]; ok {
+		hv.BorderBottomWidth = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderLeftWidth]; ok {
+		hv.BorderLeftWidth = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderRightWidth]; ok {
+		hv.BorderRightWidth = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderTopLeftRadius]; ok {
+		hv.BorderTopLeftRadius = bw.(bag.ScaledPoint)
+	}
+	if wd, ok := s[SettingMarginTop]; ok {
+		hv.MarginTop = wd.(bag.ScaledPoint)
+	}
+	if wd, ok := s[SettingMarginBottom]; ok {
+		hv.MarginBottom = wd.(bag.ScaledPoint)
+	}
+	if wd, ok := s[SettingMarginLeft]; ok {
+		hv.MarginLeft = wd.(bag.ScaledPoint)
+	}
+	if wd, ok := s[SettingMarginRight]; ok {
+		hv.MarginRight = wd.(bag.ScaledPoint)
+	}
+	if wd, ok := s[SettingPaddingTop]; ok {
+		hv.PaddingTop = wd.(bag.ScaledPoint)
+		delete(s, SettingPaddingTop)
+	}
+	if wd, ok := s[SettingPaddingBottom]; ok {
+		hv.PaddingBottom = wd.(bag.ScaledPoint)
+		delete(s, SettingPaddingBottom)
+	}
+	if wd, ok := s[SettingPaddingLeft]; ok {
+		hv.PaddingLeft = wd.(bag.ScaledPoint)
+		delete(s, SettingPaddingLeft)
+	}
+	if wd, ok := s[SettingPaddingRight]; ok {
+		hv.PaddingRight = wd.(bag.ScaledPoint)
+		delete(s, SettingPaddingRight)
+	}
+	if bw, ok := s[SettingBorderTopLeftRadius]; ok {
+		hv.BorderTopLeftRadius = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderTopRightRadius]; ok {
+		hv.BorderTopRightRadius = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderBottomLeftRadius]; ok {
+		hv.BorderBottomLeftRadius = bw.(bag.ScaledPoint)
+	}
+	if bw, ok := s[SettingBorderBottomRightRadius]; ok {
+		hv.BorderBottomRightRadius = bw.(bag.ScaledPoint)
+	}
+	if col, ok := s[SettingBorderRightColor]; ok {
+		hv.BorderRightColor = col.(*color.Color)
+	}
+	if col, ok := s[SettingBorderLeftColor]; ok {
+		hv.BorderLeftColor = col.(*color.Color)
+	}
+	if col, ok := s[SettingBorderTopColor]; ok {
+		hv.BorderTopColor = col.(*color.Color)
+	}
+	if col, ok := s[SettingBorderBottomColor]; ok {
+		hv.BorderBottomColor = col.(*color.Color)
+	}
+	if sty, ok := s[SettingBorderRightStyle]; ok {
+		hv.BorderRightStyle = sty.(BorderStyle)
+	}
+	if sty, ok := s[SettingBorderLeftStyle]; ok {
+		hv.BorderLeftStyle = sty.(BorderStyle)
+	}
+	if sty, ok := s[SettingBorderTopStyle]; ok {
+		hv.BorderTopStyle = sty.(BorderStyle)
+	}
+	if sty, ok := s[SettingBorderBottomStyle]; ok {
+		hv.BorderBottomStyle = sty.(BorderStyle)
+	}
+	return hv
+}
+
 // CSSPropertiesToValues converts CSS values to the HTMLValues struct.
 func (d *Document) CSSPropertiesToValues(p HTMLProperties) HTMLValues {
 	hv := HTMLValues{}
@@ -261,7 +348,6 @@ func (d *Document) HTMLBorder(vl *node.VList, hv HTMLValues) *node.VList {
 	y1 := y0 - maxTrapezoidThickness - hv.BorderTopWidth
 	y3 := bag.ScaledPoint(0) - hv.PaddingBottom - hv.BorderBottomWidth - vl.Depth
 	y2 := y3 + maxTrapezoidThickness + hv.BorderBottomWidth
-
 	// for the background, we need x-coordinates looking from the left border
 	// and y-coordinates from top to bottom
 	xbg0 := 0 - hv.BorderLeftWidth - hv.PaddingLeft

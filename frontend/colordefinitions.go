@@ -5,6 +5,9 @@ import "github.com/speedata/boxesandglue/backend/color"
 var (
 	csscolors = map[string]*color.Color{
 		"-":                       {Space: color.ColorNone},
+		"magenta":                 {Space: color.ColorCMYK, M: 1},
+		"cyan":                    {Space: color.ColorCMYK, C: 1},
+		"yellow":                  {Space: color.ColorCMYK, Y: 1},
 		"aliceblue":               {Space: color.ColorRGB, R: 0.941, G: 0.973, B: 1, A: 1},
 		"antiquewhite":            {Space: color.ColorRGB, R: 0.98, G: 0.922, B: 0.843, A: 1},
 		"aqua":                    {Space: color.ColorRGB, R: 0, G: 1, B: 1, A: 1},
@@ -149,7 +152,6 @@ var (
 		"wheat":                   {Space: color.ColorRGB, R: 0.961, G: 0.871, B: 0.702, A: 1},
 		"white":                   {Space: color.ColorGray, R: 0, G: 1, B: 0, A: 1},
 		"whitesmoke":              {Space: color.ColorRGB, R: 0.961, G: 0.961, B: 0.961, A: 1},
-		"yellow":                  {Space: color.ColorRGB, R: 1, G: 1, B: 0, A: 1},
 		"yellowgreen":             {Space: color.ColorRGB, R: 0.604, G: 0.804, B: 0.196, A: 1},
 		"pantone black 1":         {Space: color.ColorSpotcolor, Basecolor: "pantone black 1", C: 0, M: 0.13, Y: 0.49, K: 0.98, A: 1},
 		"pantone black 2":         {Space: color.ColorSpotcolor, Basecolor: "pantone black 2", C: 0, M: 0.03, Y: 0.55, K: 0.87, A: 1},

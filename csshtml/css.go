@@ -357,7 +357,6 @@ func (c *CSS) doFontFace(ff []qrule) {
 }
 
 func (c *CSS) doPage(block *SBlock) {
-
 	selector := strings.Trim(block.ComponentValues.String(), " ")
 	pg := c.Pages[selector]
 	if pg.pageareaRules == nil {
@@ -426,27 +425,4 @@ func NewCSSParserWithDefaults() *CSS {
 	c := &CSS{}
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
 	return c
-}
-
-// AddCSSText parses CSS text and saves the rules for later.
-func (c *CSS) AddCSSText(fragment string) error {
-	toks, err := c.ParseCSSString(fragment)
-	if err != nil {
-		return err
-	}
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(toks, false))
-	c.processAtRules()
-	return nil
-}
-
-// ParseHTMLFragment takes the HTML text and the CSS text and goquery selection.
-func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*goquery.Selection, error) {
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(csstext), false))
-	err := c.ReadHTMLChunk(htmltext)
-	if err != nil {
-		return nil, err
-	}
-	c.processAtRules()
-	return c.ApplyCSS()
 }

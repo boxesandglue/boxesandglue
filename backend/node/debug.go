@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"sort"
 )
 
 // Debug shows node list debug output
@@ -43,10 +44,15 @@ func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv
 			Value: fmt.Sprint(attr.value),
 		})
 	}
-	for k, v := range extraAttributes {
+	keys := make([]string, len(extraAttributes))
+	for k := range extraAttributes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
 		start.Attr = append(start.Attr, xml.Attr{
 			Name:  xml.Name{Local: k},
-			Value: fmt.Sprint(fmt.Sprintf("%v", v)),
+			Value: fmt.Sprint(fmt.Sprintf("%v", extraAttributes[k])),
 		})
 	}
 	return enc.EncodeToken(*start)

@@ -111,7 +111,7 @@ func InsertBefore(head, cur, insert Node) Node {
 // Tail returns the last node of a node list.
 func Tail(nl Node) Node {
 	if nl == nil {
-		return nl
+		return nil
 	}
 	if nl.Next() == nil {
 		return nl

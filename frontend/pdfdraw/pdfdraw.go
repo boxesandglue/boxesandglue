@@ -157,6 +157,12 @@ func (pd *Object) Stroke() *Object {
 	return pd
 }
 
+// StrokeFill paints the current object and fills it
+func (pd *Object) StrokeFill() *Object {
+	pd.pdfstring = append(pd.pdfstring, "B")
+	return pd
+}
+
 // LineWidth sets the line width.
 func (pd *Object) LineWidth(wd bag.ScaledPoint) *Object {
 	pd.pdfstring = append(pd.pdfstring, fmt.Sprintf("%s w", wd))

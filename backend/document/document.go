@@ -417,8 +417,10 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.shiftX = 0
 			}
 
-			oc.gotoTextMode(2)
-			fmt.Fprintf(oc.s, " %d ", -1000*v.Kern/oc.currentFont.Size)
+			if oc.currentFont != nil {
+				oc.gotoTextMode(2)
+				fmt.Fprintf(oc.s, " %d ", -1000*v.Kern/oc.currentFont.Size)
+			}
 			sumX += v.Kern
 		case *node.Lang, *node.Penalty:
 			// ignore
@@ -543,6 +545,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
 			fmt.Fprintf(oc.s, strings.Join(pdfinstructions, " "))
+		case *node.StartStop:
+			// ignore for now
 		case *node.VList:
 			oc.outputVerticalItems(x, y-sumV, v)
 			sumV += v.Height + v.Depth
