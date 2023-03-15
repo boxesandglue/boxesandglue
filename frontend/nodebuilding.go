@@ -434,9 +434,18 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	var hlist, tail node.Node
 	var err error
 	hlist, tail, err = fe.Mknodes(te)
+	if hlist == nil {
+		return node.NewVList(), nil, nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// A single start stop node (like a PDF dest)
+	if _, ok := hlist.(*node.StartStop); ok && hlist.Next() == nil {
+		return node.Vpack(hlist), nil, nil
+	}
+
 	Hyphenate(hlist, p.language)
 	node.AppendLineEndAfter(hlist, tail)
 
@@ -711,6 +720,21 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					panic("unhandled whitespace type")
 				}
 			} else {
+				if r.Components == "\n" {
+					p1 := node.NewPenalty()
+					p1.Penalty = 10000
+					g := node.NewGlue()
+					g.Stretch = bag.Factor
+					g.StretchOrder = node.StretchFill
+					p2 := node.NewPenalty()
+					p2.Penalty = -10000
+					head = node.InsertAfter(head, cur, p1)
+					head = node.InsertAfter(head, p1, g)
+					head = node.InsertAfter(head, g, p2)
+					cur = p2
+					lastglue = g
+				}
+
 				if lastglue == nil {
 					g := node.NewGlue()
 					g.Width = fnt.Space

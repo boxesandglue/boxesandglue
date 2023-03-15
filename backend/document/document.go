@@ -36,10 +36,10 @@ type Object struct {
 
 // A Hyperlink represents a clickable thing in the PDF.
 type Hyperlink struct {
-	URI         string
-	Annotations []pdf.Annotation
-	startposX   bag.ScaledPoint
-	startposY   bag.ScaledPoint
+	URI       string
+	Local     string
+	startposX bag.ScaledPoint
+	startposY bag.ScaledPoint
 }
 
 // A Page struct represents a page in a PDF file.
@@ -317,8 +317,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 
 			scaleX := hlist.Width.ToPT() / ifile.ScaleX
 			scaleY := hlist.Height.ToPT() / ifile.ScaleY
-			ht := hlist.Height
-			posy := y - ht
+			posy := y
 			posx := x + sumX
 			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
 		case *node.StartStop:
@@ -344,14 +343,20 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					hyperlink.startposX = posX
 					hyperlink.startposY = posY
 				} else {
-					rectHT := posY - hyperlink.startposY - hlist.Height - hlist.Depth
+					rectHT := posY - hyperlink.startposY + hlist.Height + hlist.Depth
 					rectWD := posX - hyperlink.startposX
 					a := pdf.Annotation{
 						Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
-						Subtype:    "Link",
-						URI:        hyperlink.URI,
 						ShowBorder: oc.p.document.ShowHyperlinks,
+						Subtype:    "Link",
 					}
+
+					if hyperlink.Local != "" {
+						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.StringToPDF(hyperlink.Local))
+					} else if hyperlink.URI != "" {
+						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.StringToPDF(hyperlink.URI))
+					}
+
 					oc.p.Annotations = append(oc.p.Annotations, a)
 					if oc.p.document.IsTrace(VTraceHyperlinks) {
 						oc.gotoTextMode(3)
@@ -361,15 +366,29 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			} else if action == node.ActionDest {
 				// dest should be in the top left corner of the current position
 				y := posY + hlist.Height + hlist.Depth
-				destnum := int(v.Value.(int))
-				d := &pdf.Dest{
-					Num:              destnum,
-					X:                posX.ToPT(),
-					Y:                y.ToPT(),
-					PageObjectnumber: oc.pageObjectnumber,
+				var destname string
+				switch t := v.Value.(type) {
+				case int:
+					destnum := t
+					d := &pdf.NumDest{
+						Num:              destnum,
+						X:                posX.ToPT(),
+						Y:                y.ToPT(),
+						PageObjectnumber: oc.pageObjectnumber,
+					}
+					destname = fmt.Sprintf("%d", destnum)
+					oc.p.document.PDFWriter.NumDestinations[destnum] = d
+				case string:
+					d := &pdf.NameDest{
+						Name:             pdf.String(t),
+						X:                posX.ToPT(),
+						Y:                y.ToPT(),
+						PageObjectnumber: oc.pageObjectnumber,
+					}
+					destname = t
+					oc.p.document.PDFWriter.NameDestinations[t] = d
 				}
 
-				oc.p.document.PDFWriter.Destinations[destnum] = d
 				if oc.p.document.IsTrace(VTraceDest) {
 					oc.gotoTextMode(4)
 					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
@@ -377,6 +396,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
 					fmt.Fprint(oc.s, circ)
 					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
+					oc.debugAt(posX, y, destname)
+					// oc.gotoTextMode(4)
 				}
 			} else if action == node.ActionNone {
 				// ignore
@@ -546,7 +567,106 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
 			fmt.Fprintf(oc.s, strings.Join(pdfinstructions, " "))
 		case *node.StartStop:
-			// ignore for now
+			posX := x
+			posY := y
+
+			isStartNode := true
+			action := v.Action
+
+			var startNode *node.StartStop
+			if v.StartNode != nil {
+				// a stop node which has a link to a start node
+				isStartNode = false
+				startNode = v.StartNode
+				action = startNode.Action
+			} else {
+				startNode = v
+			}
+
+			if action == node.ActionHyperlink {
+				hyperlink := startNode.Value.(*Hyperlink)
+				if isStartNode {
+					hyperlink.startposX = posX
+					hyperlink.startposY = posY
+				} else {
+					rectHT := posY - hyperlink.startposY + vlist.Height + vlist.Depth
+					rectWD := posX - hyperlink.startposX
+					a := pdf.Annotation{
+						Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
+						ShowBorder: oc.p.document.ShowHyperlinks,
+						Subtype:    "Link",
+					}
+
+					if hyperlink.Local != "" {
+						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.StringToPDF(hyperlink.Local))
+					} else if hyperlink.URI != "" {
+						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.StringToPDF(hyperlink.URI))
+					}
+
+					oc.p.Annotations = append(oc.p.Annotations, a)
+					if oc.p.document.IsTrace(VTraceHyperlinks) {
+						oc.gotoTextMode(3)
+						fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
+					}
+				}
+			} else if action == node.ActionDest {
+				// dest should be in the top left corner of the current position
+				y := posY + vlist.Height + vlist.Depth
+				var destname string // for debugging only
+				switch t := v.Value.(type) {
+				case int:
+					destnum := t
+					d := &pdf.NumDest{
+						Num:              destnum,
+						X:                posX.ToPT(),
+						Y:                y.ToPT(),
+						PageObjectnumber: oc.pageObjectnumber,
+					}
+					destname = fmt.Sprintf("%d", destnum)
+					oc.p.document.PDFWriter.NumDestinations[destnum] = d
+				case string:
+					d := &pdf.NameDest{
+						Name:             pdf.String(t),
+						X:                posX.ToPT(),
+						Y:                y.ToPT(),
+						PageObjectnumber: oc.pageObjectnumber,
+					}
+					destname = t
+					oc.p.document.PDFWriter.NameDestinations[t] = d
+				}
+
+				if oc.p.document.IsTrace(VTraceDest) {
+					oc.gotoTextMode(4)
+					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
+					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
+					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
+					fmt.Fprint(oc.s, circ)
+					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
+					oc.debugAt(posX, y, destname)
+				}
+			} else if action == node.ActionNone {
+				// ignore
+			} else {
+				bag.Logger.Warnf("start/stop node: unhandled action %s", action)
+			}
+			switch v.Position {
+			case node.PDFOutputPage:
+				oc.gotoTextMode(4)
+			case node.PDFOutputDirect:
+				oc.gotoTextMode(3)
+			case node.PDFOutputHere:
+				oc.gotoTextMode(4)
+				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+			case node.PDFOutputLowerLeft:
+				oc.gotoTextMode(4)
+			}
+			if v.Callback != nil {
+				fmt.Fprint(oc.s, v.Callback(v))
+			}
+			switch v.Position {
+			case node.PDFOutputHere:
+				oc.moveto(-posX, -posY)
+			}
 		case *node.VList:
 			oc.outputVerticalItems(x, y-sumV, v)
 			sumV += v.Height + v.Depth
@@ -555,6 +675,26 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 		}
 	}
 	oc.curOutputDebug = saveCurOutputDebug
+}
+
+func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
+	if len(oc.p.document.Faces) == 0 {
+		return
+	}
+	oc.gotoTextMode(3)
+	f0 := oc.p.document.Faces[0]
+	fmt.Fprintf(oc.s, " q %s 8 Tf 0 0 1 rg ", f0.InternalName())
+	oc.moveto(x, y)
+	fmt.Fprint(oc.s, "[<")
+	fnt := oc.p.document.CreateFont(f0, 4*bag.Factor)
+	cp := []int{}
+	for _, v := range fnt.Shape(text, nil) {
+		fmt.Fprintf(oc.s, "%04x", v.Codepoint)
+		cp = append(cp, v.Codepoint)
+	}
+	f0.RegisterChars(cp)
+	fmt.Fprint(oc.s, ">]TJ Q ")
+	oc.gotoTextMode(4)
 }
 
 // OutputAt places the nodelist at the position.

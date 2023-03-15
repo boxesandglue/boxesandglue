@@ -57,11 +57,11 @@ type Pages struct {
 // An Annotation is a PDF element that is additional to the text, such as a
 // hyperlink or a note.
 type Annotation struct {
-	Subtype    string
+	Subtype    Name
+	Action     string
 	Border     []int
 	ShowBorder bool
 	Rect       [4]bag.ScaledPoint
-	URI        string
 }
 
 // Separation represents a spot color
@@ -96,7 +96,7 @@ type Outline struct {
 	Children     []*Outline
 	Title        string
 	Open         bool
-	Dest         *Dest
+	Dest         *NumDest
 	objectNumber Objectnumber
 }
 
@@ -106,7 +106,8 @@ type PDF struct {
 	DefaultPageWidth  bag.ScaledPoint
 	DefaultPageHeight bag.ScaledPoint
 	Colorspaces       []*Separation
-	Destinations      map[int]*Dest
+	NumDestinations   map[int]*NumDest
+	NameDestinations  map[string]*NameDest
 	Outlines          []*Outline
 	// Major version. Should be 1.
 	Major uint
@@ -124,9 +125,10 @@ type PDF struct {
 // NewPDFWriter creates a PDF file for writing to file
 func NewPDFWriter(file io.Writer) *PDF {
 	pw := PDF{
-		Major:        1,
-		Minor:        7,
-		Destinations: make(map[int]*Dest),
+		Major:            1,
+		Minor:            7,
+		NumDestinations:  make(map[int]*NumDest),
+		NameDestinations: make(map[string]*NameDest),
 	}
 	pw.outfile = file
 	pw.nextobject = 1
@@ -295,15 +297,10 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 		annotationObjectNumbers := make([]string, len(page.Annotations))
 		for i, annot := range page.Annotations {
 			annotObj := pw.NewObject()
-			actionDict := Dict{
-				"/Type": "/Action",
-				"/S":    "/URI",
-				"/URI":  "(" + annot.URI + ")",
-			}
 			annotDict := Dict{
 				"/Type":    "/Annot",
-				"/Subtype": "/Link",
-				"/A":       HashToString(actionDict, 1),
+				"/Subtype": annot.Subtype.String(),
+				"/A":       annot.Action,
 				"/Rect":    fmt.Sprintf("[%s %s %s %s]", annot.Rect[0], annot.Rect[1], annot.Rect[2], annot.Rect[3]),
 			}
 			if !annot.ShowBorder {
@@ -374,6 +371,50 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	if pw.Outlines != nil {
 		dictCatalog["/Outlines"] = outlinesOjbNum.Ref()
 	}
+
+	var destNameTree *Object
+	if len(pw.NameDestinations) != 0 {
+		type name struct {
+			onum Objectnumber
+			name String
+		}
+		destnames := []name{}
+		for _, nd := range pw.NameDestinations {
+			nd.Objectnumber, err = pw.writeDestObj(nd.PageObjectnumber, nd.X, nd.Y)
+			if err != nil {
+				return 0, err
+			}
+			destnames = append(destnames, name{name: nd.Name, onum: nd.Objectnumber})
+		}
+
+		destNameTree = pw.NewObject()
+		var limitsAry, namesAry Array
+		limitsAry = append(limitsAry, destnames[0].name)
+		limitsAry = append(limitsAry, destnames[len(destnames)-1].name)
+		for _, n := range destnames {
+			namesAry = append(namesAry, String(n.name))
+			namesAry = append(namesAry, n.onum.Ref())
+		}
+
+		destNameTree.Dict(Dict{
+			"/Limits": limitsAry.String(),
+			"/Names":  namesAry.String(),
+		})
+		destNameTree.Save()
+	}
+
+	if destNameTree != nil {
+		d := Dict{
+			"/Dests": destNameTree.ObjectNumber.Ref(),
+		}
+		nameDict := pw.NewObject()
+		nameDict.Dict(d)
+		if err = nameDict.Save(); err != nil {
+			return 0, err
+		}
+		dictCatalog["/Names"] = nameDict.ObjectNumber.Ref()
+	}
+
 	for k, v := range pw.Catalog {
 		dictCatalog[k] = v
 	}
@@ -386,6 +427,20 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	}
 
 	return catalog.ObjectNumber, nil
+}
+
+func (pw *PDF) writeDestObj(page Objectnumber, x, y float64) (Objectnumber, error) {
+	obj := pw.NewObject()
+	dest := fmt.Sprintf("[%s /XYZ %g %g null]", page.Ref(), x, y)
+	obj.Dict(Dict{
+		"/D": dest,
+	})
+
+	if err := obj.Save(); err != nil {
+		return 0, err
+	}
+	return obj.ObjectNumber, nil
+
 }
 
 func (pw *PDF) writeOutline(parentObj *Object, outlines []*Outline) (first Objectnumber, last Objectnumber, c int, err error) {

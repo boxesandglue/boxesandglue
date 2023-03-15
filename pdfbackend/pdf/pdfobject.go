@@ -11,14 +11,27 @@ import (
 
 var pdfStringReplacer = strings.NewReplacer(`(`, `\(`, `)`, `\)`, `\`, `\\`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "\b", `\b`, "\t", `\t`)
 
-// Dest represents a PDF destination
-type Dest struct {
+// NumDest represents a simple PDF destination
+type NumDest struct {
 	Objectnumber     Objectnumber
 	PageObjectnumber Objectnumber
 	Num              int
 	X                float64
 	Y                float64
 }
+
+// NameDest represents a named PDF destination
+type NameDest struct {
+	Objectnumber     Objectnumber
+	PageObjectnumber Objectnumber
+	Name             String
+	X                float64
+	Y                float64
+}
+
+// String is a string that gets automatically converted to (...) or
+// hexadecimal form when placed in the PDF.
+type String string
 
 // StringToPDF returns an escaped string suitable to be used as a PDF object.
 func StringToPDF(str string) string {
@@ -59,6 +72,8 @@ func ArrayToString(ary []any) string {
 			ret = append(ret, strconv.FormatFloat(t, 'f', -1, 64))
 		case Dict:
 			ret = append(ret, fmt.Sprintf("%s", t))
+		case String:
+			ret = append(ret, StringToPDF(string(t)))
 		default:
 			ret = append(ret, fmt.Sprintf("%s", t))
 		}

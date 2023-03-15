@@ -62,6 +62,17 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 
 // Shape transforms the text into a slice of code points.
 func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
+	// empty paragraphs have ZERO WIDTH SPACE as a marker
+	if text == "\u200B" {
+		return []Atom{
+			{
+				IsSpace:    true,
+				Advance:    bag.ScaledPoint(0),
+				Components: text,
+				Codepoint:  f.SpaceChar.Codepoint,
+			},
+		}
+	}
 	buf := harfbuzz.NewBuffer()
 	buf.AddRunes([]rune(text), 0, -1)
 	buf.Flags = harfbuzz.RemoveDefaultIgnorables
