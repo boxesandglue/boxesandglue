@@ -16,7 +16,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
-	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/gofpdi"
 )
 
@@ -48,7 +47,9 @@ type Imagefile struct {
 
 // LoadImageFile loads an image from the disc.
 func LoadImageFile(pw *PDF, filename string) (*Imagefile, error) {
-	bag.Logger.Infof("Load image %s", filename)
+	if l := pw.Logger; l != nil {
+		l.Infof("Load image %s", filename)
+	}
 	r, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -152,7 +153,10 @@ func (imgf *Imagefile) InternalName() string {
 }
 
 func (imgf *Imagefile) finish() error {
-	bag.Logger.Infof("Write image %s to PDF", imgf.Filename)
+	pw := imgf.pw
+	if l := pw.Logger; l != nil {
+		l.Infof("Write image %s to PDF", imgf.Filename)
+	}
 	imgo := imgf.imageobject
 
 	if imgf.Format == "pdf" {
@@ -168,7 +172,7 @@ func (imgf *Imagefile) finish() error {
 
 		imported := imgf.pdfimporter.GetImportedObjects()
 		for i, v := range imported {
-			o := imgf.pw.NewObjectWithNumber(Objectnumber(i))
+			o := pw.NewObjectWithNumber(Objectnumber(i))
 			o.Raw = true
 			o.Data = bytes.NewBuffer(v)
 			o.Save()
@@ -176,24 +180,24 @@ func (imgf *Imagefile) finish() error {
 		return nil
 	}
 	d := Dict{
-		"/Type":             "/XObject",
-		"/Subtype":          "/Image",
-		"/BitsPerComponent": imgf.bitsPerComponent,
-		"/ColorSpace":       "/" + imgf.colorspace,
-		"/Width":            fmt.Sprintf("%d", imgf.W),
-		"/Height":           fmt.Sprintf("%d", imgf.H),
-		"/Filter":           "/" + imgf.filter,
+		"Type":             "/XObject",
+		"Subtype":          "/Image",
+		"BitsPerComponent": imgf.bitsPerComponent,
+		"ColorSpace":       "/" + imgf.colorspace,
+		"Width":            fmt.Sprintf("%d", imgf.W),
+		"Height":           fmt.Sprintf("%d", imgf.H),
+		"Filter":           "/" + imgf.filter,
 	}
 
 	if imgf.colorspace == "Indexed" {
 		size := len(imgf.pal)/3 - 1
-		palStr := NewStream(imgf.pal)
-		palStr.SetCompression(9)
-		strObj, err := imgf.pw.writeStream(palStr, nil)
-		if err != nil {
+		palObj := pw.NewObject()
+		palObj.Data.Write(imgf.pal)
+		palObj.SetCompression(9)
+		if err := palObj.Save(); err != nil {
 			return err
 		}
-		d["/ColorSpace"] = fmt.Sprintf("[/Indexed /DeviceRGB %d %s]", size, strObj.ObjectNumber.Ref())
+		d["/ColorSpace"] = fmt.Sprintf("[/Indexed /DeviceRGB %d %s]", size, palObj.ObjectNumber.Ref())
 		if imgf.decodeParms != "" {
 			d["/DecodeParms"] = fmt.Sprintf("<<%s>>", imgf.decodeParms)
 		}

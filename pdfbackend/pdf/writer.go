@@ -2,13 +2,11 @@ package pdf
 
 import (
 	"bytes"
-	"compress/zlib"
 	"crypto/md5"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/gofpdi"
 )
 
@@ -26,7 +24,7 @@ func (o Objectnumber) String() string {
 }
 
 // Dict is a string - string dictionary
-type Dict map[string]string
+type Dict map[Name]any
 
 func (d Dict) String() string {
 	return HashToString(d, 0)
@@ -40,17 +38,18 @@ func (ary Array) String() string {
 }
 
 // Name represents a PDF name such as Adobe Green. The String() method prepends
-// a / (slash) to the name.
+// a / (slash) to the name if not present.
 type Name string
 
 func (n Name) String() string {
 	a := strings.NewReplacer(" ", "#20")
-	return "/" + a.Replace(string(n))
+	r, _ := strings.CutPrefix(string(n), "/")
+	return "/" + a.Replace(string(r))
 }
 
 // Pages is the parent page structure
 type Pages struct {
-	pages   []*Page
+	Pages   []*Page
 	dictnum Objectnumber
 }
 
@@ -59,9 +58,8 @@ type Pages struct {
 type Annotation struct {
 	Subtype    Name
 	Action     string
-	Border     []int
-	ShowBorder bool
-	Rect       [4]bag.ScaledPoint
+	Dictionary Dict
+	Rect       [4]float64 // x1, y1, x2, y2
 }
 
 // Separation represents a spot color
@@ -78,15 +76,14 @@ type Separation struct {
 
 // Page contains information about a single page.
 type Page struct {
-	Obj         *Object
-	Dictnum     Objectnumber
-	Annotations []Annotation
-	Faces       []*Face
-	Images      []*Imagefile
-	stream      *Stream
-	Width       bag.ScaledPoint
-	Height      bag.ScaledPoint
-	Dict        Dict
+	Dictnum       Objectnumber // The "/Page" object
+	Annotations   []Annotation
+	Faces         []*Face
+	Images        []*Imagefile
+	Width         float64
+	Height        float64
+	Dict          Dict // Additional dictionary entries such as "/Trimbox"
+	contentStream *Object
 }
 
 // Outline represents PDF bookmarks. To create outlines, you need to assign
@@ -100,26 +97,30 @@ type Outline struct {
 	objectNumber Objectnumber
 }
 
+// Logger logs font loading and writing.
+type Logger interface {
+	Infof(string, ...any)
+}
+
 // PDF is the central point of writing a PDF file.
 type PDF struct {
 	Catalog           Dict
-	DefaultPageWidth  bag.ScaledPoint
-	DefaultPageHeight bag.ScaledPoint
+	InfoDict          Dict
+	DefaultPageWidth  float64
+	DefaultPageHeight float64
 	Colorspaces       []*Separation
 	NumDestinations   map[int]*NumDest
 	NameDestinations  map[string]*NameDest
 	Outlines          []*Outline
-	// Major version. Should be 1.
-	Major uint
-	// Minor version. Just for information purposes. No checks are done.
-	Minor           uint
-	InfoDict        Dict
-	outfile         io.Writer
-	nextobject      Objectnumber
-	objectlocations map[Objectnumber]int64
-	pages           *Pages
-	lastEOL         int64
-	pos             int64
+	Major             uint // Major version. Should be 1.
+	Minor             uint // Minor version. Just for information purposes. No checks are done.
+	Logger            Logger
+	outfile           io.Writer
+	nextobject        Objectnumber
+	objectlocations   map[Objectnumber]int64
+	pages             *Pages
+	lastEOL           int64
+	pos               int64
 }
 
 // NewPDFWriter creates a PDF file for writing to file
@@ -152,20 +153,19 @@ func (pw *PDF) Println(s string) error {
 	return err
 }
 
-// Printf writes the string to the PDF file and adds a newline.
+// Printf writes the formatted string to the PDF file.
 func (pw *PDF) Printf(format string, a ...any) error {
 	n, err := fmt.Fprintf(pw.outfile, format, a...)
 	pw.pos += int64(n)
 	return err
 }
 
-// AddPage adds a page to the PDF file. The stream must be complete.
-func (pw *PDF) AddPage(pagestream *Stream, onum Objectnumber) *Page {
+// AddPage adds a page to the PDF file. The content stream must be complete.
+func (pw *PDF) AddPage(content *Object, dictnum Objectnumber) *Page {
 	pg := &Page{}
-	pg.Obj = pw.NewObject()
-	pg.stream = pagestream
-	pg.Dictnum = onum
-	pw.pages.pages = append(pw.pages.pages, pg)
+	pg.contentStream = content
+	pg.Dictnum = dictnum
+	pw.pages.Pages = append(pw.pages.Pages, pg)
 	return pg
 }
 
@@ -175,35 +175,6 @@ func (pw *PDF) NextObject() Objectnumber {
 	return pw.nextobject - 1
 }
 
-// writeStream writes a new stream object with the data and extra dictionary
-// entries. writeStream returns the object number of the stream.
-func (pw *PDF) writeStream(st *Stream, obj *Object) (*Object, error) {
-	if obj == nil {
-		obj = pw.NewObject()
-	}
-	if st.compress {
-		st.dict["/Filter"] = "/FlateDecode"
-		var b bytes.Buffer
-		zw := zlib.NewWriter(&b)
-		zw.Write(st.data)
-		zw.Close()
-		st.dict["/Length"] = fmt.Sprintf("%d", b.Len())
-		st.dict["/Length1"] = fmt.Sprintf("%d", len(st.data))
-		st.data = b.Bytes()
-	} else {
-		st.dict["/Length"] = fmt.Sprintf("%d", len(st.data))
-	}
-
-	obj.Dict(st.dict)
-	var err error
-
-	if _, err = obj.Data.Write(st.data); err != nil {
-		return nil, err
-	}
-
-	obj.Save()
-	return obj, nil
-}
 func (pw *PDF) writeInfoDict() (*Object, error) {
 	if pw.Major < 2 {
 		info := pw.NewObject()
@@ -219,12 +190,11 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	usedFaces := make(map[*Face]bool)
 	usedImages := make(map[*Imagefile]bool)
 	// Write all page streams:
-	for _, page := range pw.pages.pages {
+	for _, page := range pw.pages.Pages {
 		for _, img := range page.Images {
 			usedImages[img] = true
 		}
-		page.Obj, err = pw.writeStream(page.stream, page.Obj)
-		if err != nil {
+		if err = page.contentStream.Save(); err != nil {
 			return 0, err
 		}
 	}
@@ -240,10 +210,10 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 		img.finish()
 	}
 
-	if len(pw.pages.pages) == 0 {
+	if len(pw.pages.Pages) == 0 {
 		return 0, fmt.Errorf("no pages in document")
 	}
-	for _, page := range pw.pages.pages {
+	for _, page := range pw.pages.Pages {
 		obj := pw.NewObjectWithNumber(page.Dictnum)
 
 		var res []string
@@ -260,15 +230,15 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 			for _, face := range page.Faces {
 				usedFaces[face] = true
 			}
-			resHash["/Font"] = strings.Join(res, " ")
+			resHash["Font"] = strings.Join(res, " ")
 		}
 		if len(pw.Colorspaces) > 0 {
 			colorspace := Dict{}
 
 			for _, cs := range pw.Colorspaces {
-				colorspace[cs.ID] = cs.Obj.String()
+				colorspace[Name(cs.ID)] = cs.Obj.String()
 			}
-			resHash["/ColorSpace"] = HashToString(colorspace, 0)
+			resHash["ColorSpace"] = colorspace
 		}
 		if len(page.Images) > 0 {
 			var sb strings.Builder
@@ -280,31 +250,31 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 				sb.WriteString(img.imageobject.ObjectNumber.Ref())
 			}
 			sb.WriteString(">>")
-			resHash["/XObject"] = sb.String()
+			resHash["XObject"] = sb.String()
 		}
 
 		pageHash := Dict{
-			"/Type":     "/Page",
-			"/Contents": page.Obj.ObjectNumber.Ref(),
-			"/Parent":   pagesObj.ObjectNumber.Ref(),
-			"/MediaBox": fmt.Sprintf("[0 0 %s %s]", page.Width, page.Height),
+			"Type":     "/Page",
+			"Contents": page.contentStream.ObjectNumber.Ref(),
+			"Parent":   pagesObj.ObjectNumber.Ref(),
+			"MediaBox": fmt.Sprintf("[0 0 %s %s]", FloatToPoint(page.Width), FloatToPoint(page.Height)),
 		}
 
 		if len(resHash) > 0 {
-			pageHash["/Resources"] = HashToString(resHash, 1)
+			pageHash["Resources"] = resHash
 		}
 
 		annotationObjectNumbers := make([]string, len(page.Annotations))
 		for i, annot := range page.Annotations {
 			annotObj := pw.NewObject()
 			annotDict := Dict{
-				"/Type":    "/Annot",
-				"/Subtype": annot.Subtype.String(),
-				"/A":       annot.Action,
-				"/Rect":    fmt.Sprintf("[%s %s %s %s]", annot.Rect[0], annot.Rect[1], annot.Rect[2], annot.Rect[3]),
+				"Type":    "/Annot",
+				"Subtype": annot.Subtype.String(),
+				"A":       annot.Action,
+				"Rect":    fmt.Sprintf("[%s %s %s %s]", FloatToPoint(annot.Rect[0]), FloatToPoint(annot.Rect[1]), FloatToPoint(annot.Rect[2]), FloatToPoint(annot.Rect[3])),
 			}
-			if !annot.ShowBorder {
-				annotDict["/Border"] = "[0 0 0]"
+			for k, v := range annot.Dictionary {
+				annotDict[k] = v
 			}
 
 			annotObj.Dict(annotDict)
@@ -314,7 +284,7 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 			annotationObjectNumbers[i] = annotObj.ObjectNumber.Ref()
 		}
 		if len(annotationObjectNumbers) > 0 {
-			pageHash["/Annots"] = "[" + strings.Join(annotationObjectNumbers, " ") + "]"
+			pageHash["Annots"] = "[" + strings.Join(annotationObjectNumbers, " ") + "]"
 		}
 		for k, v := range page.Dict {
 			pageHash[k] = v
@@ -324,18 +294,18 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	}
 
 	// The pages object
-	kids := make([]string, len(pw.pages.pages))
-	for i, v := range pw.pages.pages {
+	kids := make([]string, len(pw.pages.Pages))
+	for i, v := range pw.pages.Pages {
 		kids[i] = v.Dictnum.Ref()
 	}
 
 	pagesObj.comment = "The pages object"
 	pw.pages.dictnum = pagesObj.ObjectNumber
 	pagesObj.Dict(Dict{
-		"/Type":     "/Pages",
-		"/Kids":     "[ " + strings.Join(kids, " ") + " ]",
-		"/Count":    fmt.Sprint(len(pw.pages.pages)),
-		"/MediaBox": fmt.Sprintf("[0 0 %s %s]", pw.DefaultPageWidth.String(), pw.DefaultPageHeight.String()),
+		"Type":     "/Pages",
+		"Kids":     "[ " + strings.Join(kids, " ") + " ]",
+		"Count":    fmt.Sprint(len(pw.pages.Pages)),
+		"MediaBox": fmt.Sprintf("[0 0 %s %s]", FloatToPoint(pw.DefaultPageWidth), FloatToPoint(pw.DefaultPageHeight)),
 	})
 	pagesObj.Save()
 
@@ -350,10 +320,10 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 		}
 
 		outlinesOjb.Dictionary = Dict{
-			"/Type":  "/Outlines",
-			"/First": first.Ref(),
-			"/Last":  last.Ref(),
-			"/Count": fmt.Sprintf("%d", count),
+			"Type":  "/Outlines",
+			"First": first.Ref(),
+			"Last":  last.Ref(),
+			"Count": fmt.Sprintf("%d", count),
 		}
 		outlinesOjbNum = outlinesOjb.ObjectNumber
 
@@ -365,8 +335,8 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 	catalog := pw.NewObject()
 	catalog.comment = "Catalog"
 	dictCatalog := Dict{
-		"/Type":  "/Catalog",
-		"/Pages": pw.pages.dictnum.Ref(),
+		"Type":  "/Catalog",
+		"Pages": pw.pages.dictnum.Ref(),
 	}
 	if pw.Outlines != nil {
 		dictCatalog["/Outlines"] = outlinesOjbNum.Ref()
@@ -380,11 +350,11 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 		}
 		destnames := []name{}
 		for _, nd := range pw.NameDestinations {
-			nd.Objectnumber, err = pw.writeDestObj(nd.PageObjectnumber, nd.X, nd.Y)
+			nd.objectnumber, err = pw.writeDestObj(nd.PageObjectnumber, nd.X, nd.Y)
 			if err != nil {
 				return 0, err
 			}
-			destnames = append(destnames, name{name: nd.Name, onum: nd.Objectnumber})
+			destnames = append(destnames, name{name: nd.Name, onum: nd.objectnumber})
 		}
 
 		destNameTree = pw.NewObject()
@@ -397,22 +367,22 @@ func (pw *PDF) writeDocumentCatalogAndPages() (Objectnumber, error) {
 		}
 
 		destNameTree.Dict(Dict{
-			"/Limits": limitsAry.String(),
-			"/Names":  namesAry.String(),
+			"Limits": limitsAry.String(),
+			"Names":  namesAry.String(),
 		})
 		destNameTree.Save()
 	}
 
 	if destNameTree != nil {
 		d := Dict{
-			"/Dests": destNameTree.ObjectNumber.Ref(),
+			"Dests": destNameTree.ObjectNumber.Ref(),
 		}
 		nameDict := pw.NewObject()
 		nameDict.Dict(d)
 		if err = nameDict.Save(); err != nil {
 			return 0, err
 		}
-		dictCatalog["/Names"] = nameDict.ObjectNumber.Ref()
+		dictCatalog["Names"] = nameDict.ObjectNumber.Ref()
 	}
 
 	for k, v := range pw.Catalog {
@@ -433,7 +403,7 @@ func (pw *PDF) writeDestObj(page Objectnumber, x, y float64) (Objectnumber, erro
 	obj := pw.NewObject()
 	dest := fmt.Sprintf("[%s /XYZ %g %g null]", page.Ref(), x, y)
 	obj.Dict(Dict{
-		"/D": dest,
+		"D": dest,
 	})
 
 	if err := obj.Save(); err != nil {
@@ -453,17 +423,17 @@ func (pw *PDF) writeOutline(parentObj *Object, outlines []*Outline) (first Objec
 		c++
 		outlineObj := pw.NewObjectWithNumber(outline.objectNumber)
 		outlineDict := Dict{}
-		outlineDict["/Parent"] = parentObj.ObjectNumber.Ref()
-		outlineDict["/Title"] = StringToPDF(outline.Title)
-		outlineDict["/Dest"] = fmt.Sprintf("[ %s /XYZ %f %f 0]", outline.Dest.PageObjectnumber.Ref(), outline.Dest.X, outline.Dest.Y)
+		outlineDict["Parent"] = parentObj.ObjectNumber.Ref()
+		outlineDict["Title"] = StringToPDF(outline.Title)
+		outlineDict["Dest"] = fmt.Sprintf("[ %s /XYZ %f %f 0]", outline.Dest.PageObjectnumber.Ref(), outline.Dest.X, outline.Dest.Y)
 
 		if i < len(outlines)-1 {
-			outlineDict["/Next"] = outlines[i+1].objectNumber.Ref()
+			outlineDict["Next"] = outlines[i+1].objectNumber.Ref()
 		} else {
 			last = outline.objectNumber
 		}
 		if i > 0 {
-			outlineDict["/Prev"] = outlines[i-1].objectNumber.Ref()
+			outlineDict["Prev"] = outlines[i-1].objectNumber.Ref()
 		} else {
 			first = outline.objectNumber
 		}
@@ -475,12 +445,12 @@ func (pw *PDF) writeOutline(parentObj *Object, outlines []*Outline) (first Objec
 			if err != nil {
 				return
 			}
-			outlineDict["/First"] = cldFirst.Ref()
-			outlineDict["/Last"] = cldLast.Ref()
+			outlineDict["First"] = cldFirst.Ref()
+			outlineDict["Last"] = cldLast.Ref()
 			if outline.Open {
-				outlineDict["/Count"] = fmt.Sprintf("%d", count)
+				outlineDict["Count"] = fmt.Sprintf("%d", count)
 			} else {
-				outlineDict["/Count"] = "-1"
+				outlineDict["Count"] = "-1"
 			}
 			c += count
 		}
@@ -543,12 +513,12 @@ func (pw *PDF) Finish() error {
 	sum := fmt.Sprintf("%X", md5.Sum([]byte(str.String())))
 
 	trailer := Dict{
-		"/Size": fmt.Sprint(int(pw.nextobject)),
-		"/Root": dc.Ref(),
-		"/ID":   fmt.Sprintf("[<%s> <%s>]", sum, sum),
+		"Size": fmt.Sprint(int(pw.nextobject)),
+		"Root": dc.Ref(),
+		"ID":   fmt.Sprintf("[<%s> <%s>]", sum, sum),
 	}
 	if infodict != nil {
-		trailer["/Info"] = infodict.ObjectNumber.Ref()
+		trailer["Info"] = infodict.ObjectNumber.Ref()
 	}
 
 	if err = pw.Println("trailer"); err != nil {
@@ -576,7 +546,7 @@ func HashToString(h Dict, level int) string {
 	b.WriteString(strings.Repeat("  ", level))
 	b.WriteString("<<\n")
 	for k, v := range h {
-		b.WriteString(fmt.Sprintf("%s%s %s\n", strings.Repeat("  ", level+1), k, v))
+		b.WriteString(fmt.Sprintf("%s%s %v\n", strings.Repeat("  ", level+1), k, v))
 	}
 	b.WriteString(strings.Repeat("  ", level))
 	b.WriteString(">>")

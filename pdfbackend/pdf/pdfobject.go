@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -11,22 +12,24 @@ import (
 
 var pdfStringReplacer = strings.NewReplacer(`(`, `\(`, `)`, `\)`, `\`, `\\`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "\b", `\b`, "\t", `\t`)
 
-// NumDest represents a simple PDF destination
+// NumDest represents a simple PDF destination. The origin of X and Y are in the
+// top left corner and expressed in DTP points.
 type NumDest struct {
-	Objectnumber     Objectnumber
 	PageObjectnumber Objectnumber
 	Num              int
 	X                float64
 	Y                float64
+	objectnumber     Objectnumber
 }
 
-// NameDest represents a named PDF destination
+// NameDest represents a named PDF destination. The origin of X and Y are in the
+// top left corner and expressed in DTP points.
 type NameDest struct {
-	Objectnumber     Objectnumber
 	PageObjectnumber Objectnumber
 	Name             String
 	X                float64
 	Y                float64
+	objectnumber     Objectnumber
 }
 
 // String is a string that gets automatically converted to (...) or
@@ -57,6 +60,10 @@ func StringToPDF(str string) string {
 	return out.String()
 }
 
+func (s String) String() string {
+	return StringToPDF(string(s))
+}
+
 // ArrayToString converts the objects in ary to a string including the opening and closing bracket
 func ArrayToString(ary []any) string {
 	ret := []string{"["}
@@ -73,7 +80,7 @@ func ArrayToString(ary []any) string {
 		case Dict:
 			ret = append(ret, fmt.Sprintf("%s", t))
 		case String:
-			ret = append(ret, StringToPDF(string(t)))
+			ret = append(ret, fmt.Sprintf("%s", t))
 		default:
 			ret = append(ret, fmt.Sprintf("%s", t))
 		}
@@ -82,16 +89,23 @@ func ArrayToString(ary []any) string {
 	return strings.Join(ret, " ")
 }
 
+// FloatToPoint returns a string suitable as a PDF size value.
+func FloatToPoint(in float64) string {
+	const precisionFactor = 100.0
+	rounded := math.Round(precisionFactor*in) / precisionFactor
+	return strconv.FormatFloat(rounded, 'f', -1, 64)
+}
+
 // Object has information about a specific PDF object
 type Object struct {
 	ObjectNumber Objectnumber
 	Data         *bytes.Buffer
 	Dictionary   Dict
 	Array        []any
+	Raw          bool // Data holds everything between object number and endobj
 	pdfwriter    *PDF
 	compress     bool // for streams
 	comment      string
-	Raw          bool // Data holds everything between object number and endobj
 }
 
 // NewObjectWithNumber create a new PDF object and reserves an object
@@ -145,11 +159,14 @@ func (obj *Object) Save() error {
 		return nil
 	}
 	hasData := obj.Data.Len() > 0
-	if hasData && len(obj.Dictionary) > 0 {
-		obj.Dictionary["/Length"] = fmt.Sprintf("%d", obj.Data.Len())
+	if hasData {
+		if obj.Dictionary == nil {
+			obj.Dictionary = Dict{}
+		}
+		obj.Dictionary["Length"] = fmt.Sprintf("%d", obj.Data.Len())
 
 		if obj.compress {
-			obj.Dictionary["/Filter"] = "/FlateDecode"
+			obj.Dictionary["Filter"] = "/FlateDecode"
 			var b bytes.Buffer
 			zw, err := zlib.NewWriterLevel(&b, zlib.BestSpeed)
 			if err != nil {
@@ -157,13 +174,12 @@ func (obj *Object) Save() error {
 			}
 			zw.Write(obj.Data.Bytes())
 			zw.Close()
-			obj.Dictionary["/Length"] = fmt.Sprintf("%d", b.Len())
-			obj.Dictionary["/Length1"] = fmt.Sprintf("%d", obj.Data.Len())
+			obj.Dictionary["Length"] = fmt.Sprintf("%d", b.Len())
+			obj.Dictionary["Length1"] = fmt.Sprintf("%d", obj.Data.Len())
 			obj.Data = &b
 		} else {
-			obj.Dictionary["/Length"] = fmt.Sprintf("%d", obj.Data.Len())
+			obj.Dictionary["Length"] = fmt.Sprintf("%d", obj.Data.Len())
 		}
-
 	}
 
 	obj.pdfwriter.startObject(obj.ObjectNumber)

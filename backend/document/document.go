@@ -78,7 +78,7 @@ type objectContext struct {
 	usedFaces        map[*pdf.Face]bool
 	usedImages       map[*pdf.Imagefile]bool
 	tag              *StructureElement
-	s                *strings.Builder
+	s                io.Writer
 	shiftX           bag.ScaledPoint
 	outputDebug      *outputDebug
 	curOutputDebug   *outputDebug
@@ -346,9 +346,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					rectHT := posY - hyperlink.startposY + hlist.Height + hlist.Depth
 					rectWD := posX - hyperlink.startposX
 					a := pdf.Annotation{
-						Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
-						ShowBorder: oc.p.document.ShowHyperlinks,
-						Subtype:    "Link",
+						Rect:    [4]float64{hyperlink.startposX.ToPT(), hyperlink.startposY.ToPT(), posX.ToPT(), (posY + rectHT).ToPT()},
+						Subtype: "Link",
+					}
+					if oc.p.document.ShowHyperlinks {
+						a.Dictionary = pdf.Dict{
+							"Border": "[0 0 1]",
+						}
+					} else {
+						a.Dictionary = pdf.Dict{
+							"Border": "[0 0 0]",
+						}
 					}
 
 					if hyperlink.Local != "" {
@@ -592,9 +600,17 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					rectHT := posY - hyperlink.startposY + vlist.Height + vlist.Depth
 					rectWD := posX - hyperlink.startposX
 					a := pdf.Annotation{
-						Rect:       [4]bag.ScaledPoint{hyperlink.startposX, hyperlink.startposY, posX, posY + rectHT},
-						ShowBorder: oc.p.document.ShowHyperlinks,
-						Subtype:    "Link",
+						Rect:    [4]float64{hyperlink.startposX.ToPT(), hyperlink.startposY.ToPT(), posX.ToPT(), (posY + rectHT).ToPT()},
+						Subtype: "Link",
+					}
+					if oc.p.document.ShowHyperlinks {
+						a.Dictionary = pdf.Dict{
+							"Border": "[0 0 1]",
+						}
+					} else {
+						a.Dictionary = pdf.Dict{
+							"Border": "[0 0 0]",
+						}
 					}
 
 					if hyperlink.Local != "" {
@@ -757,10 +773,14 @@ func (p *Page) Shipout() {
 	p.outputDebug = &outputDebug{
 		Name: "page",
 	}
+
+	st := p.document.PDFWriter.NewObject()
+	st.SetCompression(p.document.CompressLevel)
+
 	for _, obj := range objs {
 		oc := &objectContext{
 			textmode:         4,
-			s:                &s,
+			s:                st.Data,
 			usedFaces:        make(map[*pdf.Face]bool),
 			usedImages:       make(map[*pdf.Imagefile]bool),
 			p:                p,
@@ -794,15 +814,13 @@ func (p *Page) Shipout() {
 		p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
 	}
 
-	st := pdf.NewStream([]byte(s.String()))
-	st.SetCompression(p.document.CompressLevel)
 	page := p.document.PDFWriter.AddPage(st, pageObjectNumber)
 	page.Dict = make(pdf.Dict)
-	page.Width = p.Width + 2*offsetX
-	page.Height = p.Height + 2*offsetY
-	page.Dict["/TrimBox"] = fmt.Sprintf("[%s %s %s %s]", p.ExtraOffset, p.ExtraOffset, page.Width-p.ExtraOffset, page.Height-p.ExtraOffset)
+	page.Width = (p.Width + 2*offsetX).ToPT()
+	page.Height = (p.Height + 2*offsetY).ToPT()
+	page.Dict["TrimBox"] = fmt.Sprintf("[%s %s %s %s]", p.ExtraOffset, p.ExtraOffset, pdf.FloatToPoint(page.Width-p.ExtraOffset.ToPT()), pdf.FloatToPoint(page.Height-p.ExtraOffset.ToPT()))
 	if bleedamount > 0 {
-		page.Dict["/BleedBox"] = fmt.Sprintf("[%s %s %s %s]", p.ExtraOffset-bleedamount, p.ExtraOffset-bleedamount, page.Width-p.ExtraOffset+bleedamount, page.Height-p.ExtraOffset+bleedamount)
+		page.Dict["BleedBox"] = fmt.Sprintf("[%s %s %s %s]", p.ExtraOffset-bleedamount, p.ExtraOffset-bleedamount, pdf.FloatToPoint(page.Width-p.ExtraOffset.ToPT()+bleedamount.ToPT()), pdf.FloatToPoint(page.Height-p.ExtraOffset.ToPT()+bleedamount.ToPT()))
 	}
 
 	for f := range usedFaces {
@@ -825,21 +843,21 @@ func (p *Page) Shipout() {
 			}
 			se.Obj = p.document.PDFWriter.NewObject()
 			se.Obj.Dictionary = pdf.Dict{
-				"/Type": "/StructElem",
-				"/S":    "/" + se.Role,
-				"/K":    fmt.Sprintf("%d", se.ID),
-				"/Pg":   page.Dictnum.Ref(),
-				"/P":    parent.Obj.ObjectNumber.Ref(),
+				"Type": "/StructElem",
+				"S":    "/" + se.Role,
+				"K":    fmt.Sprintf("%d", se.ID),
+				"Pg":   page.Dictnum.Ref(),
+				"P":    parent.Obj.ObjectNumber.Ref(),
 			}
 			if se.ActualText != "" {
-				se.Obj.Dictionary["/ActualText"] = pdf.StringToPDF(se.ActualText)
+				se.Obj.Dictionary["ActualText"] = pdf.StringToPDF(se.ActualText)
 			}
 			se.Obj.Save()
 			structureElementObjectIDs = append(structureElementObjectIDs, se.Obj.ObjectNumber.Ref())
 		}
 		po := p.document.newPDFStructureObject()
 		po.refs = strings.Join(structureElementObjectIDs, " ")
-		page.Dict["/StructParents"] = fmt.Sprintf("%d", po.id)
+		page.Dict["StructParents"] = fmt.Sprintf("%d", po.id)
 		p.document.pdfStructureObjects = append(p.document.pdfStructureObjects, po)
 	}
 	for _, s := range p.document.Spotcolors {
@@ -928,6 +946,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 		},
 	}
 	d.curOutputDebug = d.outputDebug
+	d.PDFWriter.Logger = bag.Logger
 	return d
 }
 
@@ -1035,7 +1054,7 @@ func (d *PDFDocument) Finish() error {
 		cp := d.PDFWriter.NewObject()
 		cp.Data.Write(d.ColorProfile.data)
 		cp.Dictionary = pdf.Dict{
-			"/N": fmt.Sprintf("%d", d.ColorProfile.Colors),
+			"N": fmt.Sprintf("%d", d.ColorProfile.Colors),
 		}
 		if err = cp.Save(); err != nil {
 			return err
@@ -1056,11 +1075,11 @@ func (d *PDFDocument) Finish() error {
 				pdf.Name(col.Basecolor),
 				pdf.Array{"/ICCBased", cp.ObjectNumber},
 				pdf.Dict{
-					"/C0":           pdf.ArrayToString(pdf.Array{0, 0, 0, 0}),
-					"/C1":           pdf.ArrayToString(pdf.Array{sep.C, sep.M, sep.Y, sep.K}),
-					"/Domain":       "[ 0 1 ]",
-					"/FunctionType": "2",
-					"/N":            "1",
+					"C0":           pdf.ArrayToString(pdf.Array{0, 0, 0, 0}),
+					"C1":           pdf.ArrayToString(pdf.Array{sep.C, sep.M, sep.Y, sep.K}),
+					"Domain":       "[ 0 1 ]",
+					"FunctionType": "2",
+					"N":            "1",
 				},
 			}
 			sepObj.Save()
@@ -1085,60 +1104,60 @@ func (d *PDFDocument) Finish() error {
 		}
 		structRoot := d.PDFWriter.NewObject()
 		structRoot.Dictionary = pdf.Dict{
-			"/Type":       "/StructTreeRoot",
-			"/ParentTree": fmt.Sprintf("<< /Nums [ %s ] >>", poStr.String()),
-			"/K":          se.Obj.ObjectNumber.Ref(),
+			"Type":       "/StructTreeRoot",
+			"ParentTree": fmt.Sprintf("<< /Nums [ %s ] >>", poStr.String()),
+			"K":          se.Obj.ObjectNumber.Ref(),
 		}
 		structRoot.Save()
 		se.Obj.Dictionary = pdf.Dict{
-			"/S":    "/" + se.Role,
-			"/K":    fmt.Sprintf("%s", childObjectNumbers),
-			"/P":    structRoot.ObjectNumber.Ref(),
-			"/Type": "/StructElem",
-			"/T":    pdf.StringToPDF(d.Title),
+			"S":    "/" + se.Role,
+			"K":    fmt.Sprintf("%s", childObjectNumbers),
+			"P":    structRoot.ObjectNumber.Ref(),
+			"Type": "/StructElem",
+			"T":    pdf.StringToPDF(d.Title),
 		}
 		se.Obj.Save()
 
-		d.PDFWriter.Catalog["/StructTreeRoot"] = structRoot.ObjectNumber.Ref()
-		d.PDFWriter.Catalog["/ViewerPreferences"] = "<< /DisplayDocTitle true >>"
-		d.PDFWriter.Catalog["/Lang"] = "(en)"
-		d.PDFWriter.Catalog["/MarkInfo"] = `<< /Marked true /Suspects false  >>`
+		d.PDFWriter.Catalog["StructTreeRoot"] = structRoot.ObjectNumber.Ref()
+		d.PDFWriter.Catalog["ViewerPreferences"] = "<< /DisplayDocTitle true >>"
+		d.PDFWriter.Catalog["Lang"] = "(en)"
+		d.PDFWriter.Catalog["MarkInfo"] = `<< /Marked true /Suspects false  >>`
 
 	}
 
 	rdf := d.PDFWriter.NewObject()
 	rdf.Data.WriteString(d.getMetadata())
 	rdf.Dictionary = pdf.Dict{
-		"/Type":    "/Metadata",
-		"/Subtype": "/XML",
+		"Type":    "/Metadata",
+		"Subtype": "/XML",
 	}
 	err = rdf.Save()
 	if err != nil {
 		return err
 	}
-	d.PDFWriter.Catalog["/Metadata"] = rdf.ObjectNumber.Ref()
-	d.PDFWriter.DefaultPageWidth = d.DefaultPageWidth
-	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight
+	d.PDFWriter.Catalog["Metadata"] = rdf.ObjectNumber.Ref()
+	d.PDFWriter.DefaultPageWidth = d.DefaultPageWidth.ToPT()
+	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight.ToPT()
 
 	d.PDFWriter.InfoDict = pdf.Dict{
-		"/Producer": pdf.StringToPDF(d.producer),
+		"Producer": pdf.StringToPDF(d.producer),
 	}
 	if t := d.Title; t != "" {
-		d.PDFWriter.InfoDict["/Title"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Title"] = pdf.String(t)
 	}
 	if t := d.Author; t != "" {
-		d.PDFWriter.InfoDict["/Author"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Author"] = pdf.StringToPDF(t)
 	}
 	if t := d.Creator; t != "" {
-		d.PDFWriter.InfoDict["/Creator"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Creator"] = pdf.StringToPDF(t)
 	}
 	if t := d.Subject; t != "" {
-		d.PDFWriter.InfoDict["/Subject"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Subject"] = pdf.StringToPDF(t)
 	}
 	if t := d.Keywords; t != "" {
-		d.PDFWriter.InfoDict["/Keywords"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Keywords"] = pdf.StringToPDF(t)
 	}
-	d.PDFWriter.InfoDict["/CreationDate"] = time.Now().Format("(D:20060102150405)")
+	d.PDFWriter.InfoDict["CreationDate"] = time.Now().Format("(D:20060102150405)")
 
 	if err = d.PDFWriter.Finish(); err != nil {
 		return err

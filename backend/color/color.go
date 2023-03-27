@@ -46,7 +46,7 @@ const (
 	ColorRGB
 	// ColorCMYK represents a color in CMYK color space
 	ColorCMYK
-	// ColorGray represents a gray scale color.
+	// ColorGray represents a gray space color.
 	ColorGray
 	// ColorSpotcolor represents a spot color.
 	ColorSpotcolor

@@ -5,7 +5,6 @@ import (
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/pdfbackend/pdf"
-	"github.com/speedata/textlayout/fonts"
 	"github.com/speedata/textlayout/harfbuzz"
 )
 
@@ -36,7 +35,7 @@ type Font struct {
 
 // NewFont creates a new font instance.
 func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
-	f := face.Font.Face()
+	f := face.HarfbuzzFont.Face()
 	ascend := float64(f.AscenderPDF())
 	descend := float64(-1 * f.DescenderPDF())
 	factor := size.ToPT() / (ascend + descend)
@@ -76,10 +75,10 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 	buf := harfbuzz.NewBuffer()
 	buf.AddRunes([]rune(text), 0, -1)
 	buf.Flags = harfbuzz.RemoveDefaultIgnorables
-	ha := f.Face.Font.Face().HorizontalAdvance
+	ha := f.Face.HarfbuzzFont.Face().HorizontalAdvance
 
 	buf.GuessSegmentProperties()
-	buf.Shape(f.Face.Font, features)
+	buf.Shape(f.Face.HarfbuzzFont, features)
 	runes := []rune(text)
 	glyphs := make([]Atom, 0, len(buf.Info))
 	space := f.Face.Codepoint(' ')
@@ -124,18 +123,4 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 		}
 	}
 	return glyphs
-}
-
-// AdvanceX returns the advance in horizontal direction
-func (f *Font) AdvanceX(r rune) (bag.ScaledPoint, error) {
-	idx, err := f.Face.GetIndex(r)
-	if err != nil {
-		return 0, err
-	}
-	adv := f.Face.Font.Face().HorizontalAdvance(fonts.GID(idx))
-	if err != nil {
-		return 0, err
-	}
-	wd := bag.ScaledPoint(adv) * bag.ScaledPoint(f.Mag)
-	return wd, nil
 }
