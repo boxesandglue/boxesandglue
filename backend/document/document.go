@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	pdf "github.com/speedata/baseline-pdf"
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/font"
@@ -15,7 +16,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
-	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
 const (

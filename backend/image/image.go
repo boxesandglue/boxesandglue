@@ -1,8 +1,8 @@
 package image
 
 import (
+	pdf "github.com/speedata/baseline-pdf"
 	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 )
 
 // Image represents a PDF file for inclusion.

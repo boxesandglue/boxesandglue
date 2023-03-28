@@ -3,8 +3,8 @@ package font
 import (
 	"unicode"
 
+	pdf "github.com/speedata/baseline-pdf"
 	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 	"github.com/speedata/textlayout/harfbuzz"
 )
 

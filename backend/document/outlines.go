@@ -1,6 +1,6 @@
 package document
 
-import "github.com/speedata/boxesandglue/pdfbackend/pdf"
+import pdf "github.com/speedata/baseline-pdf"
 
 // GetNumDest returns the PDF destination object with the internal number.
 func (pw *PDFDocument) GetNumDest(num int) *pdf.NumDest {

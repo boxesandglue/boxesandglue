@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	pdf "github.com/speedata/baseline-pdf"
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
-	"github.com/speedata/boxesandglue/pdfbackend/pdf"
 	"github.com/speedata/textlayout/harfbuzz"
 )
 
