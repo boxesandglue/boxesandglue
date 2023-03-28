@@ -93,7 +93,7 @@ type Outline struct {
 	Children     []*Outline
 	Title        string
 	Open         bool
-	Dest         *NumDest
+	Dest         string
 	objectNumber Objectnumber
 }
 
@@ -425,7 +425,7 @@ func (pw *PDF) writeOutline(parentObj *Object, outlines []*Outline) (first Objec
 		outlineDict := Dict{}
 		outlineDict["Parent"] = parentObj.ObjectNumber.Ref()
 		outlineDict["Title"] = StringToPDF(outline.Title)
-		outlineDict["Dest"] = fmt.Sprintf("[ %s /XYZ %f %f 0]", outline.Dest.PageObjectnumber.Ref(), outline.Dest.X, outline.Dest.Y)
+		outlineDict["Dest"] = outline.Dest
 
 		if i < len(outlines)-1 {
 			outlineDict["Next"] = outlines[i+1].objectNumber.Ref()
