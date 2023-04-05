@@ -14,6 +14,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/speedata/baseline-pdf v0.0.0-20230328065049-1b2b3cbd6a47 h1:5iGU6lA19Gxxsn+QHbg8GMK7/1Ac92RVfYWVcHN/9n4=
 github.com/speedata/baseline-pdf v0.0.0-20230328065049-1b2b3cbd6a47/go.mod h1:nPE172GQQm4wwijRnIxa9lih9oGF0CR5D6gX7DX0FHE=
+github.com/speedata/baseline-pdf v0.0.0-20230328074815-f8700de52bf8 h1:hglSK5h/i8W1BV6dHVblxWXp/hNckQ3dgrY7wi2x3dU=
+github.com/speedata/baseline-pdf v0.0.0-20230328074815-f8700de52bf8/go.mod h1:nPE172GQQm4wwijRnIxa9lih9oGF0CR5D6gX7DX0FHE=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553 h1:L9Sqi5S7G4JjODI5tZZ1IzZ7Yb4s71xFOq/uZtLv1Wg=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553/go.mod h1:uF4+EGySaBnGeZpXZ0boh/oR6P0vNiYfQ2MAJXCU9hE=
 github.com/speedata/gofpdi v1.0.15 h1:PLFmzHTAdhgvCDMsWgvL/njaDFzTmvsYewqgw3UUEg4=

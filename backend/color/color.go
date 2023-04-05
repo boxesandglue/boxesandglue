@@ -10,7 +10,7 @@ import (
 // Color holds color values for the document. All intensities are from 0 to 1.
 // Basecolor is a spot color name such as Pantone 119 for example.
 type Color struct {
-	Space       ColorSpace
+	Space       Space
 	Basecolor   string
 	SpotcolorID int
 	C           float64
@@ -36,12 +36,12 @@ func (col Color) String() string {
 	return ""
 }
 
-// ColorSpace represents the color space of a defined color.
-type ColorSpace int
+// Space represents the color space of a defined color.
+type Space int
 
 const (
 	// ColorNone represents an undefined color space
-	ColorNone ColorSpace = iota
+	ColorNone Space = iota
 	// ColorRGB represents a color in RGB color space
 	ColorRGB
 	// ColorCMYK represents a color in CMYK color space
@@ -76,17 +76,19 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 	case ColorSpotcolor:
 		return fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
 	default:
-		bag.Logger.DPanic("PDFStringFG: unknown color space.")
+		bag.Logger.DPanic("PDFString(Non)Stroking: unknown color space.")
 		return ""
 	}
 }
 
-// PDFStringStroking returns the PDF instructions to switch to the color for foreground colors.
+// PDFStringStroking returns the PDF instructions to switch to the color for
+// stroking colors.
 func (col *Color) PDFStringStroking() string {
 	return col.getPDFColorValues(true)
 }
 
-// PDFStringNonStroking returns the PDF instructions to switch to the color for background colors.
+// PDFStringNonStroking returns the PDF instructions to switch to the color for
+// non-stroking (filling) colors.
 func (col *Color) PDFStringNonStroking() string {
 	return col.getPDFColorValues(false)
 }

@@ -350,6 +350,11 @@ func (row *TableRow) build() (*node.HList, error) {
 	return hl, nil
 }
 
+// MatrixString returns the debug string of the table matrix.
+func (tbl *Table) MatrixString() string {
+	return tbl.cellMatrix.String()
+}
+
 // TableRows is a collection of table rows.
 type TableRows []*TableRow
 

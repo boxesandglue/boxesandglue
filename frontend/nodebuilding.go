@@ -434,11 +434,11 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	var hlist, tail node.Node
 	var err error
 	hlist, tail, err = fe.Mknodes(te)
-	if hlist == nil {
-		return node.NewVList(), nil, nil
-	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if hlist == nil {
+		return node.NewVList(), nil, nil
 	}
 
 	// A single start stop node (like a PDF dest)

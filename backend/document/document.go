@@ -466,7 +466,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.gotoTextMode(4)
 			saveX := x
 			saveY := y
-			moveY := y + v.Height
+			moveY := y + hlist.Height
 			if hlist.VAlign == node.VAlignTop {
 				moveY = y
 			}
@@ -498,17 +498,17 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 	saveCurOutputDebug := oc.curOutputDebug
 	oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 	oc.curOutputDebug = od
-	sumV := bag.ScaledPoint(0)
+	sumY := bag.ScaledPoint(0)
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
 		switch v := vItem.(type) {
 		case *node.HList:
-			shiftDown := y - sumV - v.Height
+			shiftDown := y - sumY - v.Height
 			if v.VAlign == node.VAlignTop {
-				shiftDown = y - sumV
+				shiftDown = y - sumY
 			}
 			oc.outputHorizontalItems(x, shiftDown, v)
-			sumV += v.Height
-			sumV += v.Depth
+			sumY += v.Height
+			sumY += v.Depth
 			if oc.textmode < 3 {
 				oc.gotoTextMode(3)
 			}
@@ -545,7 +545,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 
 			// Let's assume that the glue ratio has been determined and the
 			// natural width is in v.Width for now.
-			sumV += v.Width
+			sumY += v.Width
 		case *node.Rule:
 			od = &outputDebug{
 				Name: "rule",
@@ -560,8 +560,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 
 			posX := x
-			posY := y - sumV
-			sumV += v.Height + v.Depth
+			posY := y - sumY
+			sumY += v.Height + v.Depth
 			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
 			if v.Pre != "" {
 				pdfinstructions = append(pdfinstructions, v.Pre)
@@ -684,8 +684,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.moveto(-posX, -posY)
 			}
 		case *node.VList:
-			oc.outputVerticalItems(x, y-sumV, v)
-			sumV += v.Height + v.Depth
+			oc.outputVerticalItems(x, y-sumY, v)
+			sumY += v.Height + v.Depth
 		default:
 			bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)
 		}
@@ -914,7 +914,6 @@ type PDFDocument struct {
 	Title                string
 	Author               string
 	Creator              string
-	producer             string
 	Keywords             string
 	Subject              string
 	Spotcolors           []*color.Color
@@ -923,6 +922,7 @@ type PDFDocument struct {
 	RootStructureElement *StructureElement
 	ColorProfile         *ColorProfile
 	CompressLevel        uint
+	producer             string
 	tracing              VTrace
 	outputDebug          *outputDebug
 	curOutputDebug       *outputDebug
