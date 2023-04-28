@@ -127,7 +127,7 @@ func (pd *Object) Circle(x, y, radiusX, radiusY bag.ScaledPoint) *Object {
 	return pd
 }
 
-// Rect draws a rectangle
+// Rect draws a rectangle.
 func (pd *Object) Rect(x, y, wd, ht bag.ScaledPoint) *Object {
 	pd.pdfstring = append(pd.pdfstring, fmt.Sprintf("%s %s %s %s re", x, y, wd, ht))
 	return pd
@@ -145,19 +145,19 @@ func (pd *Object) Restore() *Object {
 	return pd
 }
 
-// Fill fills the current object
+// Fill fills the current object.
 func (pd *Object) Fill() *Object {
 	pd.pdfstring = append(pd.pdfstring, "f")
 	return pd
 }
 
-// Stroke paints the current object without filling it
+// Stroke paints the current object without filling it.
 func (pd *Object) Stroke() *Object {
 	pd.pdfstring = append(pd.pdfstring, "S")
 	return pd
 }
 
-// StrokeFill paints the current object and fills it
+// StrokeFill paints the current object and fills it.
 func (pd *Object) StrokeFill() *Object {
 	pd.pdfstring = append(pd.pdfstring, "B")
 	return pd

@@ -13,14 +13,15 @@ import (
 
 // Document holds convenience functions.
 type Document struct {
-	FontFamilies    map[string]*FontFamily
-	Doc             *document.PDFDocument
-	DefaultFeatures []harfbuzz.Feature
-	FindFile        func(string) string
-	usedcolors      map[string]*color.Color
-	usedSpotcolors  map[*color.Color]bool
-	usedFonts       map[*pdf.Face]map[bag.ScaledPoint]*font.Font
-	dirstack        []string
+	FontFamilies          map[string]*FontFamily
+	Doc                   *document.PDFDocument
+	DefaultFeatures       []harfbuzz.Feature
+	FindFile              func(string) string
+	usedcolors            map[string]*color.Color
+	usedSpotcolors        map[*color.Color]bool
+	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
+	dirstack              []string
+	postLinebreakCallback []PostLinebreakCallbackFunc
 }
 
 func initDocument() *Document {
@@ -42,6 +43,9 @@ func New(filename string) (*Document, error) {
 	}
 	fe := initDocument()
 	fe.Doc = document.NewDocument(w)
+	// if err = fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
+	// 	return nil, err
+	// }
 	fe.Doc.Filename = filename
 	return fe, nil
 }

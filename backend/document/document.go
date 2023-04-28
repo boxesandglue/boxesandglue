@@ -407,7 +407,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.debugAt(posX, y, destname)
 					// oc.gotoTextMode(4)
 				}
-			} else if action == node.ActionNone {
+			} else if action == node.ActionNone || action == node.ActionUserSetting {
 				// ignore
 			} else {
 				bag.Logger.Warnf("start/stop node: unhandled action %s", action)
@@ -423,8 +423,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			case node.PDFOutputLowerLeft:
 				oc.gotoTextMode(4)
 			}
-			if v.Callback != nil {
-				fmt.Fprint(oc.s, v.Callback(v))
+			if v.ShipoutCallback != nil {
+				fmt.Fprint(oc.s, v.ShipoutCallback(v))
 			}
 			switch v.Position {
 			case node.PDFOutputHere:
@@ -676,8 +676,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			case node.PDFOutputLowerLeft:
 				oc.gotoTextMode(4)
 			}
-			if v.Callback != nil {
-				fmt.Fprint(oc.s, v.Callback(v))
+			if v.ShipoutCallback != nil {
+				fmt.Fprint(oc.s, v.ShipoutCallback(v))
 			}
 			switch v.Position {
 			case node.PDFOutputHere:
@@ -728,7 +728,7 @@ func (p *Page) Shipout() {
 
 	pageObjectNumber := p.document.PDFWriter.NextObject()
 	var s strings.Builder
-	if cb := p.document.preShipoutCallback; cb != nil {
+	for _, cb := range p.document.preShipoutCallback {
 		cb(p)
 	}
 	bleedamount := p.document.Bleed
@@ -927,7 +927,7 @@ type PDFDocument struct {
 	outputDebug          *outputDebug
 	curOutputDebug       *outputDebug
 	pdfStructureObjects  []*pdfStructureObject
-	preShipoutCallback   CallbackShipout
+	preShipoutCallback   []CallbackShipout
 	usedPDFImages        map[string]*pdf.Imagefile
 }
 
@@ -1183,6 +1183,6 @@ const (
 func (d *PDFDocument) RegisterCallback(cb Callback, fn any) {
 	switch cb {
 	case CallbackPreShipout:
-		d.preShipoutCallback = fn.(func(page *Page))
+		d.preShipoutCallback = append(d.preShipoutCallback, fn.(func(page *Page)))
 	}
 }

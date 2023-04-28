@@ -123,33 +123,6 @@ func Tail(nl Node) Node {
 	return e
 }
 
-// SetAttribute sets the attribute key on the node n to the value.
-func SetAttribute(n Node, key string, value any) {
-	switch t := n.(type) {
-	case *VList:
-		if t.Attributes == nil {
-			t.Attributes = H{key: value}
-		} else {
-			t.Attributes[key] = value
-		}
-	case *HList:
-		if t.Attributes == nil {
-			t.Attributes = H{key: value}
-		} else {
-			t.Attributes[key] = value
-		}
-	case *Rule:
-		if t.Attributes == nil {
-			t.Attributes = H{key: value}
-		} else {
-			t.Attributes[key] = value
-		}
-	default:
-		panic("not implemented yet")
-	}
-
-}
-
 // CopyList makes a deep copy of the list starting at nl.
 func CopyList(nl Node) Node {
 	if nl == nil {

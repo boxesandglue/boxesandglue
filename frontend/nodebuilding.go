@@ -91,6 +91,20 @@ const (
 	FontStyleOblique
 )
 
+// TextDecorationLine sets the underline type
+type TextDecorationLine int
+
+const (
+	// TextDecorationLineNone means no underline
+	TextDecorationLineNone TextDecorationLine = iota
+	// TextDecorationUnderline is a simple underlining
+	TextDecorationUnderline
+	// TextDecorationOverline has a line above
+	TextDecorationOverline
+	// TextDecorationLineThrough is a strike out
+	TextDecorationLineThrough
+)
+
 const (
 	// SettingDummy is a no op.
 	SettingDummy SettingType = iota
@@ -184,6 +198,8 @@ const (
 	SettingTabSizeSpaces
 	// SettingTabSize is the tab width.
 	SettingTabSize
+	// SettingTextDecorationLine sets underline
+	SettingTextDecorationLine
 	// SettingWidth sets alternative widths for the text.
 	SettingWidth
 	// SettingVAlign sets the vertical alignment. A height should be set.
@@ -285,6 +301,8 @@ func (st SettingType) String() string {
 		settingName = "SettingTabSize"
 	case SettingTabSizeSpaces:
 		settingName = "SettingTabSizeSpaces"
+	case SettingTextDecorationLine:
+		settingName = "SettingTextDecorationLine"
 	case SettingVAlign:
 		settingName = "SettingVAlign"
 	case SettingYOffset:
@@ -459,6 +477,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
 		}
 	}
+
 	if fe, ok := te.Settings[SettingFontExpansion]; ok {
 		if fef, ok := fe.(float64); ok {
 			ls.FontExpansion = fef
@@ -489,7 +508,9 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		ls.LineStartGlue = lg
 	}
 	vlist, info := node.Linebreak(hlist, ls)
-
+	for _, cb := range fe.postLinebreakCallback {
+		vlist = cb(vlist)
+	}
 	if htt, ok := te.Settings[SettingHeight]; ok {
 		if ht, ok := htt.(bag.ScaledPoint); ok {
 			moreHeight := ht - vlist.Height - vlist.Depth
@@ -560,6 +581,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var col *color.Color
 	var hyperlink document.Hyperlink
 	var hasHyperlink bool
+	var hasUnderline bool
 	fontfeatures := make([]harfbuzz.Feature, 0, len(fe.DefaultFeatures))
 	for _, f := range fe.DefaultFeatures {
 		fontfeatures = append(fontfeatures, f)
@@ -592,6 +614,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingHyperlink:
 			hyperlink = v.(document.Hyperlink)
 			hasHyperlink = true
+		case SettingTextDecorationLine:
+			if underlineType, ok := v.(TextDecorationLine); ok && underlineType == TextDecorationUnderline {
+				hasUnderline = true
+			}
 		case SettingFontExpansion:
 			// ignore
 		case SettingStyle:
@@ -666,11 +692,22 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 		head = hyperlinkStart
 	}
-
+	var underlineStart *node.StartStop
+	if hasUnderline {
+		underlineStart = node.NewStartStop()
+		node.SetAttribute(underlineStart, "underline", true)
+		node.SetAttribute(underlineStart, "SettingTextDecorationLine", TextDecorationUnderline)
+		if head != nil {
+			head = node.InsertAfter(head, head, underlineStart)
+		} else {
+			head = underlineStart
+		}
+		underlineStart.Action = node.ActionUserSetting
+	}
 	if col != nil {
 		colStart := node.NewStartStop()
 		colStart.Position = node.PDFOutputPage
-		colStart.Callback = func(n node.Node) string {
+		colStart.ShipoutCallback = func(n node.Node) string {
 			return col.PDFStringNonStroking() + " "
 		}
 		if head != nil {
@@ -770,11 +807,18 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if col != nil {
 		stop := node.NewStartStop()
 		stop.Position = node.PDFOutputPage
-		stop.Callback = func(n node.Node) string {
+		stop.ShipoutCallback = func(n node.Node) string {
 			return "0 0 0 RG 0 0 0 rg "
 		}
 		node.InsertAfter(head, cur, stop)
 		cur = stop
+	}
+	if hasUnderline {
+		underlineStop := node.NewStartStop()
+		underlineStop.StartNode = underlineStart
+		node.SetAttribute(underlineStop, "underline", false)
+		head = node.InsertAfter(head, cur, underlineStop)
+		cur = underlineStop
 	}
 	if hasHyperlink {
 		hyperlinkStop = node.NewStartStop()
@@ -816,6 +860,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			if err != nil {
 				return nil, nil, err
 			}
+
 			if nl != nil {
 				if pr, ok := ts.Settings[SettingPaddingRight]; ok {
 					paddingRight := pr.(bag.ScaledPoint)

@@ -214,7 +214,7 @@ type Disc struct {
 }
 
 func (d *Disc) String() string {
-	return "disc"
+	return String(d)
 }
 
 // NewDisc creates an initialized Disc node
@@ -484,7 +484,7 @@ type HList struct {
 }
 
 func (h *HList) String() string {
-	return "hlist"
+	return String(h)
 }
 
 // Next returns the following node or nil if no such node exists.
@@ -775,7 +775,7 @@ type Rule struct {
 }
 
 func (r *Rule) String() string {
-	return "rule"
+	return String(r)
 }
 
 // Next returns the following node or nil if no such node exists.
@@ -864,6 +864,8 @@ const (
 	ActionHyperlink
 	// ActionDest insets a PDF destination.
 	ActionDest
+	// ActionUserSetting allows user defined settings.
+	ActionUserSetting
 )
 
 func (at ActionType) String() string {
@@ -874,6 +876,8 @@ func (at ActionType) String() string {
 		return "ActionHyperlink"
 	case ActionDest:
 		return "ActionDest"
+	case ActionUserSetting:
+		return "ActionUserSetting"
 	default:
 		return "other action"
 	}
@@ -887,16 +891,16 @@ type StartStopFunc func(thisnode Node) string
 // such.
 type StartStop struct {
 	basenode
-	Action    ActionType
-	StartNode *StartStop
-	Position  PDFDataOutput
-	Callback  StartStopFunc
+	Action          ActionType
+	StartNode       *StartStop
+	Position        PDFDataOutput
+	ShipoutCallback StartStopFunc
 	// Value contains action specific contents
 	Value any
 }
 
 func (d *StartStop) String() string {
-	return "startstop"
+	return String(d)
 }
 
 // NewStartStop creates an initialized Start node
