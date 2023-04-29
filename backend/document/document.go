@@ -901,27 +901,28 @@ func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
 
 // PDFDocument contains all references to a document
 type PDFDocument struct {
-	Languages            map[string]*lang.Lang
-	Faces                []*pdf.Face
-	DefaultPageWidth     bag.ScaledPoint
-	DefaultPageHeight    bag.ScaledPoint
-	DefaultLanguage      *lang.Lang
-	Pages                []*Page
-	CurrentPage          *Page
-	Filename             string
-	Bleed                bag.ScaledPoint
-	ShowCutmarks         bool
-	Title                string
 	Author               string
-	Creator              string
-	Keywords             string
-	Subject              string
-	Spotcolors           []*color.Color
-	PDFWriter            *pdf.PDF
-	ShowHyperlinks       bool
-	RootStructureElement *StructureElement
+	Bleed                bag.ScaledPoint
 	ColorProfile         *ColorProfile
 	CompressLevel        uint
+	Creator              string
+	CurrentPage          *Page
+	DefaultLanguage      *lang.Lang
+	DefaultPageHeight    bag.ScaledPoint
+	DefaultPageWidth     bag.ScaledPoint
+	Faces                []*pdf.Face
+	Filename             string
+	Keywords             string
+	Languages            map[string]*lang.Lang
+	Pages                []*Page
+	PDFWriter            *pdf.PDF
+	RootStructureElement *StructureElement
+	ShowCutmarks         bool
+	ShowHyperlinks       bool
+	Spotcolors           []*color.Color
+	Subject              string
+	Title                string
+	ViewerPreferences    map[string]string
 	producer             string
 	tracing              VTrace
 	outputDebug          *outputDebug
@@ -937,6 +938,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 		DefaultPageWidth:  bag.MustSp("210mm"),
 		DefaultPageHeight: bag.MustSp("297mm"),
 		Languages:         make(map[string]*lang.Lang),
+		ViewerPreferences: make(map[string]string),
 		PDFWriter:         pdf.NewPDFWriter(w),
 		CompressLevel:     9,
 		producer:          "speedata/boxesandglue",
@@ -1119,7 +1121,7 @@ func (d *PDFDocument) Finish() error {
 		se.Obj.Save()
 
 		d.PDFWriter.Catalog["StructTreeRoot"] = structRoot.ObjectNumber.Ref()
-		d.PDFWriter.Catalog["ViewerPreferences"] = "<< /DisplayDocTitle true >>"
+		d.ViewerPreferences["ViewerPreferences"] = "<< /DisplayDocTitle true >>"
 		d.PDFWriter.Catalog["Lang"] = "(en)"
 		d.PDFWriter.Catalog["MarkInfo"] = `<< /Marked true /Suspects false  >>`
 
@@ -1136,6 +1138,9 @@ func (d *PDFDocument) Finish() error {
 		return err
 	}
 	d.PDFWriter.Catalog["Metadata"] = rdf.ObjectNumber.Ref()
+	for k, v := range d.ViewerPreferences {
+		d.PDFWriter.Catalog[pdf.Name(k)] = v
+	}
 	d.PDFWriter.DefaultPageWidth = d.DefaultPageWidth.ToPT()
 	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight.ToPT()
 
