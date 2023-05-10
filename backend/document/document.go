@@ -993,29 +993,40 @@ func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
 }
 
 // LoadImageFile loads an image file. Images that should be placed in the PDF
-// file must be derived from the file.
+// file must be derived from the file. For PDF files this defaults to the
+// /MediaBox and page 1.
 func (d *PDFDocument) LoadImageFile(filename string) (*pdf.Imagefile, error) {
-	if imgf, ok := d.usedPDFImages[filename]; ok {
+	return d.LoadImageFileWithBox(filename, "/MediaBox", 1)
+}
+
+// LoadImageFileWithBox loads an image file. Images that should be placed in the PDF
+// file must be derived from the file.
+func (d *PDFDocument) LoadImageFileWithBox(filename string, box string, pagenumber int) (*pdf.Imagefile, error) {
+	key := fmt.Sprintf("%s-%s-%d", filename, box, pagenumber)
+	if imgf, ok := d.usedPDFImages[key]; ok {
 		return imgf, nil
 	}
-	imgf, err := pdf.LoadImageFile(d.PDFWriter, filename)
+	imgf, err := pdf.LoadImageFileWithBox(d.PDFWriter, filename, box, pagenumber)
 	if err != nil {
 		return nil, err
 	}
-	d.usedPDFImages[filename] = imgf
+	d.usedPDFImages[key] = imgf
 	return imgf, nil
 }
 
 // CreateImage returns a new Image derived from the image file. The parameter
 // pagenumber is honored only in PDF files.
-func (d *PDFDocument) CreateImage(imgfile *pdf.Imagefile, pagenumber int) *image.Image {
+func (d *PDFDocument) CreateImage(imgfile *pdf.Imagefile, pagenumber int, box string) *image.Image {
 	img := &image.Image{}
 	img.ImageFile = imgfile
 	img.PageNumber = pagenumber
 	switch img.ImageFile.Format {
 	case "pdf":
-		thisPageSizes := imgfile.PageSizes[pagenumber]
-		mb := thisPageSizes["/MediaBox"]
+		mb, err := imgfile.GetPDFBoxDimensions(pagenumber, box)
+		if err != nil {
+			return nil
+		}
+
 		img.Width = bag.ScaledPointFromFloat(mb["w"])
 		img.Height = bag.ScaledPointFromFloat(mb["h"])
 	case "jpeg", "png":

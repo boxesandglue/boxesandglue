@@ -76,7 +76,7 @@ func (s ScaledPoint) ToUnit(unit string) (float64, error) {
 	case "m":
 		return round(1.0 / 100 * 2.54 / 72), nil
 	case "px":
-		return round(1.0 / 96 * 72), nil
+		return round(1.0 / 72 * 96), nil
 	case "pc":
 		return round(1.0 / 12), nil
 	default:
