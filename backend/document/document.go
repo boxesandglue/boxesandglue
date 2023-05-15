@@ -1015,7 +1015,8 @@ func (d *PDFDocument) LoadImageFileWithBox(filename string, box string, pagenumb
 }
 
 // CreateImage returns a new Image derived from the image file. The parameter
-// pagenumber is honored only in PDF files.
+// pagenumber is honored only in PDF files. The Box is one of "/MediaBox", "/CropBox",
+// "/TrimBox", "/BleedBox" or "/ArtBox"
 func (d *PDFDocument) CreateImage(imgfile *pdf.Imagefile, pagenumber int, box string) *image.Image {
 	img := &image.Image{}
 	img.ImageFile = imgfile

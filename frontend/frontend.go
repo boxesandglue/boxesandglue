@@ -43,9 +43,9 @@ func New(filename string) (*Document, error) {
 	}
 	fe := initDocument()
 	fe.Doc = document.NewDocument(w)
-	// if err = fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
-	// 	return nil, err
-	// }
+	if err = fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
+		return nil, err
+	}
 	fe.Doc.Filename = filename
 	return fe, nil
 }

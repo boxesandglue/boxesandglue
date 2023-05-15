@@ -140,11 +140,11 @@ func CopyList(nl Node) Node {
 	return copied
 }
 
-// Dimensions returns the width of the node list starting at n. If horizontal is
-// true, then calculate in horizontal mode, otherwise in vertical mode.
-func Dimensions(n Node, dir Direction) bag.ScaledPoint {
+// Dimensions returns the width of the node list starting at n. If dir is
+// Horizontal, then calculate in horizontal mode, otherwise in vertical mode.
+func Dimensions(start Node, stop Node, dir Direction) bag.ScaledPoint {
 	var sumwd bag.ScaledPoint
-	for e := n; e != nil; e = e.Next() {
+	for e := start; e != stop; e = e.Next() {
 		sumwd += getWidth(e, dir)
 	}
 	return sumwd

@@ -696,6 +696,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if hasUnderline {
 		underlineStart = node.NewStartStop()
 		node.SetAttribute(underlineStart, "underline", true)
+		node.SetAttribute(underlineStart, "underlinepos", -fontsize/6)
+		node.SetAttribute(underlineStart, "underlinelw", fontsize/20)
 		node.SetAttribute(underlineStart, "SettingTextDecorationLine", TextDecorationUnderline)
 		if head != nil {
 			head = node.InsertAfter(head, head, underlineStart)

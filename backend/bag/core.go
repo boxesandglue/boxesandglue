@@ -122,7 +122,7 @@ func Sp(unit string) (ScaledPoint, error) {
 		return ScaledPoint(l * 100 / 2.54 * 72 * float64(Factor)), nil
 	case "px":
 		// 1/96th of an inch
-		return ScaledPoint(l * 96 / 72 * float64(Factor)), nil
+		return ScaledPoint(l * 72 / 96 * float64(Factor)), nil
 	case "pc":
 		// pica, 12pt
 		return ScaledPoint(l * 12 * float64(Factor)), nil

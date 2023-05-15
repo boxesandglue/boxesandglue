@@ -108,7 +108,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 		thisLineWidth += t.Width
 	case *Disc:
 		if !lb.settings.HangingPunctuationEnd {
-			thisLineWidth += Dimensions(t.Pre, Horizontal)
+			thisLineWidth += Dimensions(t.Pre, nil, Horizontal)
 		}
 	case *Glue:
 		if lb.settings.HangingPunctuationEnd {

@@ -1,10 +1,10 @@
 package node
 
-func getAttribute(a H, attr string) any {
+func getAttribute(a H, attr string) (any, bool) {
 	if a == nil {
-		return nil
+		return nil, false
 	}
-	return a[attr]
+	return a[attr], true
 }
 
 func setAttribute(a H, attr string, value any) H {
@@ -15,9 +15,9 @@ func setAttribute(a H, attr string, value any) H {
 	return a
 }
 
-// GetAttribute returns the value of the attribute attr or nil if the attribute
-// does not exist.
-func GetAttribute(n Node, attr string) any {
+// GetAttribute returns the value of the attribute attr and true or nil and
+// false if the attribute does not exist.
+func GetAttribute(n Node, attr string) (any, bool) {
 	switch t := n.(type) {
 	case *Disc:
 		return getAttribute(t.Attributes, attr)
@@ -42,7 +42,7 @@ func GetAttribute(n Node, attr string) any {
 	case *VList:
 		return getAttribute(t.Attributes, attr)
 	}
-	return nil
+	return nil, false
 }
 
 // SetAttribute sets the attribute attr on the node n.
