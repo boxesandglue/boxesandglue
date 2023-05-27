@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/css/scanner"
 	"golang.org/x/net/html"
@@ -45,15 +44,15 @@ type Page struct {
 type CSS struct {
 	FrontendDocument *frontend.Document
 	Dirstack         []string
-	document         *goquery.Document
-	Stylesheet       []SBlock
-	Pages            map[string]Page
+	// document         *goquery.Document
+	Stylesheet []SBlock
+	Pages      map[string]Page
 }
 
 // CSSdefaults contains browser-like styling of some elements.
 var CSSdefaults = `
-html            { font-size: 10pt; }
-li              { display: list-item; padding-inline-start: 40pt; }
+html            { font-size: 10pt; tab-size: 4; }
+li              { display: list-item; padding-inline-start: 1.5em; }
 head            { display: none }
 table           { display: table }
 tr              { display: table-row }
@@ -64,15 +63,15 @@ td, th          { display: table-cell }
 caption         { display: table-caption }
 th              { font-weight: bold; text-align: center }
 caption         { text-align: center }
-body            { margin: 0pt; font-family: sans-serif; line-height: 1.2; hyphens: auto; font-weight: normal; }
-h1              { font-size: 2em; margin: .67em 0 }
+body            { margin: 0pt; font-family: serif; line-height: 1.2; hyphens: auto; font-weight: normal; }
+h1              { font-size: 2em; margin:  .67em 0 }
 h2              { font-size: 1.5em; margin: .75em 0 }
 h3              { font-size: 1.17em; margin: .83em 0 }
 h4, p,
 blockquote, ul,
 fieldset, form,
 ol, dl, dir,
-h5              { font-size: 1em; margin: 1.5em 0 }
+h5              { font-size: 1em; margin: 1.5em 0; text-align: left; }
 h6              { font-size: .75em; margin: 1.67em 0 }
 h1, h2, h3, h4,
 h5, h6, b,
@@ -81,7 +80,7 @@ blockquote      { margin-left: 40px; margin-right: 40px }
 i, cite, em,
 var, address    { font-style: italic }
 pre, tt, code,
-kbd, samp       { font-family: monospace }
+kbd, samp       { font-family: monospace; -bag-font-expansion: 0%;}
 pre             { white-space: pre; margin: 1em 0px; }
 button, textarea,
 input, select   { display: inline-block }

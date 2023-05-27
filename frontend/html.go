@@ -56,7 +56,7 @@ func (hv HTMLValues) hasBorder() bool {
 		hv.BorderRightWidth > 0 && hv.BorderRightStyle != BorderStyleNone
 }
 
-func (d *Document) SettingsToValues(s TypesettingSettings) HTMLValues {
+func SettingsToValues(s TypesettingSettings) HTMLValues {
 	hv := HTMLValues{}
 	if c, ok := s[SettingBackgroundColor]; ok {
 		hv.BackgroundColor = c.(*color.Color)

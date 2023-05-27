@@ -12,12 +12,12 @@ github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/speedata/baseline-pdf v0.0.0-20230510191409-e05e171c99fc h1:XEMzStfMWI8GxHOSP1NgyTKwmHPeIB7aVACH74SCiWc=
-github.com/speedata/baseline-pdf v0.0.0-20230510191409-e05e171c99fc/go.mod h1:S7OBtdZZln12UGiJ22UfEiD0Wl69JA8pZIdkoPSOf6M=
+github.com/speedata/baseline-pdf v0.0.0-20230527120200-e17855713853 h1:wUE2FL1y47NURRwoL8AFHB+ASTmIt+BCgXaQdbBndtg=
+github.com/speedata/baseline-pdf v0.0.0-20230527120200-e17855713853/go.mod h1:qyTq23TPJtxQAXEy2YNP9kEPi+Xp9Js4sUCjc1W28dA=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553 h1:L9Sqi5S7G4JjODI5tZZ1IzZ7Yb4s71xFOq/uZtLv1Wg=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553/go.mod h1:uF4+EGySaBnGeZpXZ0boh/oR6P0vNiYfQ2MAJXCU9hE=
-github.com/speedata/gofpdi v1.0.17 h1:5F4RD3qtfZ/ugqLXfqy7oREFY5JjzmItp3zLWI+z9n4=
-github.com/speedata/gofpdi v1.0.17/go.mod h1:aRZ6VjhFbzJWwCoHeKOdbUjImuf4GMVCJpwS9+bCYuM=
+github.com/speedata/gofpdi v1.0.18 h1:LEiIN62ckZcA4n8AtBu16M2P2fBK3OnwpTGDfe13v/4=
+github.com/speedata/gofpdi v1.0.18/go.mod h1:aRZ6VjhFbzJWwCoHeKOdbUjImuf4GMVCJpwS9+bCYuM=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
 github.com/speedata/hyphenation v1.0.1/go.mod h1:vwrKKvBvJWFll0sVZw99hyWS/+r4YlMI7MAYjnje0nM=
 github.com/speedata/optionparser v1.0.1 h1:sWevh2SwW2FnLI3S/LNKQBTaArQi+jhi+tPmuoxm2mY=

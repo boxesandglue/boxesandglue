@@ -14,6 +14,8 @@ import (
 	"github.com/speedata/textlayout/harfbuzz"
 )
 
+type FormatToVList func(bag.ScaledPoint, ...TypesettingOption) (*node.VList, error)
+
 // SettingType represents a setting such as font weight or color.
 type SettingType int
 
@@ -346,60 +348,61 @@ func (ts *Text) String() string {
 	return strings.Join(ret, " ")
 }
 
-type paragraph struct {
-	alignment      HorizontalAlignment
-	fontfamily     *FontFamily
-	fontsize       bag.ScaledPoint
+type Options struct {
+	Alignment      HorizontalAlignment
+	Fontfamily     *FontFamily
+	Fontsize       bag.ScaledPoint
 	hsize          bag.ScaledPoint
-	indentLeft     bag.ScaledPoint
-	indentLeftRows int
-	language       *lang.Lang
-	leading        bag.ScaledPoint
+	IndentLeft     bag.ScaledPoint
+	IndentLeftRows int
+	Language       *lang.Lang
+	Leading        bag.ScaledPoint
 }
 
 // TypesettingOption controls the formatting of the paragraph.
-type TypesettingOption func(*paragraph)
+type TypesettingOption func(*Options)
 
 // Leading sets the distance between two baselines in a paragraph.
 func Leading(leading bag.ScaledPoint) TypesettingOption {
-	return func(p *paragraph) {
-		p.leading = leading
+	return func(p *Options) {
+		p.Leading = leading
 	}
 }
 
-// Language sets the default language for the whole paragraph (used for hyphenation).
+// Language sets the default language for the whole paragraph (used for
+// hyphenation).
 func Language(language *lang.Lang) TypesettingOption {
-	return func(p *paragraph) {
-		p.language = language
+	return func(p *Options) {
+		p.Language = language
 	}
 }
 
 // FontSize sets the font size for the paragraph.
 func FontSize(size bag.ScaledPoint) TypesettingOption {
-	return func(p *paragraph) {
-		p.fontsize = size
+	return func(p *Options) {
+		p.Fontsize = size
 	}
 }
 
 // IndentLeft sets the left indent.
 func IndentLeft(size bag.ScaledPoint, rows int) TypesettingOption {
-	return func(p *paragraph) {
-		p.indentLeft = size
-		p.indentLeftRows = rows
+	return func(p *Options) {
+		p.IndentLeft = size
+		p.IndentLeftRows = rows
 	}
 }
 
 // Family sets the font family for the paragraph.
 func Family(fam *FontFamily) TypesettingOption {
-	return func(p *paragraph) {
-		p.fontfamily = fam
+	return func(p *Options) {
+		p.Fontfamily = fam
 	}
 }
 
 // HorizontalAlign sets the horizontal alignment for a paragraph.
 func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
-	return func(p *paragraph) {
-		p.alignment = a
+	return func(p *Options) {
+		p.Alignment = a
 	}
 }
 
@@ -411,25 +414,25 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
 		return node.Vpack(g), nil, nil
 	}
-	p := &paragraph{
-		language: fe.Doc.DefaultLanguage,
+	p := &Options{
+		Language: fe.Doc.DefaultLanguage,
 		hsize:    hsize,
 	}
 	if ha, ok := te.Settings[SettingHAlign]; ok {
 		if ha != nil {
-			p.alignment = ha.(HorizontalAlignment)
+			p.Alignment = ha.(HorizontalAlignment)
 		} else {
-			p.alignment = HAlignDefault
+			p.Alignment = HAlignDefault
 		}
 	}
 	for _, opt := range opts {
 		opt(p)
 	}
-	if p.fontsize != 0 {
-		te.Settings[SettingSize] = p.fontsize
+	if p.Fontsize != 0 {
+		te.Settings[SettingSize] = p.Fontsize
 	}
-	if p.fontfamily != nil {
-		te.Settings[SettingFontFamily] = p.fontfamily
+	if p.Fontfamily != nil {
+		te.Settings[SettingFontFamily] = p.Fontfamily
 	}
 	if len(te.Items) > 0 {
 		if tbl, ok := te.Items[0].(*Table); ok {
@@ -464,13 +467,13 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		return node.Vpack(hlist), nil, nil
 	}
 
-	Hyphenate(hlist, p.language)
+	Hyphenate(hlist, p.Language)
 	node.AppendLineEndAfter(hlist, tail)
 
 	ls := node.NewLinebreakSettings()
 	ls.HSize = p.hsize
-	ls.Indent = p.indentLeft
-	ls.IndentRows = p.indentLeftRows
+	ls.Indent = p.IndentLeft
+	ls.IndentRows = p.IndentLeftRows
 	ls.Tolerance = 4
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
@@ -484,23 +487,23 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		}
 	}
 
-	if p.leading == 0 {
+	if p.Leading == 0 {
 		if l, ok := te.Settings[SettingLeading]; ok {
 			ls.LineHeight = l.(bag.ScaledPoint)
 		} else {
-			ls.LineHeight = p.fontsize * 120 / 100
+			ls.LineHeight = p.Fontsize * 120 / 100
 		}
 	} else {
-		ls.LineHeight = p.leading
+		ls.LineHeight = p.Leading
 	}
-	if p.alignment == HAlignLeft || p.alignment == HAlignCenter {
+	if p.Alignment == HAlignLeft || p.Alignment == HAlignCenter {
 		lg := node.NewGlue()
 		lg.Stretch = bag.Factor
 		lg.StretchOrder = 3
 		lg.Subtype = node.GlueLineEnd
 		ls.LineEndGlue = lg
 	}
-	if p.alignment == HAlignRight || p.alignment == HAlignCenter {
+	if p.Alignment == HAlignRight || p.Alignment == HAlignCenter {
 		lg := node.NewGlue()
 		lg.Stretch = bag.Factor
 		lg.StretchOrder = 3

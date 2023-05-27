@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
 )
 
 // OpenHTMLFile opens an HTML file
@@ -18,12 +19,12 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 		return nil, err
 	}
 	defer r.Close()
-	c.document, err = goquery.NewDocumentFromReader(r)
+	doc, err := goquery.NewDocumentFromReader(r)
 	if err != nil {
 		return nil, err
 	}
 	var errcond error
-	c.document.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
+	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
 			block, err := c.ParseCSSFile(stylesheetfile)
 			if err != nil {
@@ -37,35 +38,36 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 		return nil, errcond
 	}
 	c.processAtRules()
-	_, err = c.ApplyCSS()
+	_, err = c.ApplyCSS(doc)
 	if err != nil {
 		return nil, err
 	}
-	return c.document, nil
+	return doc, nil
 }
 
 // ParseHTMLFragment takes the HTML text and the CSS text and returns goquery selection.
-func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*goquery.Selection, error) {
+func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*html.Node, error) {
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(csstext), false))
-	err := c.ReadHTMLChunk(htmltext)
+	doc, err := c.ReadHTMLChunk(htmltext)
 	if err != nil {
 		return nil, err
 	}
-	return c.ApplyCSS()
+	return c.ApplyCSS(doc)
 }
 
 // ReadHTMLChunk reads the HTML text. If there are linked style sheets (<link
-// href=...) these are also read. After reading the HTML and CSS the
-func (c *CSS) ReadHTMLChunk(htmltext string) error {
+// href=...) these are also read. After reading the HTML and CSS the HTML is
+// stored in c.document.
+func (c *CSS) ReadHTMLChunk(htmltext string) (*goquery.Document, error) {
 	var err error
 	r := strings.NewReader(htmltext)
-	c.document, err = goquery.NewDocumentFromReader(r)
+	doc, err := goquery.NewDocumentFromReader(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var errcond error
-	c.document.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
+	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
 			block, err := c.ParseCSSFile(stylesheetfile)
 			if err != nil {
@@ -75,7 +77,7 @@ func (c *CSS) ReadHTMLChunk(htmltext string) error {
 			c.Stylesheet = append(c.Stylesheet, parsedStyles)
 		}
 	})
-	return errcond
+	return doc, errcond
 }
 
 // AddCSSText parses CSS text and saves the rules for later.

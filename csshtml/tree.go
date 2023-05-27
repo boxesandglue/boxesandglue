@@ -298,7 +298,9 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 			}
 			resolved["font-style"] = fontstyle
 			resolved["font-weight"] = fontweight
-		// font-stretch: ultra-condensed; extra-condensed; condensed; semi-condensed; normal; semi-expanded; expanded; extra-expanded; ultra-expanded;
+		// font-stretch: ultra-condensed; extra-condensed; condensed;
+		// semi-condensed; normal; semi-expanded; expanded; extra-expanded;
+		// ultra-expanded;
 		case "text-decoration":
 			for _, part := range strings.Split(attr.Val, " ") {
 				if part == "none" || part == "underline" || part == "overline" || part == "line-through" {
@@ -309,7 +311,9 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 			}
 
 		case "background":
-			// background-clip, background-color, background-image, background-origin, background-position, background-repeat, background-size, and background-attachment
+			// background-clip, background-color, background-image,
+			// background-origin, background-position, background-repeat,
+			// background-size, and background-attachment
 			for _, part := range strings.Split(attr.Val, " ") {
 				resolved["background-color"] = part
 			}
@@ -323,8 +327,10 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 	return
 }
 
-// ApplyCSS resolves CSS rules in the DOM.
-func (c *CSS) ApplyCSS() (*goquery.Selection, error) {
+// ApplyCSS resolves CSS rules in the DOM. Each CSS rule is added to the
+// selection as an attribute (prefixed with a !). Pseudo elements are prefixed
+// with ::.
+func (c *CSS) ApplyCSS(doc *goquery.Document) (*html.Node, error) {
 	type selRule struct {
 		selector cascadia.Sel
 		rule     []qrule
@@ -353,11 +359,10 @@ func (c *CSS) ApplyCSS() (*goquery.Selection, error) {
 	}
 	// now sorted by specificity
 	sort.Ints(keys)
-	doc := c.document.Get(0)
 	for _, k := range keys {
 		for _, r := range rules[k] {
 			for _, singlerule := range r.rule {
-				for _, node := range cascadia.QueryAll(doc, r.selector) {
+				for _, node := range cascadia.QueryAll(doc.Get(0), r.selector) {
 					var prefix string
 					if pe := r.selector.PseudoElement(); pe != "" {
 						prefix = pe + "::"
@@ -367,56 +372,10 @@ func (c *CSS) ApplyCSS() (*goquery.Selection, error) {
 			}
 		}
 	}
-	c.document.Each(resolveStyle)
+	doc.Each(resolveStyle)
 	c.processAtRules()
-	return c.document.Find(":root"), nil
-}
-
-func (c *CSS) dumpTree() (*goquery.Selection, error) {
-	type selRule struct {
-		selector cascadia.Sel
-		rule     []qrule
-	}
-
-	rules := map[int][]selRule{}
-
-	c.document.Each(resolveStyle)
-	for _, stylesheet := range c.Stylesheet {
-		for _, block := range stylesheet.Blocks {
-			selector := block.ComponentValues.String()
-			selectors, err := cascadia.ParseGroupWithPseudoElements(selector)
-			if err != nil {
-				return nil, err
-			}
-			for _, sel := range selectors {
-				selSpecificity := sel.Specificity()
-				s := selSpecificity[0]*100 + selSpecificity[1]*10 + selSpecificity[2]
-				rules[s] = append(rules[s], selRule{selector: sel, rule: block.Rules})
-			}
-		}
-	}
-	// sort map keys
-	keys := make([]int, 0, len(rules))
-	for k := range rules {
-		keys = append(keys, k)
-	}
-	// now sorted by specificity
-	sort.Ints(keys)
-	doc := c.document.Get(0)
-	for _, k := range keys {
-		for _, r := range rules[k] {
-			for _, singlerule := range r.rule {
-				for _, node := range cascadia.QueryAll(doc, r.selector) {
-					var prefix string
-					if pe := r.selector.PseudoElement(); pe != "" {
-						prefix = pe + "::"
-					}
-					node.Attr = append(node.Attr, html.Attribute{Key: "!" + prefix + stringValue(singlerule.Key), Val: stringValue(singlerule.Value)})
-				}
-			}
-		}
-	}
-	return c.document.Find(":root"), nil
+	sel := doc.Find(":root")
+	return sel.Nodes[0], nil
 }
 
 // PapersizeWdHt converts the typ to the width and height. The parameter can be

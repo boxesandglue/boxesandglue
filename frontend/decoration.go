@@ -31,7 +31,7 @@ func postLinebreakHL(n node.Node, st *styles) node.Node {
 		if hl, ok := e.(*node.HList); ok {
 			hl.List = postLinebreakHL(hl.List, st)
 		} else if vl, ok := e.(*node.VList); ok {
-			hl.List = postLinebreakHL(vl.List, st)
+			vl.List = postLinebreakHL(vl.List, st)
 		} else if ss, ok := e.(*node.StartStop); ok {
 			if val, ok := node.GetAttribute(ss, "underline"); ok {
 				if val.(bool) {
