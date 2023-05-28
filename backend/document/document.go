@@ -471,7 +471,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				moveY = y
 			}
 			x += sumX
-			oc.outputVerticalItems(x, moveY, v)
+			oc.outputVerticalItems(x+v.ShiftX, moveY, v)
 			sumX += v.Width
 			x = saveX
 			y = saveY
@@ -684,7 +684,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.moveto(-posX, -posY)
 			}
 		case *node.VList:
-			oc.outputVerticalItems(x, y-sumY, v)
+			oc.outputVerticalItems(x+v.ShiftX, y-sumY, v)
 			sumY += v.Height + v.Depth
 		default:
 			bag.Logger.DPanicf("Shipout: unknown node %T in vertical mode", v)

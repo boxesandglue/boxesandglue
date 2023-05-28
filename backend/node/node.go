@@ -959,7 +959,7 @@ type VList struct {
 	Depth    bag.ScaledPoint
 	GlueSet  float64
 	GlueSign uint8
-	Shift    bag.ScaledPoint
+	ShiftX   bag.ScaledPoint
 	List     Node
 }
 
@@ -1010,7 +1010,7 @@ func (v *VList) Copy() Node {
 	n.Depth = v.Depth
 	n.GlueSet = v.GlueSet
 	n.GlueSign = v.GlueSign
-	n.Shift = v.Shift
+	n.ShiftX = v.ShiftX
 	n.List = CopyList(v.List)
 	return n
 }

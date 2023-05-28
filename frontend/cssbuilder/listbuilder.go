@@ -18,27 +18,11 @@ func (cb *CSSBuilder) CreateVlist(te *frontend.Text, wd bag.ScaledPoint) (*node.
 	for _, n := range cb.pagebox {
 		switch t := n.(type) {
 		case *node.StartStop:
-			// ignore now
-			// // start node
-			// tAttribs := t.Attributes
-			// if _, ok := tAttribs["pagebreak"]; ok {
-			// 	if err := cb.NewPage(); err != nil {
-			// 		return err
-			// 	}
-			// }
-			// hv := tAttribs["hv"].(frontend.HTMLValues)
-			// height := tAttribs["height"].(bag.ScaledPoint)
-			// hsize := tAttribs["hsize"].(bag.ScaledPoint)
-			// y := tAttribs["y"].(bag.ScaledPoint)
-			// x := tAttribs["x"].(bag.ScaledPoint)
-
-			// vl := node.NewVList()
-			// vl.Width = hsize
-			// vl.Height = height
-			// vl = cb.frontend.HTMLBorder(vl, hv)
-			// cb.frontend.Doc.CurrentPage.OutputAt(x, y, vl)
-
+			// ignore for now - should be used for frames
 		case *node.VList:
+			if xattr, ok := t.Attributes["x"].(bag.ScaledPoint); ok {
+				t.ShiftX = xattr
+			}
 			list = node.InsertAfter(list, node.Tail(list), t)
 		}
 	}
