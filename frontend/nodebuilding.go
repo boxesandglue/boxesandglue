@@ -14,6 +14,8 @@ import (
 	"github.com/speedata/textlayout/harfbuzz"
 )
 
+// FormatToVList is a function that gets collects typesetting material and gets
+// executed when the hsize is known.
 type FormatToVList func(bag.ScaledPoint, ...TypesettingOption) (*node.VList, error)
 
 // SettingType represents a setting such as font weight or color.
@@ -348,6 +350,7 @@ func (ts *Text) String() string {
 	return strings.Join(ret, " ")
 }
 
+// Options collects the TypesettingOption for FormatParagraph.
 type Options struct {
 	Alignment      HorizontalAlignment
 	Fontfamily     *FontFamily

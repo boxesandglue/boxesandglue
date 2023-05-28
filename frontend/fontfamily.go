@@ -82,7 +82,10 @@ type FontFamily struct {
 }
 
 // AddMember adds a member to the font family.
-func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) {
+func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) error {
+	if fontsource == nil {
+		return fmt.Errorf("Font source is nil")
+	}
 	if ff.familyMember == nil {
 		ff.familyMember = make(map[FontWeight]map[FontStyle]*FontSource)
 	}
@@ -90,6 +93,7 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 		ff.familyMember[weight] = make(map[FontStyle]*FontSource)
 	}
 	ff.familyMember[weight][style] = fontsource
+	return nil
 }
 
 // GetFontSource tries to get the face closest to the requested face.
@@ -155,6 +159,11 @@ found:
 	if ff := ffMemberWeight[style]; ff != nil {
 		return ff, nil
 	}
+	keys := []string{}
+	for k := range ffMemberWeight {
+		keys = append(keys, k.String())
+	}
+	bag.Logger.Warnf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", "))
 	// fallback to normal
 	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
 		return ff, nil

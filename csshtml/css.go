@@ -352,7 +352,11 @@ func (c *CSS) doFontFace(ff []qrule) {
 	if fam == nil {
 		fam = c.FrontendDocument.NewFontFamily(fontfamily)
 	}
-	fam.AddMember(&fontsource, fontweight, fontstyle)
+	err := fam.AddMember(&fontsource, fontweight, fontstyle)
+	if err != nil {
+		// TODO: better error handling
+		fmt.Println(err)
+	}
 }
 
 func (c *CSS) doPage(block *SBlock) {

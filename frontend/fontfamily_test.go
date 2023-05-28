@@ -7,7 +7,10 @@ import (
 func Test(t *testing.T) {
 	f := &FontSource{}
 	ff := &FontFamily{}
-	ff.AddMember(f, FontWeight400, FontStyleNormal)
+	err := ff.AddMember(f, FontWeight400, FontStyleNormal)
+	if err != nil {
+		t.Errorf(err.Error())
+	}
 	nf, err := ff.GetFontSource(FontWeight400, FontStyleNormal)
 	if err != nil {
 		t.Errorf(err.Error())
