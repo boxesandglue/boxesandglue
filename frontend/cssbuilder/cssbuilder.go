@@ -4,12 +4,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/csshtml"
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 	"github.com/speedata/boxesandglue/htmlstyle"
+	"golang.org/x/net/html"
 )
 
 var onecm = bag.MustSp("1cm")
@@ -31,7 +33,6 @@ func New(fd *frontend.Document, c *csshtml.CSS) *CSSBuilder {
 		stylesStack: make(htmlstyle.StylesStack, 0),
 		pagebox:     []node.Node{},
 	}
-	cb.css.Stylesheet = append(cb.css.Stylesheet, csshtml.ConsumeBlock(csshtml.ParseCSSString(csshtml.CSSdefaults), false))
 	cb.css.FrontendDocument = fd
 
 	return &cb
@@ -223,6 +224,21 @@ func (cb *CSSBuilder) NewPage() error {
 	cb.frontend.Doc.CurrentPage.Shipout()
 	cb.frontend.Doc.NewPage()
 	return nil
+}
+
+// ParseHTMLFromNode interprets the HTML string and applies all previously read CSS data.
+func (cb *CSSBuilder) ParseHTMLFromNode(input *html.Node) (*frontend.Text, error) {
+	doc := goquery.NewDocumentFromNode(input)
+	sel, err := cb.css.ApplyCSS(doc)
+	if err != nil {
+		return nil, err
+	}
+	var te *frontend.Text
+	if te, err = htmlstyle.ParseSelection(sel, cb.stylesStack, cb.frontend); err != nil {
+		return nil, err
+	}
+
+	return te, nil
 }
 
 // ParseHTML interprets the HTML string and applies all previously read CSS data.

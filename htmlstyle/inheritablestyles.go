@@ -61,7 +61,7 @@ func ParseRelativeSize(fs string, cur bag.ScaledPoint, root bag.ScaledPoint) bag
 	}
 	if strings.HasSuffix(fs, "rem") {
 		if root == 0 {
-			bag.Logger.Warn("Calculating an rem size without a body font size results in a size of 0.")
+			bag.Logger.Warn("Calculating an rem size without a root font size results in a size of 0.")
 			return 0
 		}
 
@@ -348,13 +348,15 @@ func (is *FormattingStyles) Clone() *FormattingStyles {
 	}
 	newis := &FormattingStyles{
 		color:              is.color,
+		DefaultFontSize:    is.DefaultFontSize,
+		DefaultFontFamily:  is.DefaultFontFamily,
+		fontexpansion:      is.fontexpansion,
 		fontfamily:         is.fontfamily,
 		fontfeatures:       newFeatures,
 		Fontsize:           is.Fontsize,
 		fontstyle:          is.fontstyle,
 		fontweight:         is.fontweight,
 		hangingPunctuation: is.hangingPunctuation,
-		fontexpansion:      is.fontexpansion,
 		language:           is.language,
 		lineheight:         is.lineheight,
 		ListStyleType:      is.ListStyleType,
