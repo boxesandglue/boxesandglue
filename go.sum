@@ -12,8 +12,8 @@ github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/speedata/baseline-pdf v0.0.0-20230527120200-e17855713853 h1:wUE2FL1y47NURRwoL8AFHB+ASTmIt+BCgXaQdbBndtg=
-github.com/speedata/baseline-pdf v0.0.0-20230527120200-e17855713853/go.mod h1:qyTq23TPJtxQAXEy2YNP9kEPi+Xp9Js4sUCjc1W28dA=
+github.com/speedata/baseline-pdf v0.0.0-20230609193849-56486ebf08c8 h1:wyyTDi8ln3wXaPyXF7+LoKYZu1CPWtHrd1q4T/oFIsg=
+github.com/speedata/baseline-pdf v0.0.0-20230609193849-56486ebf08c8/go.mod h1:qyTq23TPJtxQAXEy2YNP9kEPi+Xp9Js4sUCjc1W28dA=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553 h1:L9Sqi5S7G4JjODI5tZZ1IzZ7Yb4s71xFOq/uZtLv1Wg=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553/go.mod h1:uF4+EGySaBnGeZpXZ0boh/oR6P0vNiYfQ2MAJXCU9hE=
 github.com/speedata/gofpdi v1.0.18 h1:LEiIN62ckZcA4n8AtBu16M2P2fBK3OnwpTGDfe13v/4=
