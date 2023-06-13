@@ -52,7 +52,7 @@ type CSS struct {
 // CSSdefaults contains browser-like styling of some elements.
 var CSSdefaults = `
 html            { font-size: 10pt; tab-size: 4; }
-li              { display: list-item; padding-inline-start: 1.5em; }
+li              { display: list-item; padding-left: 0; }
 head            { display: none }
 table           { display: table }
 tr              { display: table-row }

@@ -1,7 +1,10 @@
 package frontend
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
+	"os"
 	"strings"
 
 	pdf "github.com/speedata/baseline-pdf"
@@ -335,6 +338,119 @@ func NewText() *Text {
 	te := Text{}
 	te.Settings = make(TypesettingSettings)
 	return &te
+}
+
+// DebugTextToFile writes an XML representation of the Text to the filename. It
+// overwrites the file if it already exists.
+func DebugTextToFile(filename string, ts *Text) error {
+	w, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	enc := xml.NewEncoder(w)
+	enc.Indent("", "  ")
+	debugText(ts, enc)
+	enc.Flush()
+	return w.Close()
+}
+
+// DebugText writes an XML representation of the Text structure to stdout.
+func DebugText(ts *Text) {
+	w := new(bytes.Buffer)
+	enc := xml.NewEncoder(w)
+	enc.Indent("", "  ")
+	debugText(ts, enc)
+	enc.Flush()
+	w.WriteString("\n")
+	w.WriteTo(os.Stdout)
+}
+
+func debugText(ts *Text, enc *xml.Encoder) {
+	var err error
+	start := xml.StartElement{}
+	start.Name = xml.Name{Local: "text"}
+	if dbg, ok := ts.Settings[SettingDebug]; ok {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "debug"}, Value: fmt.Sprint(dbg)})
+	}
+	for k, v := range ts.Settings {
+		showSetting := true
+		switch t := v.(type) {
+		case int:
+			if t == 0 {
+				showSetting = false
+			}
+		case []string:
+			if len(t) == 0 {
+				showSetting = false
+			}
+		case uint:
+			if t == 0 {
+				showSetting = false
+			}
+		case bag.ScaledPoint:
+			if t == 0 {
+				showSetting = false
+			}
+		case *color.Color:
+			if t == nil {
+				showSetting = false
+			}
+		case BorderStyle:
+			if t == 0 {
+				showSetting = false
+			}
+		case TextDecorationLine:
+			if t == 0 {
+				showSetting = false
+			}
+		case HangingPunctuation:
+			if t == 0 {
+				showSetting = false
+			}
+		case FontWeight:
+			if t == 0 {
+				showSetting = false
+			}
+		case *FontFamily:
+			if t == nil {
+				showSetting = false
+			} else {
+				v = t.Name
+			}
+		}
+		if k == SettingPrepend {
+			v = node.StringValue(v.(node.Node))
+		} else if k == SettingPreserveWhitespace {
+			if v == false {
+				showSetting = false
+			}
+		} else if k == SettingTabSizeSpaces {
+			if v == 4 {
+				showSetting = false
+			}
+		} else if k == SettingDebug {
+			showSetting = false
+		}
+		if showSetting {
+			start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: strings.TrimPrefix(fmt.Sprint(k), "Setting")}, Value: fmt.Sprint(v)})
+		}
+	}
+	if err = enc.EncodeToken(start); err != nil {
+		panic(err)
+	}
+	for _, itm := range ts.Items {
+		switch t := itm.(type) {
+		case *Text:
+			debugText(t, enc)
+		case string:
+			enc.EncodeToken(xml.CharData(t))
+		default:
+			panic(fmt.Sprintf("unknown type %T", t))
+		}
+	}
+	if err = enc.EncodeToken(start.End()); err != nil {
+		panic(err)
+	}
 }
 
 func (ts *Text) String() string {

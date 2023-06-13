@@ -60,6 +60,24 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 	if bx, ok := te.Settings[frontend.SettingBox]; ok && bx.(bool) {
 		// a box, containing one or more item (a div for example)
 		marginBottom := bag.ScaledPoint(0)
+
+		if prepend, ok := te.Settings[frontend.SettingPrepend]; ok {
+			if p, ok := prepend.(node.Node); ok {
+				g := node.NewGlue()
+				g.Stretch = bag.Factor
+				g.Shrink = bag.Factor
+				g.StretchOrder = node.StretchFil
+				g.ShrinkOrder = node.StretchFil
+				p = node.InsertBefore(p, p, g)
+				p = node.HpackTo(p, 0)
+				p.(*node.HList).Depth = 0
+				vl := node.Vpack(p)
+				vl.Height = 0
+				vl.Attributes = node.H{"y": y, "x": x, "origin": "v prepend in HTML mode"}
+				cb.pagebox = append(cb.pagebox, vl)
+			}
+		}
+
 		for _, itm := range te.Items {
 			if txt, ok := itm.(*frontend.Text); ok {
 				info, err := cb.buildVlistInternal(txt, hsize, x+hv.MarginLeft+hv.BorderLeftWidth, y, marginBottom)

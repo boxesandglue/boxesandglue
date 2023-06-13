@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 )
 
 // Direction represents the direction of the node list. This can be horizontal or vertical.
@@ -396,6 +397,23 @@ func Vpack(firstNode Node) *VList {
 	vl.Height = sumht - getDepth(lastNode)
 	vl.Width = maxwd
 	return vl
+}
+
+// Boxit draws a thin rectangle around the box.
+func Boxit(n Node) Node {
+	r := NewRule()
+	r.Hide = true
+	switch t := n.(type) {
+	case *VList:
+		p := pdfdraw.NewStandalone().LineWidth(bag.MustSp("0.4pt")).Rect(0, 0, t.Width, -t.Height+t.Depth).Stroke()
+		r.Pre = p.String()
+		t.List = InsertBefore(t.List, t.List, r)
+	case *HList:
+		p := pdfdraw.NewStandalone().LineWidth(bag.MustSp("0.4pt")).Rect(0, 0, t.Width, -t.Height+t.Depth).Stroke()
+		r.Pre = p.String()
+		t.List = InsertBefore(t.List, t.List, r)
+	}
+	return n
 }
 
 func getWidth(n Node, dir Direction) bag.ScaledPoint {

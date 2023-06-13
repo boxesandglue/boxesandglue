@@ -174,6 +174,20 @@ func String(n Node) string {
 	return fmt.Sprintf(" %12s <- %-10s %4d -> %12s%s", pr, n.Name(), n.GetID(), nx, extrainfo)
 }
 
+// StringValue returns a short string representation of the node list starting at n.
+func StringValue(n Node) string {
+	var sb strings.Builder
+	for e := n; e != nil; e = e.Next() {
+		switch e.Type() {
+		case TypeGlyph:
+			sb.WriteString(e.(*Glyph).Components)
+		default:
+			sb.WriteString(".")
+		}
+	}
+	return sb.String()
+}
+
 type basenode struct {
 	next       Node
 	prev       Node

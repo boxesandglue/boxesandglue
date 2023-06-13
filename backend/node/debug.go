@@ -13,7 +13,7 @@ func Debug(n Node) {
 	w := new(bytes.Buffer)
 	enc := xml.NewEncoder(w)
 	enc.Indent("", "    ")
-	debugNode(n, enc, 0)
+	debugNode(n, enc)
 	enc.Flush()
 	w.WriteString("\n")
 	w.WriteTo(os.Stdout)
@@ -27,7 +27,7 @@ func DebugToFile(n Node, fn string) error {
 	}
 	enc := xml.NewEncoder(w)
 	enc.Indent("", "    ")
-	debugNode(n, enc, 0)
+	debugNode(n, enc)
 	enc.Flush()
 	return w.Close()
 }
@@ -58,7 +58,7 @@ func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv
 	return enc.EncodeToken(*start)
 }
 
-func debugNode(n Node, enc *xml.Encoder, level int) {
+func debugNode(n Node, enc *xml.Encoder) {
 	for e := n; e != nil; e = e.Next() {
 		start := xml.StartElement{}
 		start.Name = xml.Name{Local: e.Name()}
@@ -71,7 +71,7 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 				{"ht", v.Height},
 				{"dp", v.Depth},
 			}, v.Attributes)
-			debugNode(v.List, enc, level+1)
+			debugNode(v.List, enc)
 		case *HList:
 			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
@@ -80,7 +80,7 @@ func debugNode(n Node, enc *xml.Encoder, level int) {
 				{"dp", v.Depth},
 				{"r", v.GlueSet},
 			}, v.Attributes)
-			debugNode(v.List, enc, level+1)
+			debugNode(v.List, enc)
 		case *Disc:
 			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
