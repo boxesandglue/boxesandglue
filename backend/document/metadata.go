@@ -12,11 +12,8 @@ var xmlescape = strings.NewReplacer("<", "&lt;", "&", "&amp;")
 
 func (d *PDFDocument) getMetadata() string {
 	var dateFormat = time.RFC3339
-	pdfCreationdate := time.Now()
-	isoformatted := pdfCreationdate.Format(dateFormat)
-	docID := uuid.New()
-	instanceID := uuid.New()
-
+	docID := uuid.New().String()
+	instanceID := uuid.New().String()
 	str := `<?xpacket begin="%[1]s" id="W5M0MpCehiHzreSzNTczkc9d"?>
 	<x:xmpmeta xmlns:x="adobe:ns:meta/">
    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -40,7 +37,10 @@ func (d *PDFDocument) getMetadata() string {
    </rdf:RDF>
  </x:xmpmeta>
 <?xpacket end="r"?>`
-
+	if d.SuppressInfo {
+		docID = "fbb12364-c841-4d5e-b1b0-f53bd6e22649"
+		instanceID = "fbb12364-c841-4d5e-b1b0-f53bd6e22649"
+	}
 	var pdfuaident string
 	var keywords string
 	if d.Keywords != "" {
@@ -58,7 +58,7 @@ func (d *PDFDocument) getMetadata() string {
 		docID,
 		instanceID,
 		pdfuaident,
-		isoformatted,
+		d.CreationDate.Format(dateFormat),
 		xmlescape.Replace(d.Creator),
 		xmlescape.Replace(d.producer),
 		xmlescape.Replace(d.Title),

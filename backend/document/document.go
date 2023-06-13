@@ -394,7 +394,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						PageObjectnumber: oc.pageObjectnumber,
 					}
 					destname = t
-					oc.p.document.PDFWriter.NameDestinations[t] = d
+					oc.p.document.PDFWriter.NameDestinations = append(oc.p.document.PDFWriter.NameDestinations, d)
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
@@ -648,7 +648,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						PageObjectnumber: oc.pageObjectnumber,
 					}
 					destname = t
-					oc.p.document.PDFWriter.NameDestinations[t] = d
+					oc.p.document.PDFWriter.NameDestinations = append(oc.p.document.PDFWriter.NameDestinations, d)
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
@@ -906,6 +906,7 @@ type PDFDocument struct {
 	ColorProfile         *ColorProfile
 	CompressLevel        uint
 	Creator              string
+	CreationDate         time.Time
 	CurrentPage          *Page
 	DefaultLanguage      *lang.Lang
 	DefaultPageHeight    bag.ScaledPoint
@@ -921,6 +922,7 @@ type PDFDocument struct {
 	ShowHyperlinks       bool
 	Spotcolors           []*color.Color
 	Subject              string
+	SuppressInfo         bool
 	Title                string
 	ViewerPreferences    map[string]string
 	producer             string
@@ -937,6 +939,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 	d := &PDFDocument{
 		DefaultPageWidth:  bag.MustSp("210mm"),
 		DefaultPageHeight: bag.MustSp("297mm"),
+		CreationDate:      time.Now(),
 		Languages:         make(map[string]*lang.Lang),
 		ViewerPreferences: make(map[string]string),
 		PDFWriter:         pdf.NewPDFWriter(w),
@@ -1174,7 +1177,7 @@ func (d *PDFDocument) Finish() error {
 	if t := d.Keywords; t != "" {
 		d.PDFWriter.InfoDict["Keywords"] = pdf.StringToPDF(t)
 	}
-	d.PDFWriter.InfoDict["CreationDate"] = time.Now().Format("(D:20060102150405)")
+	d.PDFWriter.InfoDict["CreationDate"] = d.CreationDate.Format("(D:20060102150405)")
 
 	if err = d.PDFWriter.Finish(); err != nil {
 		return err

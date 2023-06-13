@@ -12,8 +12,8 @@ github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/speedata/baseline-pdf v0.0.0-20230609193849-56486ebf08c8 h1:wyyTDi8ln3wXaPyXF7+LoKYZu1CPWtHrd1q4T/oFIsg=
-github.com/speedata/baseline-pdf v0.0.0-20230609193849-56486ebf08c8/go.mod h1:qyTq23TPJtxQAXEy2YNP9kEPi+Xp9Js4sUCjc1W28dA=
+github.com/speedata/baseline-pdf v0.0.0-20230613191355-2f3e7fd6664d h1:JcfxZ0y2c8PJMXiI3v1PrzfRNALtVmgq24ZBukyfFWM=
+github.com/speedata/baseline-pdf v0.0.0-20230613191355-2f3e7fd6664d/go.mod h1:ptfWHTOg/v3zstZUxF9DwET4q4NOMCGyzDvtm11SIWs=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553 h1:L9Sqi5S7G4JjODI5tZZ1IzZ7Yb4s71xFOq/uZtLv1Wg=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553/go.mod h1:uF4+EGySaBnGeZpXZ0boh/oR6P0vNiYfQ2MAJXCU9hE=
 github.com/speedata/gofpdi v1.0.18 h1:LEiIN62ckZcA4n8AtBu16M2P2fBK3OnwpTGDfe13v/4=
@@ -22,8 +22,8 @@ github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZ
 github.com/speedata/hyphenation v1.0.1/go.mod h1:vwrKKvBvJWFll0sVZw99hyWS/+r4YlMI7MAYjnje0nM=
 github.com/speedata/optionparser v1.0.1 h1:sWevh2SwW2FnLI3S/LNKQBTaArQi+jhi+tPmuoxm2mY=
 github.com/speedata/optionparser v1.0.1/go.mod h1:JzOMd1kGlM5gtPBy7reOayfHsTXCvd6P4JU8BW0LicE=
-github.com/speedata/textlayout v0.0.0-20221127101343-91e6153d36c5 h1:2YTdsjtY4KeetDp5s7tV7mBCWfkh4658Gwb1S+xJdWw=
-github.com/speedata/textlayout v0.0.0-20221127101343-91e6153d36c5/go.mod h1:5yI24VPA1OjAI56+oF5XzsbIgu2elJhwIDb5SWdniN8=
+github.com/speedata/textlayout v0.0.0-20230613181208-b47193566b6f h1:Lna2+w5BhgD2sttOyli8bs/fYOsTz/kIYvqKCWlavD4=
+github.com/speedata/textlayout v0.0.0-20230613181208-b47193566b6f/go.mod h1:5yI24VPA1OjAI56+oF5XzsbIgu2elJhwIDb5SWdniN8=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=

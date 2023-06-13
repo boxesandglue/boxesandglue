@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"os"
+	"time"
 
 	pdf "github.com/speedata/baseline-pdf"
 	"github.com/speedata/boxesandglue/backend/bag"
@@ -16,6 +17,7 @@ type Document struct {
 	FontFamilies          map[string]*FontFamily
 	Doc                   *document.PDFDocument
 	DefaultFeatures       []harfbuzz.Feature
+	suppressInfo          bool
 	FindFile              func(string) string
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
@@ -48,6 +50,15 @@ func New(filename string) (*Document, error) {
 	}
 	fe.Doc.Filename = filename
 	return fe, nil
+}
+
+// SetSuppressInfo sets the suppressinfo flag.
+func (fe *Document) SetSuppressInfo(si bool) {
+	fe.suppressInfo = si
+	fe.Doc.SuppressInfo = si
+	if pdfCreationdate, err := time.Parse("2006-01-02", "2023-08-31"); err == nil {
+		fe.Doc.CreationDate = pdfCreationdate
+	}
 }
 
 // Finish writes all necessary objects for the PDF.
