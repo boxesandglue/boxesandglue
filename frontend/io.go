@@ -1,7 +1,7 @@
 package frontend
 
-func (fe *Document) findFile(filename string) string {
-	return filename
+func (fe *Document) findFile(filename string) (string, error) {
+	return filename, nil
 }
 
 // PushDir adds a directory to the stack (tbd)

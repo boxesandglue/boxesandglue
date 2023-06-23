@@ -33,7 +33,7 @@ func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 				}
 			}
 			importvalue := tokens[i]
-			toks, err := c.ParseCSSFile(importvalue.Value)
+			toks, err := c.ParseCSSFile(importvalue.Value, false)
 			if err != nil {
 				return nil, err
 			}
@@ -63,7 +63,7 @@ func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 }
 
 // ParseCSSFile converts a CSS file into a Tokenstream
-func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
+func (c *CSS) ParseCSSFile(filename string, useRelativePaths bool) (Tokenstream, error) {
 	if filename == "" {
 		return nil, fmt.Errorf("parseCSSFile: no filename given")
 	}
@@ -91,7 +91,7 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 				}
 			}
 			importvalue := tokens[i]
-			toks, err := c.ParseCSSFile(importvalue.Value)
+			toks, err := c.ParseCSSFile(importvalue.Value, useRelativePaths)
 			if err != nil {
 				return nil, err
 			}
@@ -117,8 +117,12 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 			if strings.HasPrefix(tok.Value, "http") {
 				loc = tok.Value
 			} else {
-				joinedStack := filepath.Join(c.Dirstack...)
-				loc = filepath.Join(joinedStack, tok.Value)
+				if useRelativePaths {
+					joinedStack := filepath.Join(c.Dirstack...)
+					loc = filepath.Join(joinedStack, tok.Value)
+				} else {
+					loc = tok.Value
+				}
 			}
 			tok.Value = loc
 

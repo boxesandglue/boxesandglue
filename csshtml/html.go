@@ -10,7 +10,7 @@ import (
 )
 
 // OpenHTMLFile opens an HTML file
-func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
+func (c *CSS) OpenHTMLFile(filename string, useRelativePaths bool) (*goquery.Document, error) {
 	dir, fn := filepath.Split(filename)
 	c.Dirstack = append(c.Dirstack, dir)
 	dirs := strings.Join(c.Dirstack, "")
@@ -26,7 +26,7 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	var errcond error
 	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile)
+			block, err := c.ParseCSSFile(stylesheetfile, useRelativePaths)
 			if err != nil {
 				errcond = err
 			}
@@ -37,7 +37,9 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	if errcond != nil {
 		return nil, errcond
 	}
-	c.processAtRules()
+	if err = c.processAtRules(); err != nil {
+		return nil, err
+	}
 	_, err = c.ApplyCSS(doc)
 	if err != nil {
 		return nil, err
@@ -69,7 +71,7 @@ func (c *CSS) ReadHTMLChunk(htmltext string) (*goquery.Document, error) {
 	var errcond error
 	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile)
+			block, err := c.ParseCSSFile(stylesheetfile, false)
 			if err != nil {
 				errcond = err
 			}

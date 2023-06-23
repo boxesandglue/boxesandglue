@@ -93,7 +93,10 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 	} else {
 		// something like a p tag that contains some stuff
 		// to be typeset.
-		vl := cb.createVList(te, hsize, hv)
+		vl, err := cb.createVList(te, hsize, hv)
+		if err != nil {
+			return nil, err
+		}
 		sumHT = vl.Height
 		if y-vl.Height-vl.Depth < dim.MarginBottom {
 			start.Attributes["pagebreak"] = true
@@ -130,12 +133,15 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 	return &info{sumht: sumHT, height: thisht, hv: hv, newY: y}, nil
 }
 
-func (cb *CSSBuilder) createVList(te *frontend.Text, wd bag.ScaledPoint, hv frontend.HTMLValues) *node.VList {
-	vl, _, _ := cb.frontend.FormatParagraph(te, wd)
+func (cb *CSSBuilder) createVList(te *frontend.Text, wd bag.ScaledPoint, hv frontend.HTMLValues) (*node.VList, error) {
+	vl, _, err := cb.frontend.FormatParagraph(te, wd)
 	// FIXME: vl can be nil if empty (empty li for example)
+	if err != nil {
+		return nil, err
+	}
 	vl.Attributes = node.H{
 		"hv":    hv,
 		"hsize": wd,
 	}
-	return vl
+	return vl, nil
 }

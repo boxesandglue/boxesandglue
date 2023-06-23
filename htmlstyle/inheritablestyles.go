@@ -209,9 +209,9 @@ func StylesToStyles(ih *FormattingStyles, attributes map[string]string, df *fron
 		case "list-style-type":
 			ih.ListStyleType = v
 		case "font-family":
+			v = strings.Trim(v, `"`)
 			ih.fontfamily = df.FindFontFamily(v)
 			if ih.fontfamily == nil {
-				bag.Logger.Errorf("font family %q not found", v)
 				return fmt.Errorf("font family %q not found", v)
 			}
 		case "hanging-punctuation":

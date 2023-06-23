@@ -65,12 +65,12 @@ func stringValue(toks Tokenstream) string {
 			case "-":
 				negative = true
 			default:
-				w("unhandled delimiter", tok)
+				fmt.Println("unhandled delimiter", tok)
 			}
 		case scanner.URI:
 			ret = append(ret, "url("+tok.Value+")")
 		default:
-			w("unhandled token", tok)
+			fmt.Println("unhandled token", tok)
 		}
 	}
 	return strings.Join(ret, " ")
@@ -359,21 +359,34 @@ func (c *CSS) ApplyCSS(doc *goquery.Document) (*html.Node, error) {
 	}
 	// now sorted by specificity
 	sort.Ints(keys)
+	root := doc.Get(0)
 	for _, k := range keys {
 		for _, r := range rules[k] {
 			for _, singlerule := range r.rule {
-				for _, node := range cascadia.QueryAll(doc.Get(0), r.selector) {
+				for _, node := range cascadia.QueryAll(root, r.selector) {
 					var prefix string
 					if pe := r.selector.PseudoElement(); pe != "" {
 						prefix = pe + "::"
 					}
-					node.Attr = append(node.Attr, html.Attribute{Key: "!" + prefix + stringValue(singlerule.Key), Val: stringValue(singlerule.Value)})
+					// remove attributes with the same name, since the new ones
+					// must override the old ones.
+					key := "!" + prefix + stringValue(singlerule.Key)
+					newAttributes := make([]html.Attribute, 0, len(node.Attr))
+					for _, attr := range node.Attr {
+						if attr.Key != key {
+							newAttributes = append(newAttributes, attr)
+						}
+					}
+					newAttributes = append(newAttributes, html.Attribute{Key: key, Val: stringValue(singlerule.Value)})
+					node.Attr = newAttributes
 				}
 			}
 		}
 	}
 	doc.Each(resolveStyle)
-	c.processAtRules()
+	if err := c.processAtRules(); err != nil {
+		return nil, err
+	}
 	sel := doc.Find(":root")
 	return sel.Nodes[0], nil
 }

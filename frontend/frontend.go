@@ -18,7 +18,7 @@ type Document struct {
 	Doc                   *document.PDFDocument
 	DefaultFeatures       []harfbuzz.Feature
 	suppressInfo          bool
-	FindFile              func(string) string
+	FindFile              func(string) (string, error)
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
 	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font

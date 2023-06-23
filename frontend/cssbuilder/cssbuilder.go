@@ -226,7 +226,7 @@ func (cb *CSSBuilder) NewPage() error {
 	return nil
 }
 
-// ParseHTMLFromNode interprets the HTML string and applies all previously read CSS data.
+// ParseHTMLFromNode interprets the HTML structure and applies all previously read CSS data.
 func (cb *CSSBuilder) ParseHTMLFromNode(input *html.Node) (*frontend.Text, error) {
 	doc := goquery.NewDocumentFromNode(input)
 	sel, err := cb.css.ApplyCSS(doc)
@@ -258,6 +258,11 @@ func (cb *CSSBuilder) ParseHTML(html string) (*frontend.Text, error) {
 	}
 
 	return te, nil
+}
+
+// ShowCSS returns a CSS dump
+func (cb *CSSBuilder) ShowCSS() string {
+	return cb.css.Show()
 }
 
 // AddCSS reads the CSS instructions in css.

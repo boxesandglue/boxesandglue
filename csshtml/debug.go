@@ -5,10 +5,6 @@ import (
 	"strings"
 )
 
-func w(a ...any) {
-	fmt.Println(a...)
-}
-
 func indent(s string) string {
 	ret := []string{}
 	for _, line := range strings.Split(s, "\n") {
@@ -46,8 +42,10 @@ func (t Tokenstream) String() string {
 	return strings.Join(ret, "")
 }
 
-func (c *CSS) dump() {
-	w("CSS +++++++")
+// Show returns the CSS written as a nice string
+func (c *CSS) Show() string {
+	var sb strings.Builder
+
 	// for name, ff := range c.Fontfamilies {
 	// 	w(" Font family", name)
 	// 	w("    Regular: ", ff.Regular)
@@ -56,24 +54,24 @@ func (c *CSS) dump() {
 	// 	w("    BoldItalic: ", ff.BoldItalic)
 	// }
 	for name, pg := range c.Pages {
-		w(" Page", name)
-		w("   Size", pg.Papersize)
+		fmt.Fprintln(&sb, " Page", name)
+		fmt.Fprintln(&sb, "   Size", pg.Papersize)
 		styles, _ := ResolveAttributes(pg.Attributes)
-		w("   Margin: ", styles["margin-top"], styles["margin-right"], styles["margin-bottom"], styles["margin-left"])
+		fmt.Fprintln(&sb, "   Margin: ", styles["margin-top"], styles["margin-right"], styles["margin-bottom"], styles["margin-left"])
 		for areaname, rules := range pg.pageareaRules {
-			w("   @", areaname)
+			fmt.Fprintln(&sb, "   @", areaname)
 			for _, rule := range rules {
-				w("     ", rule.Key, rule.Value)
+				fmt.Fprintln(&sb, "     ", rule.Key, rule.Value)
 
 			}
 		}
 	}
 	for _, stylesheet := range c.Stylesheet {
 		for _, block := range stylesheet.Blocks {
-			w("-------")
-			w(block)
+			fmt.Fprintln(&sb, "-------")
+			fmt.Fprintln(&sb, block)
 		}
-		w("++++++++++")
-
+		fmt.Fprintln(&sb, "++++++++++")
 	}
+	return sb.String()
 }

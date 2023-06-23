@@ -19,7 +19,7 @@ var (
 
 // NewFontFamily creates a new font family for bundling fonts.
 func (fe *Document) NewFontFamily(name string) *FontFamily {
-	bag.Logger.Infof("Define font family %q", name)
+	bag.Logger.Infof("Define font family %q (id %d)", name, len(fe.FontFamilies))
 	ff := &FontFamily{
 		ID:   len(fe.FontFamilies),
 		Name: name,
@@ -40,7 +40,8 @@ func (fe *Document) DefineFontFamilyAlias(ff *FontFamily, alias string) {
 	fe.FontFamilies[alias] = ff
 }
 
-// LoadFace loads a font from a TrueType or OpenType collection.
+// LoadFace loads a font from a TrueType or OpenType collection. It takes the
+// face from the cache if the face has been loaded.
 func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	if fs.face != nil {
 		return fs.face, nil
@@ -69,7 +70,7 @@ type FontSource struct {
 func (fs *FontSource) String() string {
 	name := fs.Name
 	if name == "" {
-		name = "<undefined>"
+		name = "-"
 	}
 	return fmt.Sprintf("%s->%s:%d (feat: %s)", name, fs.Source, fs.Index, fs.FontFeatures)
 }
@@ -83,6 +84,7 @@ type FontFamily struct {
 
 // AddMember adds a member to the font family.
 func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) error {
+	bag.Logger.Debugf("add member to ff (id %d) weight %s, style %s", ff.ID, weight, style)
 	if fontsource == nil {
 		return fmt.Errorf("Font source is nil")
 	}
@@ -92,7 +94,9 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 	if ff.familyMember[weight] == nil {
 		ff.familyMember[weight] = make(map[FontStyle]*FontSource)
 	}
-	ff.familyMember[weight][style] = fontsource
+	if _, found := ff.familyMember[weight][style]; !found {
+		ff.familyMember[weight][style] = fontsource
+	}
 	return nil
 }
 

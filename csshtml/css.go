@@ -51,7 +51,7 @@ type CSS struct {
 
 // CSSdefaults contains browser-like styling of some elements.
 var CSSdefaults = `
-html            { font-size: 10pt; tab-size: 4; }
+html            { font-size: 10pt; tab-size: 4; font-family: sans; }
 li              { display: list-item; padding-left: 0; }
 head            { display: none }
 table           { display: table }
@@ -63,7 +63,7 @@ td, th          { display: table-cell }
 caption         { display: table-caption }
 th              { font-weight: bold; text-align: center }
 caption         { text-align: center }
-body            { margin: 0pt; font-family: serif; line-height: 1.2; hyphens: auto; font-weight: normal; }
+body            { margin: 0pt; line-height: 1.2; hyphens: auto; font-weight: normal; }
 h1              { font-size: 2em; margin:  .67em 0 }
 h2              { font-size: 1.5em; margin: .75em 0 }
 h3              { font-size: 1.17em; margin: .83em 0 }
@@ -258,7 +258,7 @@ outer:
 	return b
 }
 
-func (c *CSS) doFontFace(ff []qrule) {
+func (c *CSS) doFontFace(ff []qrule) error {
 	var fontweight frontend.FontWeight = 400
 	var fontstyle frontend.FontStyle = frontend.FontStyleNormal
 	var fontfamily string
@@ -268,7 +268,7 @@ func (c *CSS) doFontFace(ff []qrule) {
 		value := strings.TrimSpace(stringValue(rule.Value))
 		switch key {
 		case "font-family":
-			fontfamily = value
+			fontfamily = strings.Trim(value, `"`)
 		case "font-style":
 			switch value {
 			case "normal":
@@ -304,11 +304,15 @@ func (c *CSS) doFontFace(ff []qrule) {
 				}
 			}
 		case "src":
+			var err error
 			for _, v := range rule.Value {
 				if v.Type == scanner.URI {
-					fontsource.Source = c.FrontendDocument.FindFile(v.Value)
+					fontsource.Source, err = c.FrontendDocument.FindFile(v.Value)
 				} else if v.Type == scanner.Local {
-					fontsource.Source = c.FrontendDocument.FindFile(v.Value)
+					fontsource.Source, err = c.FrontendDocument.FindFile(v.Value)
+				}
+				if err != nil {
+					return err
 				}
 			}
 		case "font-feature-settings":
@@ -354,9 +358,9 @@ func (c *CSS) doFontFace(ff []qrule) {
 	}
 	err := fam.AddMember(&fontsource, fontweight, fontstyle)
 	if err != nil {
-		// TODO: better error handling
-		fmt.Println(err)
+		return err
 	}
+	return nil
 }
 
 func (c *CSS) doPage(block *SBlock) {
@@ -398,13 +402,15 @@ func (c *CSS) doPage(block *SBlock) {
 	c.Pages[selector] = pg
 }
 
-func (c *CSS) processAtRules() {
+func (c *CSS) processAtRules() error {
 	c.Pages = make(map[string]Page)
 	for _, stylesheet := range c.Stylesheet {
 		for _, atrule := range stylesheet.ChildAtRules {
 			switch atrule.Name {
 			case "font-face":
-				c.doFontFace(atrule.Rules)
+				if err := c.doFontFace(atrule.Rules); err != nil {
+					return err
+				}
 			case "page":
 				c.doPage(atrule)
 			default:
@@ -413,6 +419,7 @@ func (c *CSS) processAtRules() {
 		}
 
 	}
+	return nil
 }
 
 // Findfunc is called when loading a resource
