@@ -6,7 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.8.0
 	github.com/andybalholm/cascadia v1.3.1
 	github.com/google/uuid v1.3.0
-	github.com/speedata/baseline-pdf v0.0.0-20230621085521-8a602a1d42b8
+	github.com/speedata/baseline-pdf v0.0.0-20230626115456-1e81e9807a83
 	github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553
 	github.com/speedata/gofpdi v1.0.18 // indirect
 	github.com/speedata/hyphenation v1.0.1

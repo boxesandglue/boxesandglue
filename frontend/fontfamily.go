@@ -94,9 +94,7 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 	if ff.familyMember[weight] == nil {
 		ff.familyMember[weight] = make(map[FontStyle]*FontSource)
 	}
-	if _, found := ff.familyMember[weight][style]; !found {
-		ff.familyMember[weight][style] = fontsource
-	}
+	ff.familyMember[weight][style] = fontsource
 	return nil
 }
 

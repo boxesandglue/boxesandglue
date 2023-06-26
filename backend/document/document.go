@@ -985,6 +985,12 @@ func (d *PDFDocument) SetDefaultLanguage(l *lang.Lang) {
 
 // LoadFace loads a font from a TrueType or OpenType collection.
 func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
+	// face already loaded? TODO: check index
+	for _, fce := range d.Faces {
+		if fce.Filename == filename {
+			return fce, nil
+		}
+	}
 	bag.Logger.Debugf("LoadFace %s", filename)
 
 	f, err := pdf.LoadFace(d.PDFWriter, filename, index)
