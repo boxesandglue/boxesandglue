@@ -8,7 +8,7 @@ import (
 	"sort"
 )
 
-// Debug shows node list debug output
+// Debug shows node list debug output.
 func Debug(n Node) {
 	w := new(bytes.Buffer)
 	enc := xml.NewEncoder(w)
@@ -17,6 +17,17 @@ func Debug(n Node) {
 	enc.Flush()
 	w.WriteString("\n")
 	w.WriteTo(os.Stdout)
+}
+
+// DebugToString returns node list debug output.
+func DebugToString(n Node) string {
+	w := new(bytes.Buffer)
+	enc := xml.NewEncoder(w)
+	enc.Indent("", "    ")
+	debugNode(n, enc)
+	enc.Flush()
+	w.WriteString("\n")
+	return w.String()
 }
 
 // DebugToFile writes an XML file with the node list.

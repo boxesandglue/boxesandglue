@@ -444,6 +444,8 @@ func debugText(ts *Text, enc *xml.Encoder) {
 			debugText(t, enc)
 		case string:
 			enc.EncodeToken(xml.CharData(t))
+		case *node.VList:
+			enc.EncodeToken(xml.CharData(node.DebugToString(t)))
 		default:
 			panic(fmt.Sprintf("unknown type %T", t))
 		}

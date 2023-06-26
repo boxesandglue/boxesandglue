@@ -16,6 +16,8 @@ import (
 var tenpt = bag.MustSp("10pt")
 var tenptflt = bag.MustSp("10pt").ToPT()
 
+// ParseVerticalAlign parses the input ("top","middle",...) and returns the
+// VerticalAlignment value.
 func ParseVerticalAlign(align string, styles *FormattingStyles) frontend.VerticalAlignment {
 	switch align {
 	case "top":
@@ -27,10 +29,12 @@ func ParseVerticalAlign(align string, styles *FormattingStyles) frontend.Vertica
 	case "inherit":
 		return styles.Valign
 	default:
-		return frontend.VAlignDefault
+		return styles.Valign
 	}
 }
 
+// ParseHorizontalAlign parses the input ("left","center") and returns the
+// HorizontalAlignment value.
 func ParseHorizontalAlign(align string, styles *FormattingStyles) frontend.HorizontalAlignment {
 	switch align {
 	case "left":
@@ -42,7 +46,7 @@ func ParseHorizontalAlign(align string, styles *FormattingStyles) frontend.Horiz
 	case "inherit":
 		return styles.Halign
 	default:
-		return frontend.HAlignDefault
+		return styles.Halign
 	}
 }
 
@@ -286,6 +290,7 @@ func StylesToStyles(ih *FormattingStyles, attributes map[string]string, df *fron
 	return nil
 }
 
+// FormattingStyles are HTML formatting styles.
 type FormattingStyles struct {
 	BackgroundColor         *color.Color
 	BorderLeftWidth         bag.ScaledPoint
@@ -340,11 +345,12 @@ type FormattingStyles struct {
 	yoffset                 bag.ScaledPoint
 }
 
+// Clone mimics style inheritance.
 func (is *FormattingStyles) Clone() *FormattingStyles {
 	// inherit
-	newFeatures := make([]string, len(is.fontfeatures))
+	newFontFeatures := make([]string, len(is.fontfeatures))
 	for i, f := range is.fontfeatures {
-		newFeatures[i] = f
+		newFontFeatures[i] = f
 	}
 	newis := &FormattingStyles{
 		color:              is.color,
@@ -352,7 +358,7 @@ func (is *FormattingStyles) Clone() *FormattingStyles {
 		DefaultFontFamily:  is.DefaultFontFamily,
 		fontexpansion:      is.fontexpansion,
 		fontfamily:         is.fontfamily,
-		fontfeatures:       newFeatures,
+		fontfeatures:       newFontFeatures,
 		Fontsize:           is.Fontsize,
 		fontstyle:          is.fontstyle,
 		fontweight:         is.fontweight,
@@ -365,10 +371,13 @@ func (is *FormattingStyles) Clone() *FormattingStyles {
 		tabsize:            is.tabsize,
 		tabsizeSpaces:      is.tabsizeSpaces,
 		Valign:             is.Valign,
+		Halign:             is.Halign,
 	}
 	return newis
 }
 
+// ApplySettings converts the inheritable settings to boxes and glue text
+// settings.
 func ApplySettings(settings frontend.TypesettingSettings, ih *FormattingStyles) {
 	if ih.fontweight > 0 {
 		settings[frontend.SettingFontWeight] = ih.fontweight
@@ -425,6 +434,7 @@ func ApplySettings(settings frontend.TypesettingSettings, ih *FormattingStyles) 
 
 }
 
+// StylesStack mimics CSS style inheritance.
 type StylesStack []*FormattingStyles
 
 // PushStyles creates a new style instance, pushes it onto the stack and returns
@@ -451,17 +461,23 @@ func (ss StylesStack) CurrentStyle() *FormattingStyles {
 	return ss[len(ss)-1]
 }
 
+// SetDefaultFontFamily sets the font family that should be used as a default
+// for the document.
 func (ss *StylesStack) SetDefaultFontFamily(ff *frontend.FontFamily) {
 	for _, sty := range *ss {
 		sty.DefaultFontFamily = ff
 	}
 }
+
+// SetDefaultFontSize sets the document font size which should be used for rem
+// calculation.
 func (ss *StylesStack) SetDefaultFontSize(size bag.ScaledPoint) {
 	for _, sty := range *ss {
 		sty.DefaultFontSize = size
 	}
 }
 
+// Output turns HTML structure into a nested frontend.Text element.
 func Output(item *HTMLItem, ss StylesStack, df *frontend.Document) (*frontend.Text, error) {
 	// item is guaranteed to be in vertical direction
 	newte := frontend.NewText()
