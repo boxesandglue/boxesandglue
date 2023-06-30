@@ -10,11 +10,16 @@ import (
 )
 
 // OpenHTMLFile opens an HTML file
-func (c *CSS) OpenHTMLFile(filename string, useRelativePaths bool) (*goquery.Document, error) {
+func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	dir, fn := filepath.Split(filename)
-	c.Dirstack = append(c.Dirstack, dir)
-	dirs := strings.Join(c.Dirstack, "")
-	r, err := os.Open(filepath.Join(dirs, fn))
+	c.PushDir(dir)
+
+	filename, err := c.FindFile(fn)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +31,7 @@ func (c *CSS) OpenHTMLFile(filename string, useRelativePaths bool) (*goquery.Doc
 	var errcond error
 	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile, useRelativePaths)
+			block, err := c.ParseCSSFile(stylesheetfile)
 			if err != nil {
 				errcond = err
 			}
@@ -49,8 +54,8 @@ func (c *CSS) OpenHTMLFile(filename string, useRelativePaths bool) (*goquery.Doc
 
 // ParseHTMLFragment takes the HTML text and the CSS text and returns goquery selection.
 func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*html.Node, error) {
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(csstext), false))
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(CSSdefaults), false))
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(csstext), false))
 	doc, err := c.ReadHTMLChunk(htmltext)
 	if err != nil {
 		return nil, err
@@ -71,7 +76,7 @@ func (c *CSS) ReadHTMLChunk(htmltext string) (*goquery.Document, error) {
 	var errcond error
 	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile, false)
+			block, err := c.ParseCSSFile(stylesheetfile)
 			if err != nil {
 				errcond = err
 			}
@@ -84,7 +89,7 @@ func (c *CSS) ReadHTMLChunk(htmltext string) (*goquery.Document, error) {
 
 // AddCSSText parses CSS text and saves the rules for later.
 func (c *CSS) AddCSSText(fragment string) error {
-	toks, err := c.ParseCSSString(fragment)
+	toks, err := c.TokenizeCSSString(fragment)
 	if err != nil {
 		return err
 	}

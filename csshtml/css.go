@@ -2,10 +2,12 @@ package csshtml
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/css/scanner"
 	"golang.org/x/net/html"
@@ -43,10 +45,42 @@ type Page struct {
 // CSS has all the information
 type CSS struct {
 	FrontendDocument *frontend.Document
-	Dirstack         []string
-	// document         *goquery.Document
-	Stylesheet []SBlock
-	Pages      map[string]Page
+	Stylesheet       []SBlock
+	Pages            map[string]Page
+	dirstack         []string
+}
+
+// PushDir adds a directory to the dir stack. When a file is opened, all new
+// Open calls are relative to this directory.
+func (c *CSS) PushDir(dir string) {
+	if filepath.IsAbs(dir) {
+		c.dirstack = append(c.dirstack, dir)
+		return
+	}
+	var newEntry string
+	if len(c.dirstack) > 0 {
+		lastEntry := c.dirstack[len(c.dirstack)-1]
+		newEntry = filepath.Join(lastEntry, dir)
+	} else {
+		newEntry = dir
+	}
+	bag.Logger.Debugf("css.PushDir(%s)", newEntry)
+	c.dirstack = append(c.dirstack, newEntry)
+}
+
+// PopDir removes the last entry from the dir stack.
+func (c *CSS) PopDir() {
+	bag.Logger.Debugf("css.PopDir(%s)", c.dirstack[len(c.dirstack)-1])
+	c.dirstack = c.dirstack[:len(c.dirstack)-1]
+}
+
+// FindFile returns the absolute path of the file
+func (c *CSS) FindFile(filename string) (string, error) {
+	lastEntry := c.dirstack[len(c.dirstack)-1]
+	if filepath.IsAbs(filename) {
+		return filename, nil
+	}
+	return filepath.Join(lastEntry, filename), nil
 }
 
 // CSSdefaults contains browser-like styling of some elements.
@@ -304,16 +338,13 @@ func (c *CSS) doFontFace(ff []qrule) error {
 				}
 			}
 		case "src":
-			var err error
 			for _, v := range rule.Value {
-				if v.Type == scanner.URI {
-					fontsource.Source, err = c.FrontendDocument.FindFile(v.Value)
-				} else if v.Type == scanner.Local {
-					fontsource.Source, err = c.FrontendDocument.FindFile(v.Value)
-				}
+				fs, err := c.FindFile(v.Value)
 				if err != nil {
 					return err
 				}
+				bag.Logger.Debugf("CSS src: %s", fs)
+				fontsource.Source = fs
 			}
 		case "font-feature-settings":
 			settingOn := true
@@ -433,6 +464,6 @@ func NewCSSParser() *CSS {
 // NewCSSParserWithDefaults returns a new CSS object with the default stylesheet included.
 func NewCSSParserWithDefaults() *CSS {
 	c := &CSS{}
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(ParseCSSString(CSSdefaults), false))
+	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(CSSdefaults), false))
 	return c
 }

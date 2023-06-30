@@ -4,17 +4,16 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-	"strings"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/css/scanner"
 )
 
-// ParseCSSString converts a CSS string to a Tokenstream
-func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
+// TokenizeCSSString converts a CSS string to a Tokenstream. Also read linked (@import) stylesheets.
+func (c *CSS) TokenizeCSSString(css string) (Tokenstream, error) {
 	var tokens Tokenstream
 	var err error
-	c.Dirstack = append(c.Dirstack, "")
-	tokens = ParseCSSString(css)
+	tokens = TokenizeCSSString(css)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +32,7 @@ func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 				}
 			}
 			importvalue := tokens[i]
-			toks, err := c.ParseCSSFile(importvalue.Value, false)
+			toks, err := c.ParseCSSFile(importvalue.Value)
 			if err != nil {
 				return nil, err
 			}
@@ -58,21 +57,24 @@ func (c *CSS) ParseCSSString(css string) (Tokenstream, error) {
 			finalTokens = append(finalTokens, tok)
 		}
 	}
-	c.Dirstack = c.Dirstack[:len(c.Dirstack)-1]
+
 	return finalTokens, nil
 }
 
 // ParseCSSFile converts a CSS file into a Tokenstream
-func (c *CSS) ParseCSSFile(filename string, useRelativePaths bool) (Tokenstream, error) {
+func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 	if filename == "" {
 		return nil, fmt.Errorf("parseCSSFile: no filename given")
 	}
 	var tokens Tokenstream
 	var err error
 	dir, fn := filepath.Split(filename)
-	c.Dirstack = append(c.Dirstack, dir)
-	dirs := filepath.Join(c.Dirstack...)
-	tokens, err = parseCSSBody(filepath.Join(dirs, fn))
+	c.PushDir(dir)
+	loc, err := c.FindFile(fn)
+	if err != nil {
+		return nil, err
+	}
+	tokens, err = parseCSSBody(loc)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +93,7 @@ func (c *CSS) ParseCSSFile(filename string, useRelativePaths bool) (Tokenstream,
 				}
 			}
 			importvalue := tokens[i]
-			toks, err := c.ParseCSSFile(importvalue.Value, useRelativePaths)
+			toks, err := c.ParseCSSFile(importvalue.Value)
 			if err != nil {
 				return nil, err
 			}
@@ -113,29 +115,22 @@ func (c *CSS) ParseCSSFile(filename string, useRelativePaths bool) (Tokenstream,
 				}
 			}
 		} else if tok.Type == scanner.URI {
-			var loc string
-			if strings.HasPrefix(tok.Value, "http") {
-				loc = tok.Value
-			} else {
-				if useRelativePaths {
-					joinedStack := filepath.Join(c.Dirstack...)
-					loc = filepath.Join(joinedStack, tok.Value)
-				} else {
-					loc = tok.Value
-				}
+			fs, err := c.FindFile(tok.Value)
+			if err != nil {
+				return nil, err
 			}
-			tok.Value = loc
-
+			tok.Value = fs
 			finalTokens = append(finalTokens, tok)
 		} else {
 			finalTokens = append(finalTokens, tok)
 		}
 	}
-	c.Dirstack = c.Dirstack[:len(c.Dirstack)-1]
+	c.PopDir()
 	return finalTokens, nil
 }
 
 func parseCSSBody(filename string) (Tokenstream, error) {
+	bag.Logger.Infof("Read file %s", filename)
 	b, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
@@ -166,8 +161,8 @@ func parseCSSBody(filename string) (Tokenstream, error) {
 	return tokens, nil
 }
 
-// ParseCSSString converts a string into a Tokenstream
-func ParseCSSString(contents string) Tokenstream {
+// TokenizeCSSString converts a string into a Tokenstream.
+func TokenizeCSSString(contents string) Tokenstream {
 	var tokens Tokenstream
 
 	s := scanner.New(contents)

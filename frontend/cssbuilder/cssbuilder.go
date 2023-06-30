@@ -72,127 +72,127 @@ func (cb *CSSBuilder) getPageType() *csshtml.Page {
 
 // InitPage makes sure that there is a valid page in the frontend.
 func (cb *CSSBuilder) InitPage() error {
+	if cb.frontend.Doc.CurrentPage != nil {
+		return nil
+	}
 	var err error
-	if cb.frontend.Doc.CurrentPage == nil {
-		if defaultPage := cb.getPageType(); defaultPage != nil {
-			wdStr, htStr := csshtml.PapersizeWdHt(defaultPage.Papersize)
-			var wd, ht, mt, mb, ml, mr bag.ScaledPoint
-			if wd, err = bag.Sp(wdStr); err != nil {
-				return err
-			}
-			if ht, err = bag.Sp(htStr); err != nil {
-				return err
-			}
-			if str := defaultPage.MarginTop; str == "" {
-				mt = onecm
-			} else {
-				if mt, err = bag.Sp(str); err != nil {
-					return err
-				}
-			}
-			if str := defaultPage.MarginBottom; str == "" {
-				mb = onecm
-			} else {
-				if mb, err = bag.Sp(str); err != nil {
-					return err
-				}
-			}
-			if str := defaultPage.MarginLeft; str == "" {
-				ml = onecm
-			} else {
-				if ml, err = bag.Sp(str); err != nil {
-					return err
-				}
-			}
-			if str := defaultPage.MarginRight; str == "" {
-				mr = onecm
-			} else {
-				if mr, err = bag.Sp(str); err != nil {
-					return err
-				}
-			}
-
-			res, _ := csshtml.ResolveAttributes(defaultPage.Attributes)
-			styles := cb.stylesStack.PushStyles()
-			if err = htmlstyle.StylesToStyles(styles, res, cb.frontend, cb.stylesStack.CurrentStyle().Fontsize); err != nil {
-				return err
-			}
-			vl := node.NewVList()
-			vl.Width = wd - ml - mr - styles.BorderLeftWidth - styles.BorderRightWidth - styles.PaddingLeft - styles.PaddingRight
-			vl.Height = ht - mt - mb - styles.PaddingTop - styles.PaddingBottom - styles.BorderTopWidth - styles.BorderBottomWidth
-			hv := frontend.HTMLValues{
-				BorderLeftWidth:         styles.BorderLeftWidth,
-				BorderRightWidth:        styles.BorderRightWidth,
-				BorderTopWidth:          styles.BorderTopWidth,
-				BorderBottomWidth:       styles.BorderBottomWidth,
-				BorderTopStyle:          styles.BorderTopStyle,
-				BorderLeftStyle:         styles.BorderLeftStyle,
-				BorderRightStyle:        styles.BorderRightStyle,
-				BorderBottomStyle:       styles.BorderBottomStyle,
-				BorderTopColor:          styles.BorderTopColor,
-				BorderLeftColor:         styles.BorderLeftColor,
-				BorderRightColor:        styles.BorderRightColor,
-				BorderBottomColor:       styles.BorderBottomColor,
-				PaddingLeft:             styles.PaddingLeft,
-				PaddingRight:            styles.PaddingRight,
-				PaddingBottom:           styles.PaddingBottom,
-				PaddingTop:              styles.PaddingTop,
-				BorderTopLeftRadius:     styles.BorderTopLeftRadius,
-				BorderTopRightRadius:    styles.BorderTopRightRadius,
-				BorderBottomLeftRadius:  styles.BorderBottomLeftRadius,
-				BorderBottomRightRadius: styles.BorderBottomRightRadius,
-			}
-			vl = cb.frontend.HTMLBorder(vl, hv)
-			cb.stylesStack.PopStyles()
-
-			// set page width / height
-			cb.frontend.Doc.DefaultPageWidth = wd
-			cb.frontend.Doc.DefaultPageHeight = ht
-			cb.currentPageDimensions = PageDimensions{
-				Width:         wd,
-				Height:        ht,
-				PageAreaLeft:  ml + styles.BorderLeftWidth + styles.PaddingLeft,
-				PageAreaTop:   mt - styles.BorderTopWidth - styles.PaddingTop,
-				ContentWidth:  wd - styles.BorderRightWidth - styles.PaddingRight - ml - mr - styles.BorderLeftWidth - styles.PaddingLeft,
-				ContentHeight: ht - styles.BorderBottomWidth - styles.PaddingBottom - mt - mb - styles.BorderTopWidth - styles.PaddingTop,
-				MarginTop:     mt,
-				MarginBottom:  mb,
-				MarginLeft:    ml,
-				MarginRight:   mr,
-				masterpage:    defaultPage,
-			}
-			cb.frontend.Doc.NewPage()
-			if styles.BackgroundColor != nil {
-				r := node.NewRule()
-				x := pdfdraw.NewStandalone().ColorNonstroking(*styles.BackgroundColor).Rect(0, 0, wd, -ht).Fill()
-				r.Pre = x.String()
-				rvl := node.Vpack(r)
-				rvl.Attributes = node.H{"origin": "page background color"}
-				cb.frontend.Doc.CurrentPage.OutputAt(0, ht, rvl)
-			}
-			cb.frontend.Doc.CurrentPage.OutputAt(ml, ht-mt, vl)
+	if defaultPage := cb.getPageType(); defaultPage != nil {
+		wdStr, htStr := csshtml.PapersizeWdHt(defaultPage.Papersize)
+		var wd, ht, mt, mb, ml, mr bag.ScaledPoint
+		if wd, err = bag.Sp(wdStr); err != nil {
+			return err
+		}
+		if ht, err = bag.Sp(htStr); err != nil {
+			return err
+		}
+		if str := defaultPage.MarginTop; str == "" {
+			mt = onecm
 		} else {
-			// no page master found
-			cb.frontend.Doc.DefaultPageWidth = bag.MustSp("210mm")
-			cb.frontend.Doc.DefaultPageHeight = bag.MustSp("297mm")
-
-			cb.currentPageDimensions = PageDimensions{
-				Width:         cb.frontend.Doc.DefaultPageWidth,
-				Height:        cb.frontend.Doc.DefaultPageHeight,
-				ContentWidth:  cb.frontend.Doc.DefaultPageWidth - 2*onecm,
-				ContentHeight: cb.frontend.Doc.DefaultPageHeight - 2*onecm,
-				PageAreaLeft:  onecm,
-				PageAreaTop:   onecm,
-				MarginTop:     onecm,
-				MarginBottom:  onecm,
-				MarginLeft:    onecm,
-				MarginRight:   onecm,
+			if mt, err = bag.Sp(str); err != nil {
+				return err
 			}
-			cb.frontend.Doc.NewPage()
+		}
+		if str := defaultPage.MarginBottom; str == "" {
+			mb = onecm
+		} else {
+			if mb, err = bag.Sp(str); err != nil {
+				return err
+			}
+		}
+		if str := defaultPage.MarginLeft; str == "" {
+			ml = onecm
+		} else {
+			if ml, err = bag.Sp(str); err != nil {
+				return err
+			}
+		}
+		if str := defaultPage.MarginRight; str == "" {
+			mr = onecm
+		} else {
+			if mr, err = bag.Sp(str); err != nil {
+				return err
+			}
 		}
 
+		res, _ := csshtml.ResolveAttributes(defaultPage.Attributes)
+		styles := cb.stylesStack.PushStyles()
+		if err = htmlstyle.StylesToStyles(styles, res, cb.frontend, cb.stylesStack.CurrentStyle().Fontsize); err != nil {
+			return err
+		}
+		vl := node.NewVList()
+		vl.Width = wd - ml - mr - styles.BorderLeftWidth - styles.BorderRightWidth - styles.PaddingLeft - styles.PaddingRight
+		vl.Height = ht - mt - mb - styles.PaddingTop - styles.PaddingBottom - styles.BorderTopWidth - styles.BorderBottomWidth
+		hv := frontend.HTMLValues{
+			BorderLeftWidth:         styles.BorderLeftWidth,
+			BorderRightWidth:        styles.BorderRightWidth,
+			BorderTopWidth:          styles.BorderTopWidth,
+			BorderBottomWidth:       styles.BorderBottomWidth,
+			BorderTopStyle:          styles.BorderTopStyle,
+			BorderLeftStyle:         styles.BorderLeftStyle,
+			BorderRightStyle:        styles.BorderRightStyle,
+			BorderBottomStyle:       styles.BorderBottomStyle,
+			BorderTopColor:          styles.BorderTopColor,
+			BorderLeftColor:         styles.BorderLeftColor,
+			BorderRightColor:        styles.BorderRightColor,
+			BorderBottomColor:       styles.BorderBottomColor,
+			PaddingLeft:             styles.PaddingLeft,
+			PaddingRight:            styles.PaddingRight,
+			PaddingBottom:           styles.PaddingBottom,
+			PaddingTop:              styles.PaddingTop,
+			BorderTopLeftRadius:     styles.BorderTopLeftRadius,
+			BorderTopRightRadius:    styles.BorderTopRightRadius,
+			BorderBottomLeftRadius:  styles.BorderBottomLeftRadius,
+			BorderBottomRightRadius: styles.BorderBottomRightRadius,
+		}
+		vl = cb.frontend.HTMLBorder(vl, hv)
+		cb.stylesStack.PopStyles()
+
+		// set page width / height
+		cb.frontend.Doc.DefaultPageWidth = wd
+		cb.frontend.Doc.DefaultPageHeight = ht
+		cb.currentPageDimensions = PageDimensions{
+			Width:         wd,
+			Height:        ht,
+			PageAreaLeft:  ml + styles.BorderLeftWidth + styles.PaddingLeft,
+			PageAreaTop:   mt - styles.BorderTopWidth - styles.PaddingTop,
+			ContentWidth:  wd - styles.BorderRightWidth - styles.PaddingRight - ml - mr - styles.BorderLeftWidth - styles.PaddingLeft,
+			ContentHeight: ht - styles.BorderBottomWidth - styles.PaddingBottom - mt - mb - styles.BorderTopWidth - styles.PaddingTop,
+			MarginTop:     mt,
+			MarginBottom:  mb,
+			MarginLeft:    ml,
+			MarginRight:   mr,
+			masterpage:    defaultPage,
+		}
+		cb.frontend.Doc.NewPage()
+		if styles.BackgroundColor != nil {
+			r := node.NewRule()
+			x := pdfdraw.NewStandalone().ColorNonstroking(*styles.BackgroundColor).Rect(0, 0, wd, -ht).Fill()
+			r.Pre = x.String()
+			rvl := node.Vpack(r)
+			rvl.Attributes = node.H{"origin": "page background color"}
+			cb.frontend.Doc.CurrentPage.OutputAt(0, ht, rvl)
+		}
+		cb.frontend.Doc.CurrentPage.OutputAt(ml, ht-mt, vl)
+		return nil
 	}
-	return err
+	// no page master found
+	cb.frontend.Doc.DefaultPageWidth = bag.MustSp("210mm")
+	cb.frontend.Doc.DefaultPageHeight = bag.MustSp("297mm")
+
+	cb.currentPageDimensions = PageDimensions{
+		Width:         cb.frontend.Doc.DefaultPageWidth,
+		Height:        cb.frontend.Doc.DefaultPageHeight,
+		ContentWidth:  cb.frontend.Doc.DefaultPageWidth - 2*onecm,
+		ContentHeight: cb.frontend.Doc.DefaultPageHeight - 2*onecm,
+		PageAreaLeft:  onecm,
+		PageAreaTop:   onecm,
+		MarginTop:     onecm,
+		MarginBottom:  onecm,
+		MarginLeft:    onecm,
+		MarginRight:   onecm,
+	}
+	cb.frontend.Doc.NewPage()
+	return nil
 }
 
 // PageSize returns a struct with the dimensions of the current page.
@@ -229,12 +229,12 @@ func (cb *CSSBuilder) NewPage() error {
 // ParseHTMLFromNode interprets the HTML structure and applies all previously read CSS data.
 func (cb *CSSBuilder) ParseHTMLFromNode(input *html.Node) (*frontend.Text, error) {
 	doc := goquery.NewDocumentFromNode(input)
-	sel, err := cb.css.ApplyCSS(doc)
+	htmlNode, err := cb.css.ApplyCSS(doc)
 	if err != nil {
 		return nil, err
 	}
 	var te *frontend.Text
-	if te, err = htmlstyle.ParseSelection(sel, cb.stylesStack, cb.frontend); err != nil {
+	if te, err = htmlstyle.HtmlNodeToText(htmlNode, cb.stylesStack, cb.frontend); err != nil {
 		return nil, err
 	}
 
@@ -253,7 +253,7 @@ func (cb *CSSBuilder) ParseHTML(html string) (*frontend.Text, error) {
 		return nil, err
 	}
 	var te *frontend.Text
-	if te, err = htmlstyle.ParseSelection(sel, cb.stylesStack, cb.frontend); err != nil {
+	if te, err = htmlstyle.HtmlNodeToText(sel, cb.stylesStack, cb.frontend); err != nil {
 		return nil, err
 	}
 
@@ -267,7 +267,7 @@ func (cb *CSSBuilder) ShowCSS() string {
 
 // AddCSS reads the CSS instructions in css.
 func (cb *CSSBuilder) AddCSS(css string) {
-	cb.css.Stylesheet = append(cb.css.Stylesheet, csshtml.ConsumeBlock(csshtml.ParseCSSString(css), false))
+	cb.css.Stylesheet = append(cb.css.Stylesheet, csshtml.ConsumeBlock(csshtml.TokenizeCSSString(css), false))
 }
 
 type info struct {
@@ -297,6 +297,7 @@ type pageMarginBox struct {
 // ParseCSSFile reads the given file name and tries to parse the CSS contents
 // from the file.
 func (cb *CSSBuilder) ParseCSSFile(filename string) error {
+	bag.Logger.Infof("Read file %s", filename)
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err
@@ -305,7 +306,6 @@ func (cb *CSSBuilder) ParseCSSFile(filename string) error {
 	if err != nil {
 		return err
 	}
-	cb.css.Dirstack = []string{abs}
+	cb.css.PushDir(abs)
 	return cb.css.AddCSSText(string(data))
-
 }

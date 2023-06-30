@@ -132,7 +132,7 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) {
 	}
 }
 
-func ParseSelection(n *html.Node, ss StylesStack, df *frontend.Document) (*frontend.Text, error) {
+func HtmlNodeToText(n *html.Node, ss StylesStack, df *frontend.Document) (*frontend.Text, error) {
 	h := &HTMLItem{Dir: ModeVertical}
 	DumpElement(n, ModeVertical, h)
 	return Output(h, ss, df)

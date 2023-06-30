@@ -19,7 +19,7 @@ import (
 
 // FormatToVList is a function that gets collects typesetting material and gets
 // executed when the hsize is known.
-type FormatToVList func(bag.ScaledPoint, ...TypesettingOption) (*node.VList, error)
+type FormatToVList func(bag.ScaledPoint) (*node.VList, error)
 
 // SettingType represents a setting such as font weight or color.
 type SettingType int

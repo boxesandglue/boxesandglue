@@ -18,7 +18,6 @@ type Document struct {
 	Doc                   *document.PDFDocument
 	DefaultFeatures       []harfbuzz.Feature
 	suppressInfo          bool
-	FindFile              func(string) (string, error)
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
 	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
@@ -33,7 +32,6 @@ func initDocument() *Document {
 		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
 		FontFamilies:   make(map[string]*FontFamily),
 	}
-	d.FindFile = d.findFile
 	return d
 }
 

@@ -18,7 +18,7 @@ func (cb *CSSBuilder) OutputPage(html string) error {
 		return err
 	}
 	var te *frontend.Text
-	if te, err = htmlstyle.ParseSelection(sel, cb.stylesStack, cb.frontend); err != nil {
+	if te, err = htmlstyle.HtmlNodeToText(sel, cb.stylesStack, cb.frontend); err != nil {
 		return err
 	}
 	err = cb.outputOnPage(te)
