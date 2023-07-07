@@ -330,7 +330,7 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 // ApplyCSS resolves CSS rules in the DOM. Each CSS rule is added to the
 // selection as an attribute (prefixed with a !). Pseudo elements are prefixed
 // with ::.
-func (c *CSS) ApplyCSS(doc *goquery.Document) (*html.Node, error) {
+func (c *CSS) ApplyCSS(doc *goquery.Document) (*goquery.Document, error) {
 	type selRule struct {
 		selector cascadia.Sel
 		rule     []qrule
@@ -387,8 +387,7 @@ func (c *CSS) ApplyCSS(doc *goquery.Document) (*html.Node, error) {
 	if err := c.processAtRules(); err != nil {
 		return nil, err
 	}
-	sel := doc.Find(":root")
-	return sel.Nodes[0], nil
+	return doc, nil
 }
 
 // PapersizeWdHt converts the typ to the width and height. The parameter can be

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/csshtml"
 	"github.com/speedata/boxesandglue/frontend"
 	"golang.org/x/net/html"
@@ -55,14 +56,14 @@ func (itm *HTMLItem) String() string {
 	}
 }
 
-// DumpElement fills the firstItem with the contents of thisNode. Comments are ignored.
+// DumpElement fills the firstItem with the contents of thisNode. Comments and
+// DocumentNodes are ignored.
 func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) {
 	newDir := direction
 	for {
 		if thisNode == nil {
 			break
 		}
-
 		switch thisNode.Type {
 		case html.CommentNode:
 			// ignore
@@ -125,14 +126,18 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) {
 				DumpElement(thisNode.FirstChild, newDir, itm)
 				preserveWhitespace = preserveWhitespace[:len(preserveWhitespace)-1]
 			}
+		case html.DocumentNode:
+			// just passthrough
+			DumpElement(thisNode.FirstChild, newDir, firstItem)
 		default:
-			fmt.Println(thisNode.Type)
+			bag.Logger.DPanicf("Output: unknown node type %s", thisNode.Type)
 		}
 		thisNode = thisNode.NextSibling
 	}
 }
 
-func HtmlNodeToText(n *html.Node, ss StylesStack, df *frontend.Document) (*frontend.Text, error) {
+// HTMLNodeToText converts an HTML node to a *frontend.Text element.
+func HTMLNodeToText(n *html.Node, ss StylesStack, df *frontend.Document) (*frontend.Text, error) {
 	h := &HTMLItem{Dir: ModeVertical}
 	DumpElement(n, ModeVertical, h)
 	return Output(h, ss, df)

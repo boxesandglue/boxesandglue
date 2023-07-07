@@ -13,12 +13,14 @@ func (cb *CSSBuilder) OutputPage(html string) error {
 	if err != nil {
 		return err
 	}
-	sel, err := cb.css.ApplyCSS(doc)
+	gq, err := cb.css.ApplyCSS(doc)
 	if err != nil {
 		return err
 	}
 	var te *frontend.Text
-	if te, err = htmlstyle.HtmlNodeToText(sel, cb.stylesStack, cb.frontend); err != nil {
+	n := gq.Nodes[0]
+
+	if te, err = htmlstyle.HTMLNodeToText(n, cb.stylesStack, cb.frontend); err != nil {
 		return err
 	}
 	err = cb.outputOnPage(te)

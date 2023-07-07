@@ -229,12 +229,13 @@ func (cb *CSSBuilder) NewPage() error {
 // ParseHTMLFromNode interprets the HTML structure and applies all previously read CSS data.
 func (cb *CSSBuilder) ParseHTMLFromNode(input *html.Node) (*frontend.Text, error) {
 	doc := goquery.NewDocumentFromNode(input)
-	htmlNode, err := cb.css.ApplyCSS(doc)
+	gq, err := cb.css.ApplyCSS(doc)
 	if err != nil {
 		return nil, err
 	}
 	var te *frontend.Text
-	if te, err = htmlstyle.HtmlNodeToText(htmlNode, cb.stylesStack, cb.frontend); err != nil {
+	n := gq.Nodes[0]
+	if te, err = htmlstyle.HTMLNodeToText(n, cb.stylesStack, cb.frontend); err != nil {
 		return nil, err
 	}
 
@@ -247,13 +248,14 @@ func (cb *CSSBuilder) ParseHTML(html string) (*frontend.Text, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	sel, err := cb.css.ApplyCSS(doc)
+	gq, err := cb.css.ApplyCSS(doc)
 	if err != nil {
 		return nil, err
 	}
+	n := gq.Nodes[0]
+
 	var te *frontend.Text
-	if te, err = htmlstyle.HtmlNodeToText(sel, cb.stylesStack, cb.frontend); err != nil {
+	if te, err = htmlstyle.HTMLNodeToText(n, cb.stylesStack, cb.frontend); err != nil {
 		return nil, err
 	}
 

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"golang.org/x/net/html"
 )
 
 // OpenHTMLFile opens an HTML file
@@ -52,10 +51,18 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	return doc, nil
 }
 
-// ParseHTMLFragment takes the HTML text and the CSS text and returns goquery selection.
-func (c *CSS) ParseHTMLFragment(htmltext, csstext string) (*html.Node, error) {
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(CSSdefaults), false))
+// ParseHTMLFragmentWithCSS takes the HTML text and the CSS text and returns goquery selection.
+func (c *CSS) ParseHTMLFragmentWithCSS(htmltext, csstext string) (*goquery.Document, error) {
 	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(csstext), false))
+	doc, err := c.ReadHTMLChunk(htmltext)
+	if err != nil {
+		return nil, err
+	}
+	return c.ApplyCSS(doc)
+}
+
+// ParseHTMLFragment takes the HTML text and the CSS text and returns goquery selection.
+func (c *CSS) ParseHTMLFragment(htmltext string) (*goquery.Document, error) {
 	doc, err := c.ReadHTMLChunk(htmltext)
 	if err != nil {
 		return nil, err

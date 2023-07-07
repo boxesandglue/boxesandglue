@@ -2,6 +2,7 @@ package htmlstyle
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/speedata/boxesandglue/frontend"
 )
@@ -113,6 +114,8 @@ func processTbody(item *HTMLItem, ss StylesStack, df *frontend.Document) (fronte
 				switch k {
 				case "vertical-align":
 					styles.Valign = ParseVerticalAlign(v, styles)
+				case "text-align":
+					styles.Halign = ParseHorizontalAlign(v, styles)
 				}
 			}
 
@@ -139,6 +142,36 @@ func processTable(item *HTMLItem, ss StylesStack, df *frontend.Document) (*front
 				switch k {
 				case "vertical-align":
 					styles.Valign = ParseVerticalAlign(v, styles)
+				case "text-align":
+					styles.Halign = ParseHorizontalAlign(v, styles)
+				case "font-weight":
+					var fontweight frontend.FontWeight = 400
+
+					if i, err := strconv.Atoi(v); err == nil {
+						fontweight = frontend.FontWeight(i)
+					} else {
+						switch strings.ToLower(v) {
+						case "thin", "hairline":
+							fontweight = 100
+						case "extra light", "ultra light":
+							fontweight = 200
+						case "light":
+							fontweight = 300
+						case "normal":
+							fontweight = 400
+						case "medium":
+							fontweight = 500
+						case "semi bold", "demi bold":
+							fontweight = 600
+						case "bold":
+							fontweight = 700
+						case "extra bold", "ultra bold":
+							fontweight = 800
+						case "black", "heavy":
+							fontweight = 900
+						}
+					}
+					styles.Fontweight = fontweight
 				}
 			}
 			if rows, err = processTbody(itm, ss, df); err != nil {

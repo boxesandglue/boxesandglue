@@ -87,21 +87,32 @@ type span struct {
 }
 
 func (cell *TableCell) String() string {
-	return fmt.Sprintf("%d/%d", cell.colStart, cell.rowStart)
+	return fmt.Sprintf("x: %d y:%d", cell.colStart, cell.rowStart)
 }
 
 // make the smallest possible paragraph and see how wide the longest lines are.
 // TODO: also take into account the other possible elements.
 func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	minwd := bag.ScaledPoint(0)
-
+	formatWidth := 1 * bag.Factor
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc.(*Text), 1*bag.Factor, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
-		if err != nil {
-			return 0, err
-		}
-		for _, inf := range info {
-			if wd := inf.Width; wd > minwd {
+		switch t := cc.(type) {
+		case *Text:
+			_, info, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+			if err != nil {
+				return 0, err
+			}
+			for _, inf := range info {
+				if wd := inf.Width; wd > minwd {
+					minwd = wd
+				}
+			}
+		case FormatToVList:
+			vl, err := t(formatWidth)
+			if err != nil {
+				return 0, err
+			}
+			if wd := minWidthWithoutStretch(vl); wd > minwd {
 				minwd = wd
 			}
 		}
@@ -112,18 +123,31 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 // Format the cell with maximum size and find out the longest line.
 func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	maxwd := bag.ScaledPoint(0)
+	formatWidth := bag.MaxSP
+
 	for _, cc := range cell.Contents {
-		_, info, err := cell.row.table.doc.FormatParagraph(cc.(*Text), bag.MaxSP, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
-		if err != nil {
-			return 0, err
-		}
-		for _, inf := range info {
-			if wd := inf.Width; wd > maxwd {
+		switch t := cc.(type) {
+		case *Text:
+			_, info, err := cell.row.table.doc.FormatParagraph(t, formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+			if err != nil {
+				return 0, err
+			}
+			for _, inf := range info {
+				if wd := inf.Width; wd > maxwd {
+					maxwd = wd
+				}
+			}
+		case FormatToVList:
+			vl, err := t(formatWidth)
+			if err != nil {
+				return 0, err
+			}
+
+			if wd := maxWidthWithoutStretch(vl); wd > maxwd {
 				maxwd = wd
 			}
 		}
 	}
-
 	return maxwd + cell.BorderLeftWidth + cell.BorderRightWidth + cell.PaddingLeft + cell.PaddingRight, nil
 }
 
@@ -141,6 +165,12 @@ func (cell *TableCell) build() (*node.VList, error) {
 			head = node.InsertAfter(head, node.Tail(head), para)
 		case *node.HList:
 			head = node.InsertAfter(head, node.Tail(head), node.CopyList(t))
+		case FormatToVList:
+			var err error
+			head, err = t(paraWidth)
+			if err != nil {
+				return nil, err
+			}
 		default:
 			bag.Logger.DPanicf("table cell build(): unknown node type %T", t)
 		}

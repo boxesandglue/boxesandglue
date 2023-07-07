@@ -207,7 +207,7 @@ func StylesToStyles(ih *FormattingStyles, attributes map[string]string, df *fron
 				ih.fontstyle = frontend.FontStyleNormal
 			}
 		case "font-weight":
-			ih.fontweight = frontend.ResolveFontWeight(v, ih.fontweight)
+			ih.Fontweight = frontend.ResolveFontWeight(v, ih.Fontweight)
 		case "font-feature-settings":
 			ih.fontfeatures = append(ih.fontfeatures, v)
 		case "list-style-type":
@@ -317,7 +317,7 @@ type FormattingStyles struct {
 	fontfeatures            []string
 	Fontsize                bag.ScaledPoint
 	fontstyle               frontend.FontStyle
-	fontweight              frontend.FontWeight
+	Fontweight              frontend.FontWeight
 	fontexpansion           *float64
 	Halign                  frontend.HorizontalAlignment
 	hangingPunctuation      frontend.HangingPunctuation
@@ -361,7 +361,7 @@ func (is *FormattingStyles) Clone() *FormattingStyles {
 		fontfeatures:       newFontFeatures,
 		Fontsize:           is.Fontsize,
 		fontstyle:          is.fontstyle,
-		fontweight:         is.fontweight,
+		Fontweight:         is.Fontweight,
 		hangingPunctuation: is.hangingPunctuation,
 		language:           is.language,
 		lineheight:         is.lineheight,
@@ -379,8 +379,8 @@ func (is *FormattingStyles) Clone() *FormattingStyles {
 // ApplySettings converts the inheritable settings to boxes and glue text
 // settings.
 func ApplySettings(settings frontend.TypesettingSettings, ih *FormattingStyles) {
-	if ih.fontweight > 0 {
-		settings[frontend.SettingFontWeight] = ih.fontweight
+	if ih.Fontweight > 0 {
+		settings[frontend.SettingFontWeight] = ih.Fontweight
 	}
 	settings[frontend.SettingBackgroundColor] = ih.BackgroundColor
 	settings[frontend.SettingBorderTopWidth] = ih.BorderTopWidth
