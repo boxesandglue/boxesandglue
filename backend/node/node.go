@@ -300,15 +300,24 @@ func IsDisc(elt Node) (*Disc, bool) {
 // ligature.
 type Glyph struct {
 	basenode
-	Font       *font.Font
-	Codepoint  int    // The font specific glyph id
-	Components string // A codepoint can contain more than one rune, for example a fi ligature contains f + i
-	Width      bag.ScaledPoint
-	Height     bag.ScaledPoint
-	Depth      bag.ScaledPoint
-	XOffset    bag.ScaledPoint
-	YOffset    bag.ScaledPoint
-	Hyphenate  bool
+	Font *font.Font
+	// The font specific glyph id
+	Codepoint int
+	// A codepoint can contain more than one rune, for example a fi ligature
+	// contains f + i. Filling the components string is optional.
+	Components string
+	// The advance width of the box.
+	Width bag.ScaledPoint
+	// The height is the length above the base line.
+	Height bag.ScaledPoint
+	// The Depth is the length below the base line. For example the letter g has
+	// a depth > 0.
+	Depth bag.ScaledPoint
+	// Vertical displacement. Positive values move the glyph towards the top of
+	// the page.
+	YOffset bag.ScaledPoint
+	// This allows the glyph to be part of word hyphenation.
+	Hyphenate bool
 }
 
 func (g *Glyph) String() string {
@@ -359,6 +368,8 @@ func (g *Glyph) Copy() Node {
 	n.Width = g.Width
 	n.Height = g.Height
 	n.Depth = g.Depth
+	n.Hyphenate = g.Hyphenate
+	n.YOffset = g.YOffset
 	n.Hyphenate = g.Hyphenate
 	return n
 }

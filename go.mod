@@ -3,8 +3,8 @@ module github.com/speedata/boxesandglue
 go 1.18
 
 require (
-	github.com/PuerkitoBio/goquery v1.8.0
-	github.com/andybalholm/cascadia v1.3.1
+	github.com/PuerkitoBio/goquery v1.8.1
+	github.com/andybalholm/cascadia v1.3.2
 	github.com/google/uuid v1.3.0
 	github.com/speedata/baseline-pdf v0.0.0-20230626115456-1e81e9807a83
 	github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553
@@ -17,8 +17,9 @@ require (
 )
 
 require (
+	github.com/stretchr/testify v1.8.3 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
-	go.uber.org/multierr v1.8.0 // indirect
-	golang.org/x/image v0.0.0-20220902085622-e7cb96979f69 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+	golang.org/x/image v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 )
