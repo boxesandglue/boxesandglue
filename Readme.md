@@ -91,7 +91,7 @@ func typesetSample() error {
 	// Load a font, define a font family, and add this font to the family.
 	ff := f.NewFontFamily("text")
 	ff.AddMember(
-		&frontend.FontSource{Source: "fonts/CrimsonPro-Regular.ttf"},
+		&frontend.FontSource{Location: "fonts/CrimsonPro-Regular.ttf"},
 		frontend.FontWeight400,
 		frontend.FontStyleNormal,
 	)
