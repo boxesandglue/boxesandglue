@@ -1,10 +1,20 @@
 package htmlstyle
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend"
+	"golang.org/x/net/html"
+)
+
+var (
+	onlyUnitRE = regexp.MustCompile(`^(sp|mm|cm|in|pt|px|pc|m)$`)
+	unitRE     = regexp.MustCompile(`(.*?)(sp|mm|cm|in|pt|px|pc|m)`)
+	astRE      = regexp.MustCompile(`(\d*)\*`)
 )
 
 func processTr(item *HTMLItem, ss StylesStack, df *frontend.Document) (*frontend.TableRow, error) {
@@ -136,6 +146,54 @@ func processTable(item *HTMLItem, ss StylesStack, df *frontend.Document) (*front
 	var rows frontend.TableRows
 	var err error
 	for _, itm := range item.Children {
+		if itm.Data == "colgroup" {
+			for _, col := range itm.Children {
+				if !(col.Typ == html.ElementNode && col.Data == "col") {
+					// not a col element
+					continue
+				}
+				g := node.NewGlue()
+				split := strings.Split(col.Attributes["width"], "plus")
+				var unitString string
+				var stretchString string
+				if len(split) == 1 {
+					if unitRE.MatchString(split[0]) {
+						unitString = split[0]
+					} else if astRE.MatchString(split[0]) {
+						stretchString = split[0]
+					}
+				} else {
+					if unitRE.MatchString(split[0]) {
+						unitString = split[0]
+					}
+					if astRE.MatchString(split[1]) {
+						stretchString = split[1]
+					}
+				}
+
+				if unitString != "" {
+					g.Width = bag.MustSp(unitString)
+				}
+				if astRE.MatchString(stretchString) {
+					astMatch := astRE.FindAllStringSubmatch(stretchString, -1)
+					if c := astMatch[0][1]; c != "" {
+						stretch, err := strconv.Atoi(c)
+						if err != nil {
+							return nil, err
+						}
+						g.Stretch = bag.ScaledPoint(stretch) * bag.Factor
+					} else {
+						g.Stretch = bag.Factor
+					}
+					g.StretchOrder = 1
+				}
+				cs := frontend.ColSpec{
+					ColumnWidth: g,
+				}
+				tbl.ColSpec = append(tbl.ColSpec, cs)
+			}
+
+		}
 		if itm.Data == "thead" || itm.Data == "tbody" {
 			styles := ss.PushStyles()
 			for k, v := range itm.Styles {
