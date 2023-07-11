@@ -69,6 +69,8 @@ func stringValue(toks Tokenstream) string {
 			}
 		case scanner.URI:
 			ret = append(ret, "url("+tok.Value+")")
+		case scanner.Local:
+			ret = append(ret, "local("+tok.Value+")")
 		default:
 			fmt.Println("unhandled token", tok)
 		}

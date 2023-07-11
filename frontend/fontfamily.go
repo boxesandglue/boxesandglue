@@ -23,6 +23,7 @@ func (fe *Document) NewFontFamily(name string) *FontFamily {
 	ff := &FontFamily{
 		ID:   len(fe.FontFamilies),
 		Name: name,
+		doc:  fe,
 	}
 	fe.FontFamilies[name] = ff
 	return ff
@@ -47,7 +48,7 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 		return fs.face, nil
 	}
 
-	f, err := fe.Doc.LoadFace(fs.Source, fs.Index)
+	f, err := fe.Doc.LoadFace(fs.Location, fs.Index)
 	if err != nil {
 		return nil, err
 	}
@@ -55,11 +56,18 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	return f, nil
 }
 
+// GetFontLocationFromLocal returns the result of th mapping from the font
+// source name to the font source location. When adding a member to a font family,
+// the name of the font source is used as the key for the font source' location.
+func (fe *Document) GetFontLocationFromLocal(fontname string) string {
+	return fe.fontlocal[fontname].Location
+}
+
 // FontSource defines a mapping of name to a font source including the font features.
 type FontSource struct {
 	Name         string
 	FontFeatures []string
-	Source       string
+	Location     string
 	SizeAdjust   float64 // 1 - SizeAdjust is the relative adjustment.
 	// The sub font index within the font file.
 	Index int
@@ -72,18 +80,20 @@ func (fs *FontSource) String() string {
 	if name == "" {
 		name = "-"
 	}
-	return fmt.Sprintf("%s->%s:%d (feat: %s)", name, fs.Source, fs.Index, fs.FontFeatures)
+	return fmt.Sprintf("%s->%s:%d (feat: %s)", name, fs.Location, fs.Index, fs.FontFeatures)
 }
 
 // FontFamily is a struct that keeps font with different weights and styles together.
 type FontFamily struct {
 	ID           int
 	Name         string
+	doc          *Document
 	familyMember map[FontWeight]map[FontStyle]*FontSource
 }
 
 // AddMember adds a member to the font family.
 func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) error {
+	ff.doc.fontlocal[fontsource.Name] = fontsource
 	bag.Logger.Debugf("add member to ff (id %d) weight %s, style %s", ff.ID, weight, style)
 	if fontsource == nil {
 		return fmt.Errorf("Font source is nil")

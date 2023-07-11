@@ -339,12 +339,19 @@ func (c *CSS) doFontFace(ff []qrule) error {
 			}
 		case "src":
 			for _, v := range rule.Value {
-				fs, err := c.FindFile(v.Value)
-				if err != nil {
-					return err
+				switch v.Type {
+				case scanner.Local:
+					fs := c.FrontendDocument.GetFontLocationFromLocal(v.Value)
+					fontsource.Location = fs
+				case scanner.URI:
+					fs, err := c.FindFile(v.Value)
+					if err != nil {
+						return err
+					}
+					fontsource.Location = fs
+				default:
+					bag.Logger.DPanicf("css src(): unhandled token %v", v)
 				}
-				bag.Logger.Debugf("CSS src: %s", fs)
-				fontsource.Source = fs
 			}
 		case "font-feature-settings":
 			settingOn := true

@@ -17,6 +17,7 @@ type Document struct {
 	FontFamilies          map[string]*FontFamily
 	Doc                   *document.PDFDocument
 	DefaultFeatures       []harfbuzz.Feature
+	fontlocal             map[string]*FontSource
 	suppressInfo          bool
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
@@ -31,6 +32,7 @@ func initDocument() *Document {
 		usedcolors:     make(map[string]*color.Color),
 		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
 		FontFamilies:   make(map[string]*FontFamily),
+		fontlocal:      make(map[string]*FontSource),
 	}
 	return d
 }
