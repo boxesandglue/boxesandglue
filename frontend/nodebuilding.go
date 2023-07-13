@@ -354,15 +354,15 @@ func DebugTextToFile(filename string, ts *Text) error {
 	return w.Close()
 }
 
-// DebugText writes an XML representation of the Text structure to stdout.
-func DebugText(ts *Text) {
+// DebugText returns an XML representation of the Text structure.
+func DebugText(ts *Text) string {
 	w := new(bytes.Buffer)
 	enc := xml.NewEncoder(w)
 	enc.Indent("", "  ")
 	debugText(ts, enc)
 	enc.Flush()
 	w.WriteString("\n")
-	w.WriteTo(os.Stdout)
+	return w.String()
 }
 
 func debugText(ts *Text, enc *xml.Encoder) {

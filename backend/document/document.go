@@ -505,6 +505,13 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if v.VAlign == node.VAlignTop {
 				shiftDown = y - sumY
 			}
+			if oc.p.document.IsTrace(VTraceHBoxes) {
+				r := node.NewRule()
+				r.Hide = true
+				p := pdfdraw.NewStandalone().LineWidth(bag.MustSp("0.4pt")).Rect(0, -v.Depth, v.Width, v.Height+v.Depth).Stroke()
+				r.Pre = p.String()
+				v.List = node.InsertBefore(v.List, v.List, r)
+			}
 			oc.outputHorizontalItems(x, shiftDown, v)
 			sumY += v.Height
 			sumY += v.Depth
