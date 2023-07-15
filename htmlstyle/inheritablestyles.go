@@ -10,6 +10,7 @@ import (
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend"
+	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 
@@ -65,27 +66,27 @@ func ParseRelativeSize(fs string, cur bag.ScaledPoint, root bag.ScaledPoint) bag
 	}
 	if strings.HasSuffix(fs, "rem") {
 		if root == 0 {
-			bag.Logger.Warn("Calculating an rem size without a root font size results in a size of 0.")
+			slog.Warn("Calculating an rem size without a root font size results in a size of 0.")
 			return 0
 		}
 
 		prefix := strings.TrimSuffix(fs, "rem")
 		factor, err := strconv.ParseFloat(prefix, 32)
 		if err != nil {
-			bag.Logger.Errorf("Cannot convert relative size %s", fs)
+			slog.Error(fmt.Sprintf("Cannot convert relative size %s", fs))
 			return bag.MustSp("10pt")
 		}
 		return bag.ScaledPoint(float64(root) * factor)
 	}
 	if strings.HasSuffix(fs, "em") {
 		if cur == 0 {
-			bag.Logger.Warn("Calculating an em size without a body font size results in a size of 0.")
+			slog.Warn("Calculating an em size without a body font size results in a size of 0.")
 			return 0
 		}
 		prefix := strings.TrimSuffix(fs, "em")
 		factor, err := strconv.ParseFloat(prefix, 32)
 		if err != nil {
-			bag.Logger.Errorf("Cannot convert relative size %s", fs)
+			slog.Error(fmt.Sprintf("Cannot convert relative size %s", fs))
 			return bag.MustSp("10pt")
 		}
 		return bag.ScaledPoint(float64(cur) * factor)
@@ -118,7 +119,7 @@ func ParseRelativeSize(fs string, cur bag.ScaledPoint, root bag.ScaledPoint) bag
 	case "xxx-large":
 		return bag.ScaledPointFromFloat(tenptflt * 1.2 * 1.2 * 1.2 * 1.2)
 	}
-	bag.Logger.Errorf("Could not convert %s from default %s", fs, cur)
+	slog.Error(fmt.Sprintf("Could not convert %s from default %s", fs, cur))
 	return cur
 }
 
@@ -172,7 +173,7 @@ func StylesToStyles(ih *FormattingStyles, attributes map[string]string, df *fron
 			case "solid":
 				sty = frontend.BorderStyleSolid
 			default:
-				bag.Logger.DPanicf("not implemented: border style %q", v)
+				slog.Error(fmt.Sprintf("not implemented: border style %q", v))
 			}
 			switch k {
 			case "border-right-style":
@@ -530,7 +531,7 @@ func Output(item *HTMLItem, ss StylesStack, df *frontend.Document) (*frontend.Te
 			case "decimal":
 				item = fmt.Sprintf("%d.", styles.OlCounter)
 			default:
-				bag.Logger.Errorf("unhandled list-style-type: %q", styles.ListStyleType)
+				slog.Error(fmt.Sprintf("unhandled list-style-type: %q", styles.ListStyleType))
 				item = "•"
 			}
 			item += " "

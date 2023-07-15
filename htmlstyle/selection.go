@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/csshtml"
 	"github.com/speedata/boxesandglue/frontend"
+	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 
@@ -130,7 +130,7 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) {
 			// just passthrough
 			DumpElement(thisNode.FirstChild, newDir, firstItem)
 		default:
-			bag.Logger.DPanicf("Output: unknown node type %s", thisNode.Type)
+			slog.Error(fmt.Sprintf("Output: unknown node type %s", thisNode.Type))
 		}
 		thisNode = thisNode.NextSibling
 	}

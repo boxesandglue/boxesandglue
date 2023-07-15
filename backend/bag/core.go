@@ -4,24 +4,27 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"go.uber.org/zap"
+	"golang.org/x/exp/slog"
 )
 
 var (
 	unitRE = regexp.MustCompile("(.*?)\\s*(sp|mm|cm|in|pt|px|pc|m)")
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
-	// Logger is a zap logger which can be overridden from other packages
-	Logger *zap.SugaredLogger
+	// LogLevel can be changed to set the log level for the default slog
+	// handler.
+	LogLevel *slog.LevelVar
 )
 
 func init() {
-	logger, _ := zap.NewProduction()
-	Logger = logger.Sugar()
+	LogLevel = new(slog.LevelVar)
+	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: LogLevel})
+	slog.SetDefault(slog.New(h))
 }
 
 // A ScaledPoint is a 65535th of a DTP point
@@ -137,7 +140,7 @@ func MustSp(unit string) ScaledPoint {
 	val, err := Sp(unit)
 	if err != nil {
 		if errors.Is(err, ErrConversion) {
-			Logger.Error(err.Error())
+			slog.Error(err.Error())
 		}
 		panic(err)
 	}

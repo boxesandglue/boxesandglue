@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/speedata/boxesandglue/backend/bag"
+	"golang.org/x/exp/slog"
 )
 
 // Color holds color values for the document. All intensities are from 0 to 1.
@@ -76,7 +76,7 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 	case ColorSpotcolor:
 		return fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
 	default:
-		bag.Logger.DPanic("PDFString(Non)Stroking: unknown color space.")
+		slog.Error("PDFString(Non)Stroking: unknown color space.")
 		return ""
 	}
 }

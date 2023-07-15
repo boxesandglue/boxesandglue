@@ -11,6 +11,7 @@ import (
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 	"github.com/speedata/boxesandglue/htmlstyle"
+	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 
@@ -299,7 +300,7 @@ type pageMarginBox struct {
 // ParseCSSFile reads the given file name and tries to parse the CSS contents
 // from the file.
 func (cb *CSSBuilder) ParseCSSFile(filename string) error {
-	bag.Logger.Infof("Read file %s", filename)
+	slog.Info("Read file", "filename", filename)
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err
