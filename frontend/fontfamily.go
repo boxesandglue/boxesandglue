@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	pdf "github.com/speedata/baseline-pdf"
-	"golang.org/x/exp/slog"
+	"github.com/speedata/boxesandglue/backend/bag"
 )
 
 var (
@@ -19,7 +19,7 @@ var (
 
 // NewFontFamily creates a new font family for bundling fonts.
 func (fe *Document) NewFontFamily(name string) *FontFamily {
-	slog.Info("Define font family", "name", name, "id", len(fe.FontFamilies))
+	bag.Logger.Info("Define font family", "name", name, "id", len(fe.FontFamilies))
 	ff := &FontFamily{
 		ID:   len(fe.FontFamilies),
 		Name: name,
@@ -37,7 +37,7 @@ func (fe *Document) FindFontFamily(name string) *FontFamily {
 
 // DefineFontFamilyAlias defines the font family with the new name.
 func (fe *Document) DefineFontFamilyAlias(ff *FontFamily, alias string) {
-	slog.Info("Define font family alias", "alias", alias)
+	bag.Logger.Info("Define font family alias", "alias", alias)
 	fe.FontFamilies[alias] = ff
 }
 
@@ -94,7 +94,7 @@ type FontFamily struct {
 // AddMember adds a member to the font family.
 func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) error {
 	ff.doc.fontlocal[fontsource.Name] = fontsource
-	slog.Debug("Add member to ff", "id", ff.ID, "weight", weight, "style", style)
+	bag.Logger.Debug("Add member to ff", "id", ff.ID, "weight", weight, "style", style)
 	if fontsource == nil {
 		return fmt.Errorf("Font source is nil")
 	}
@@ -175,7 +175,7 @@ found:
 	for k := range ffMemberWeight {
 		keys = append(keys, k.String())
 	}
-	slog.Warn(fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", ")))
+	bag.Logger.Warn(fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", ")))
 	// fallback to normal
 	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
 		return ff, nil
@@ -217,7 +217,7 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 
 	i, err := strconv.Atoi(fw)
 	if err != nil {
-		slog.Error(fmt.Sprintf("resolve font size: cannot convert %s to int", fw))
+		bag.Logger.Error(fmt.Sprintf("resolve font size: cannot convert %s to int", fw))
 		return FontWeight400
 	}
 

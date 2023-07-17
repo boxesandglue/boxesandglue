@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/speedata/boxesandglue/backend/color"
-	"golang.org/x/exp/slog"
 )
 
 // DefineColor associates a color with a name for later use.
@@ -44,7 +43,8 @@ func (d *Document) GetColor(s string) *color.Color {
 		case 4:
 			fmt.Sscanf(s, "#%1x%1x%1x", &r, &g, &b)
 		default:
-			slog.Error("GetColor HTML not implemented", "size", len(s))
+			// FIXME: proper error handling
+			// logger.Error("GetColor HTML not implemented", "size", len(s))
 		}
 		col.R = math.Round(100.0*float64(r)/float64(255)) / 100.0
 		col.G = math.Round(100.0*float64(g)/float64(255)) / 100.0

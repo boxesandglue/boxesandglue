@@ -3,8 +3,6 @@ package color
 import (
 	"fmt"
 	"strconv"
-
-	"golang.org/x/exp/slog"
 )
 
 // Color holds color values for the document. All intensities are from 0 to 1.
@@ -60,13 +58,14 @@ func (col *Color) getPDFColorSuffix(stroking bool) string {
 	return []string{"", "rg", "k", "g", "cs"}[col.Space]
 }
 
+// getPDFColorValues returns the PDF string for this color. If color is in color
+// space none or not in the spaces RGG, CMYK, gray or spotcolor, it will return
+// the empty string.
 func (col *Color) getPDFColorValues(stroking bool) string {
 	if col == nil {
 		return ""
 	}
 	switch col.Space {
-	case ColorNone:
-		return ""
 	case ColorRGB:
 		return fmt.Sprintf("%s %s %s %s", strconv.FormatFloat(col.R, 'f', -1, 64), strconv.FormatFloat(col.G, 'f', -1, 64), strconv.FormatFloat(col.B, 'f', -1, 64), col.getPDFColorSuffix(stroking))
 	case ColorCMYK:
@@ -76,7 +75,6 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 	case ColorSpotcolor:
 		return fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
 	default:
-		slog.Error("PDFString(Non)Stroking: unknown color space.")
 		return ""
 	}
 }

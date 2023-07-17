@@ -3,12 +3,13 @@ package bag
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
+	pdf "github.com/speedata/baseline-pdf"
 	"golang.org/x/exp/slog"
 )
 
@@ -16,15 +17,21 @@ var (
 	unitRE = regexp.MustCompile("(.*?)\\s*(sp|mm|cm|in|pt|px|pc|m)")
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
-	// LogLevel can be changed to set the log level for the default slog
-	// handler.
-	LogLevel *slog.LevelVar
+	// Logger is initialized to write to io.Discard and the default log level is
+	// math.MaxInt, so it should never write anything. To set, use the
+	// SetLogger() function.
+	Logger *slog.Logger
 )
 
 func init() {
-	LogLevel = new(slog.LevelVar)
-	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: LogLevel})
-	slog.SetDefault(slog.New(h))
+	Logger = slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.Level(math.MaxInt)}))
+}
+
+// SetLogger sets the logger for the boxes and glue backend and for the
+// libraries it loads.
+func SetLogger(l *slog.Logger) {
+	pdf.Logger = l
+	Logger = l
 }
 
 // A ScaledPoint is a 65535th of a DTP point
@@ -140,7 +147,7 @@ func MustSp(unit string) ScaledPoint {
 	val, err := Sp(unit)
 	if err != nil {
 		if errors.Is(err, ErrConversion) {
-			slog.Error(err.Error())
+			Logger.Error(err.Error())
 		}
 		panic(err)
 	}

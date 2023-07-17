@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/speedata/css/scanner"
-	"golang.org/x/exp/slog"
 )
 
 // TokenizeCSSString converts a CSS string to a Tokenstream. Also read linked (@import) stylesheets.
@@ -130,7 +129,7 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 }
 
 func parseCSSBody(filename string) (Tokenstream, error) {
-	slog.Info("Read file", "filename", filename)
+	// logger.Info("Read file", "filename", filename)
 	b, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err

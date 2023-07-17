@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/css/scanner"
-	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 
@@ -64,13 +64,13 @@ func (c *CSS) PushDir(dir string) {
 	} else {
 		newEntry = dir
 	}
-	slog.Debug(fmt.Sprintf("css.PushDir(%s)", newEntry))
+	bag.Logger.Debug(fmt.Sprintf("css.PushDir(%s)", newEntry))
 	c.dirstack = append(c.dirstack, newEntry)
 }
 
 // PopDir removes the last entry from the dir stack.
 func (c *CSS) PopDir() {
-	slog.Debug(fmt.Sprintf("css.PopDir(%s)", c.dirstack[len(c.dirstack)-1]))
+	bag.Logger.Debug(fmt.Sprintf("css.PopDir(%s)", c.dirstack[len(c.dirstack)-1]))
 	c.dirstack = c.dirstack[:len(c.dirstack)-1]
 }
 
@@ -350,7 +350,7 @@ func (c *CSS) doFontFace(ff []qrule) error {
 					}
 					fontsource.Location = fs
 				default:
-					slog.Error(fmt.Sprintf("css src(): unhandled token %v", v))
+					return fmt.Errorf("css src(): unhandled token %v", v)
 				}
 			}
 		case "font-feature-settings":

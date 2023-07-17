@@ -15,7 +15,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/textlayout/harfbuzz"
-	"golang.org/x/exp/slog"
 )
 
 // FormatToVList is a function that gets collects typesetting material and gets
@@ -677,7 +676,8 @@ func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
 		for _, str := range strings.Split(t, ",") {
 			f, err := harfbuzz.ParseFeature(str)
 			if err != nil {
-				slog.Error(fmt.Sprintf("Cannot parse OpenType feature tag %q.", str))
+				// FIXME: proper error handling
+				// logger.Error(fmt.Sprintf("Cannot parse OpenType feature tag %q.", str))
 			}
 			fontfeatures = append(fontfeatures, f)
 		}
@@ -686,7 +686,8 @@ func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
 			for _, str := range strings.Split(single, ",") {
 				f, err := harfbuzz.ParseFeature(str)
 				if err != nil {
-					slog.Error(fmt.Sprintf("Cannot parse OpenType feature tag %q.", str))
+					// FIXME: proper error handling
+					// logger.Error(fmt.Sprintf("Cannot parse OpenType feature tag %q.", str))
 				}
 				fontfeatures = append(fontfeatures, f)
 			}
@@ -770,7 +771,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingYOffset:
 			yoffset = v.(bag.ScaledPoint)
 		default:
-			slog.Error(fmt.Sprintf("Unknown setting %v", k))
+			return nil, fmt.Errorf("Unknown setting %v", k)
 		}
 	}
 
@@ -1047,7 +1048,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			head = node.InsertAfter(head, tail, s)
 			tail = s
 		default:
-			slog.Error(fmt.Sprintf("Mknodes: unknown item type %T", t))
+			return nil, nil, fmt.Errorf("Mknodes: unknown item type %T", t)
 		}
 	}
 	if hyperlinkStartNode != nil {

@@ -16,7 +16,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
-	"golang.org/x/exp/slog"
 )
 
 const (
@@ -308,7 +307,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.gotoTextMode(4)
 			img := v.Img
 			if img.Used {
-				slog.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
+				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
 			} else {
 				img.Used = true
 			}
@@ -410,7 +409,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			} else if action == node.ActionNone || action == node.ActionUserSetting {
 				// ignore
 			} else {
-				slog.Warn("start/stop node: unhandled action %s", action)
+				bag.Logger.Warn("start/stop node: unhandled action %s", action)
 			}
 			switch v.Position {
 			case node.PDFOutputPage:
@@ -476,7 +475,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			x = saveX
 			y = saveY
 		default:
-			slog.Warn(fmt.Sprintf("Shipout: unknown node %v", hItem))
+			bag.Logger.Warn(fmt.Sprintf("Shipout: unknown node %v", hItem))
 		}
 	}
 	oc.curOutputDebug = saveCurOutputDebug
@@ -522,7 +521,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 		case *node.Image:
 			img := v.Img
 			if img.Used {
-				slog.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
+				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
 			} else {
 				img.Used = true
 			}
@@ -670,7 +669,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			} else if action == node.ActionNone {
 				// ignore
 			} else {
-				slog.Warn(fmt.Sprintf("start/stop node: unhandled action %s", action))
+				bag.Logger.Warn(fmt.Sprintf("start/stop node: unhandled action %s", action))
 			}
 			switch v.Position {
 			case node.PDFOutputPage:
@@ -694,7 +693,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			oc.outputVerticalItems(x+v.ShiftX, y-sumY, v)
 			sumY += v.Height + v.Depth
 		default:
-			slog.Error(fmt.Sprintf("Shipout: unknown node %T in vertical mode", v))
+			bag.Logger.Error(fmt.Sprintf("Shipout: unknown node %T in vertical mode", v))
 		}
 	}
 	oc.curOutputDebug = saveCurOutputDebug
@@ -727,7 +726,7 @@ func (p *Page) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VList)
 
 // Shipout places all objects on a page and finishes this page.
 func (p *Page) Shipout() {
-	slog.Debug("Shipout")
+	bag.Logger.Debug("Shipout")
 	if p.Finished {
 		return
 	}
@@ -958,7 +957,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 		},
 	}
 	d.curOutputDebug = d.outputDebug
-	d.PDFWriter.Logger = slog.Default()
+	pdf.Logger = bag.Logger
 	return d
 }
 
@@ -998,7 +997,7 @@ func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
 			return fce, nil
 		}
 	}
-	slog.Debug("LoadFace", "filename", filename)
+	bag.Logger.Debug("LoadFace", "filename", filename)
 
 	f, err := pdf.LoadFace(d.PDFWriter, filename, index)
 	if err != nil {
@@ -1196,9 +1195,9 @@ func (d *PDFDocument) Finish() error {
 		return err
 	}
 	if d.Filename != "" {
-		slog.Info("Output written", "filename", d.Filename, "bytes", d.PDFWriter.Size())
+		bag.Logger.Info("Output written", "filename", d.Filename, "bytes", d.PDFWriter.Size())
 	} else {
-		slog.Info("Output written (%d bytes)", d.PDFWriter.Size())
+		bag.Logger.Info("Output written (%d bytes)", d.PDFWriter.Size())
 	}
 
 	return nil

@@ -5,10 +5,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/font"
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
-	"golang.org/x/exp/slog"
 )
 
 //go:generate rake genpatterns
@@ -79,7 +79,7 @@ func GetLanguage(langname string) (*lang.Lang, error) {
 	if r == nil {
 		return nil, fmt.Errorf("Language %q not found", langname)
 	}
-	slog.Debug("Load language from memory", "name", langname)
+	bag.Logger.Debug("Load language from memory", "name", langname)
 	l, err := lang.NewFromReader(r)
 	if err != nil {
 		return nil, err

@@ -6,7 +6,6 @@ import (
 
 	"github.com/speedata/boxesandglue/csshtml"
 	"github.com/speedata/boxesandglue/frontend"
-	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 
@@ -58,7 +57,7 @@ func (itm *HTMLItem) String() string {
 
 // DumpElement fills the firstItem with the contents of thisNode. Comments and
 // DocumentNodes are ignored.
-func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) {
+func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error {
 	newDir := direction
 	for {
 		if thisNode == nil {
@@ -130,10 +129,11 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) {
 			// just passthrough
 			DumpElement(thisNode.FirstChild, newDir, firstItem)
 		default:
-			slog.Error(fmt.Sprintf("Output: unknown node type %s", thisNode.Type))
+			return fmt.Errorf("Output: unknown node type %s", thisNode.Type)
 		}
 		thisNode = thisNode.NextSibling
 	}
+	return nil
 }
 
 // HTMLNodeToText converts an HTML node to a *frontend.Text element.

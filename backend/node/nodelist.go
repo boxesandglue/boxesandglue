@@ -1,12 +1,10 @@
 package node
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
-	"golang.org/x/exp/slog"
 )
 
 // Direction represents the direction of the node list. This can be horizontal or vertical.
@@ -220,7 +218,7 @@ func Hpack(firstNode Node) *HList {
 				maxht = v.Height
 			}
 		default:
-			slog.Error(fmt.Sprintf("Hpack: unknown node %v", v))
+			// logger.Error(fmt.Sprintf("Hpack: unknown node %v", v))
 		}
 	}
 	hl := NewHList()
@@ -440,7 +438,7 @@ func getWidth(n Node, dir Direction) bag.ScaledPoint {
 	case *StartStop, *Disc, *Lang:
 		return 0
 	default:
-		slog.Error(fmt.Sprintf("getWidth: unknown node type %T", n))
+		// logger.Error(fmt.Sprintf("getWidth: unknown node type %T", n))
 	}
 	return 0
 }
@@ -466,7 +464,7 @@ func getHeight(n Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint) {
 	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
 		return 0, 0
 	default:
-		slog.Error("getHeight: unknown node type %T", n)
+		// logger.Error("getHeight: unknown node type %T", n)
 	}
 	return 0, 0
 }
@@ -484,7 +482,7 @@ func getDepth(n Node) bag.ScaledPoint {
 	case *VList:
 		return t.Depth
 	default:
-		slog.Error(fmt.Sprintf("getDepth: unknown node type %T", n))
+		// logger.Error(fmt.Sprintf("getDepth: unknown node type %T", n))
 	}
 	return 0
 }

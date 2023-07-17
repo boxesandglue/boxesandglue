@@ -8,7 +8,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
-	"golang.org/x/exp/slog"
 )
 
 // Table represents tabular material to be typeset.
@@ -173,7 +172,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 				return nil, err
 			}
 		default:
-			slog.Error(fmt.Sprintf("Table cell build(): unknown node type %T", t))
+			return nil, fmt.Errorf("Table cell build(): unknown node type %T", t)
 		}
 	}
 	hl := node.HpackTo(head, paraWidth)

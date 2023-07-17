@@ -5,7 +5,6 @@ import (
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/boxesandglue/htmlstyle"
-	"golang.org/x/exp/slog"
 )
 
 // OutputPage outputs the HTML text and breaks pages when necessary.
@@ -26,7 +25,6 @@ func (cb *CSSBuilder) OutputPage(html string) error {
 	}
 	err = cb.outputOnPage(te)
 	if err != nil {
-		slog.Error(err.Error())
 		return err
 	}
 	// d.te = nil
