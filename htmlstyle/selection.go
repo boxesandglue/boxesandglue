@@ -109,7 +109,7 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 			firstItem.Children = append(firstItem.Children, itm)
 			attributes := thisNode.Attr
 			if len(attributes) > 0 {
-				itm.Styles, itm.Attributes = csshtml.ResolveAttributes(attributes)
+				itm.Styles, itm.Attributes, attributes = csshtml.ResolveAttributes(attributes)
 				for key, value := range itm.Styles {
 					if key == "white-space" {
 						if value == "pre" {

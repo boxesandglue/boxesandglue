@@ -47,11 +47,20 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	if fs.face != nil {
 		return fs.face, nil
 	}
-
-	f, err := fe.Doc.LoadFace(fs.Location, fs.Index)
-	if err != nil {
-		return nil, err
+	var err error
+	var f *pdf.Face
+	if fs.Location == "" {
+		f, err = fe.Doc.LoadFaceFromData(fs.Data, fs.Index)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		f, err = fe.Doc.LoadFace(fs.Location, fs.Index)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	fs.face = f
 	return f, nil
 }
@@ -68,6 +77,7 @@ type FontSource struct {
 	Name         string
 	FontFeatures []string
 	Location     string
+	Data         []byte
 	SizeAdjust   float64 // 1 - SizeAdjust is the relative adjustment.
 	// The sub font index within the font file.
 	Index int
@@ -110,6 +120,7 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 
 // GetFontSource tries to get the face closest to the requested face.
 func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
+	bag.Logger.Log(nil, -8, "FontFamily#GetFontSource", "weight", weight, "style", style)
 	if ff == nil {
 		return nil, fmt.Errorf("no font family specified")
 	}

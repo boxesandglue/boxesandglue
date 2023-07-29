@@ -216,7 +216,8 @@ func StylesToStyles(ih *FormattingStyles, attributes map[string]string, df *fron
 			v = strings.Trim(v, `"`)
 			ih.fontfamily = df.FindFontFamily(v)
 			if ih.fontfamily == nil {
-				return fmt.Errorf("font family %q not found", v)
+				bag.Logger.Error("Font family not found, reverting to 'serif'", "requested family", v)
+				ih.fontfamily = df.FindFontFamily("serif")
 			}
 		case "hanging-punctuation":
 			switch v {

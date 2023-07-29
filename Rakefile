@@ -10,5 +10,11 @@ end
 
 desc "Create pattern map"
 task :genpatterns => :helper do
-	sh "bin/helper"
+	sh "bin/helper "
+end
+
+
+desc "Update the font files in the code"
+task :updatefonts => :helper do
+	sh "bin/helper updatefonts"
 end

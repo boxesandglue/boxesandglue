@@ -530,6 +530,7 @@ func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
+	bag.Logger.Log(nil, -8, "FormatParagraph")
 	if len(te.Items) == 0 {
 		g := node.NewGlue()
 		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
@@ -700,6 +701,7 @@ func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
 // BuildNodelistFromString returns a node list containing glyphs from the string
 // with the settings in ts.
 func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
+	bag.Logger.Log(nil, -8, "Document#BuildNodelistFromString")
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
@@ -782,6 +784,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}
+	bag.Logger.Log(nil, -8, "GetFontSource", "fs", fs.Name)
 	// fs.SizeAdjust is CSS size-adjust normalized so that 0 = 100% and negative = shrinking.
 	if fs.SizeAdjust != 0 {
 		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
@@ -792,6 +795,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	fontfeatures = append(fontfeatures, settingFontFeatures...)
 
 	if face, err = fe.LoadFace(fs); err != nil {
+		bag.Logger.Error("Cannot load face", "fs", fs.Name)
 		return nil, err
 	}
 	if fe.usedFonts[face] == nil {
@@ -962,6 +966,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 // width. The returned head and the tail are the beginning and the end of the
 // node list.
 func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error) {
+	bag.Logger.Log(nil, -8, "Document#Mknodes")
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}

@@ -13,20 +13,20 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Tokenstream is a list of CSS tokens
-type Tokenstream []*scanner.Token
+// tokenstream is a list of CSS tokens
+type tokenstream []*scanner.Token
 
 type qrule struct {
-	Key   Tokenstream
-	Value Tokenstream
+	Key   tokenstream
+	Value tokenstream
 }
 
-// SBlock is a block with a selector
-type SBlock struct {
+// sBlock is a block with a selector
+type sBlock struct {
 	Name            string      // only set if this is an at-rule
-	ComponentValues Tokenstream // the "selector"
-	ChildAtRules    []*SBlock   // the block's at-rules, if any
-	Blocks          []*SBlock   // the at-rule's blocks, if any
+	ComponentValues tokenstream // the "selector"
+	ChildAtRules    []*sBlock   // the block's at-rules, if any
+	Blocks          []*sBlock   // the at-rule's blocks, if any
 	Rules           []qrule     // the key-value pairs
 }
 
@@ -42,10 +42,10 @@ type Page struct {
 	pageareaRules map[string][]qrule
 }
 
-// CSS has all the information
+// CSS wraps multiple stylesheets.
 type CSS struct {
 	FrontendDocument *frontend.Document
-	Stylesheet       []SBlock
+	Stylesheet       []sBlock
 	Pages            map[string]Page
 	dirstack         []string
 }
@@ -64,13 +64,13 @@ func (c *CSS) PushDir(dir string) {
 	} else {
 		newEntry = dir
 	}
-	bag.Logger.Debug(fmt.Sprintf("css.PushDir(%s)", newEntry))
+	bag.Logger.Debug("css.PushDir", "dir", newEntry)
 	c.dirstack = append(c.dirstack, newEntry)
 }
 
 // PopDir removes the last entry from the dir stack.
 func (c *CSS) PopDir() {
-	bag.Logger.Debug(fmt.Sprintf("css.PopDir(%s)", c.dirstack[len(c.dirstack)-1]))
+	bag.Logger.Debug("css.PopDir", "dir", c.dirstack[len(c.dirstack)-1])
 	c.dirstack = c.dirstack[:len(c.dirstack)-1]
 }
 
@@ -140,7 +140,7 @@ center          { text-align: center }
 // :link           { text-decoration: underline }
 
 // Return the position of the matching closing brace "}"
-func findClosingBrace(toks Tokenstream) int {
+func findClosingBrace(toks tokenstream) int {
 	level := 1
 	for i, t := range toks {
 		if t.Type == scanner.Delim {
@@ -159,7 +159,7 @@ func findClosingBrace(toks Tokenstream) int {
 }
 
 // fixupComponentValues changes DELIM[.] + IDENT[foo] to IDENT[.foo]
-func fixupComponentValues(toks Tokenstream) Tokenstream {
+func fixupComponentValues(toks tokenstream) tokenstream {
 	toks = trimSpace(toks)
 	var combineNext bool
 	for i := 0; i < len(toks)-1; i++ {
@@ -182,7 +182,7 @@ func fixupComponentValues(toks Tokenstream) Tokenstream {
 	return toks
 }
 
-func trimSpace(toks Tokenstream) Tokenstream {
+func trimSpace(toks tokenstream) tokenstream {
 	i := 0
 	for {
 		if i == len(toks) {
@@ -198,14 +198,14 @@ func trimSpace(toks Tokenstream) Tokenstream {
 	return toks
 }
 
-// ConsumeBlock get the contents of a block. The name (in case of an at-rule)
+// consumeBlock get the contents of a block. The name (in case of an at-rule)
 // and the selector will be added later on
-func ConsumeBlock(toks Tokenstream, inblock bool) SBlock {
+func consumeBlock(toks tokenstream, inblock bool) sBlock {
 	// This is the whole block between the opening { and closing }
 	if len(toks) <= 1 {
-		return SBlock{}
+		return sBlock{}
 	}
-	b := SBlock{}
+	b := sBlock{}
 	i := 0
 	// we might start with whitespace, skip it
 	for {
@@ -248,7 +248,7 @@ outer:
 					break outer
 				}
 			case "{":
-				var nb SBlock
+				var nb sBlock
 				// l is the length of the sub block
 				l := findClosingBrace(toks[i+1:])
 				if l == 1 {
@@ -258,7 +258,7 @@ outer:
 				// subblock is without the enclosing curly braces
 				starttok := toks[start]
 				startsWithATKeyword := starttok.Type == scanner.AtKeyword && (starttok.Value == "media" || starttok.Value == "supports")
-				nb = ConsumeBlock(subblock, !startsWithATKeyword)
+				nb = consumeBlock(subblock, !startsWithATKeyword)
 				if toks[start].Type == scanner.AtKeyword {
 					nb.Name = toks[start].Value
 					b.ChildAtRules = append(b.ChildAtRules, &nb)
@@ -401,7 +401,7 @@ func (c *CSS) doFontFace(ff []qrule) error {
 	return nil
 }
 
-func (c *CSS) doPage(block *SBlock) {
+func (c *CSS) doPage(block *sBlock) {
 	selector := strings.Trim(block.ComponentValues.String(), " ")
 	pg := c.Pages[selector]
 	if pg.pageareaRules == nil {
@@ -433,35 +433,31 @@ func (c *CSS) doPage(block *SBlock) {
 		for _, r := range v {
 			attrs = append(attrs, html.Attribute{Key: "!" + r.Key.String(), Val: stringValue(r.Value)})
 		}
-		a, _ := ResolveAttributes(attrs)
+		a, _, _ := ResolveAttributes(attrs)
 		pg.PageArea[strings.TrimPrefix(k, "@")] = a
 	}
 
 	c.Pages[selector] = pg
 }
 
-func (c *CSS) processAtRules() error {
-	c.Pages = make(map[string]Page)
-	for _, stylesheet := range c.Stylesheet {
-		for _, atrule := range stylesheet.ChildAtRules {
-			switch atrule.Name {
-			case "font-face":
-				if err := c.doFontFace(atrule.Rules); err != nil {
-					return err
-				}
-			case "page":
-				c.doPage(atrule)
-			default:
-				fmt.Println("unknown at rule", atrule)
+func (c *CSS) processAtRules(stylesheet sBlock) error {
+	if c.Pages == nil {
+		c.Pages = make(map[string]Page)
+	}
+	for _, atrule := range stylesheet.ChildAtRules {
+		switch atrule.Name {
+		case "font-face":
+			if err := c.doFontFace(atrule.Rules); err != nil {
+				return err
 			}
+		case "page":
+			c.doPage(atrule)
+		default:
+			fmt.Println("unknown at rule", atrule)
 		}
-
 	}
 	return nil
 }
-
-// Findfunc is called when loading a resource
-type Findfunc func(string) (string, error)
 
 // NewCSSParser returns a new CSS object
 func NewCSSParser() *CSS {
@@ -471,6 +467,6 @@ func NewCSSParser() *CSS {
 // NewCSSParserWithDefaults returns a new CSS object with the default stylesheet included.
 func NewCSSParserWithDefaults() *CSS {
 	c := &CSS{}
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(CSSdefaults), false))
+	c.AddCSSText(CSSdefaults)
 	return c
 }

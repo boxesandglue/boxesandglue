@@ -37,11 +37,11 @@ func (cb *CSSBuilder) outputOnPage(te *frontend.Text) error {
 	if err != nil {
 		return err
 	}
-	_, err = cb.buildVlistInternal(te, dim.ContentWidth, dim.MarginLeft, dim.Height-dim.MarginTop, 0)
-
+	info, err := cb.buildVlistInternal(te, dim.ContentWidth, dim.MarginLeft, 0)
 	if err != nil {
 		return err
 	}
+	cb.pagebox = info.pagebox
 
 	if err = cb.buildPages(); err != nil {
 		return err
@@ -71,6 +71,7 @@ func (cb *CSSBuilder) parseContent(in string) string {
 // BeforeShipout should be called when placing a CSS page in the PDF. It adds
 // page margin boxes to the current page.
 func (cb *CSSBuilder) BeforeShipout() error {
+	var err error
 	df := cb.frontend
 	dimensions := cb.currentPageDimensions
 	mp := dimensions.masterpage
@@ -147,7 +148,10 @@ func (cb *CSSBuilder) BeforeShipout() error {
 					continue
 				}
 				styles := cb.stylesStack.PushStyles()
-				htmlstyle.StylesToStyles(styles, area, cb.frontend, cb.stylesStack.CurrentStyle().Fontsize)
+
+				if err = htmlstyle.StylesToStyles(styles, area, cb.frontend, cb.stylesStack.CurrentStyle().Fontsize); err != nil {
+					return err
+				}
 				pmb := pageMarginBoxes[areaName]
 
 				vl := node.NewVList()
@@ -217,6 +221,12 @@ func (cb *CSSBuilder) buildPages() error {
 		start of a box (such as a div or a p).
 		The VList node is actually something to typeset.
 	*/
+	pd, err := cb.PageSize()
+	if err != nil {
+		return err
+	}
+	y := pd.Height - pd.MarginTop
+	var height, shiftDown bag.ScaledPoint
 	for _, n := range cb.pagebox {
 		switch t := n.(type) {
 		case *node.StartStop:
@@ -227,22 +237,13 @@ func (cb *CSSBuilder) buildPages() error {
 					return err
 				}
 			}
-			hv := tAttribs["hv"].(frontend.HTMLValues)
-			height := tAttribs["height"].(bag.ScaledPoint)
-			hsize := tAttribs["hsize"].(bag.ScaledPoint)
-			y := tAttribs["y"].(bag.ScaledPoint)
-			x := tAttribs["x"].(bag.ScaledPoint)
-
-			vl := node.NewVList()
-			vl.Width = hsize
-			vl.Height = height
-			vl = cb.frontend.HTMLBorder(vl, hv)
-			cb.frontend.Doc.CurrentPage.OutputAt(x, y, vl)
-
+			shiftDown = tAttribs["shiftDown"].(bag.ScaledPoint)
+			y -= shiftDown
 		case *node.VList:
-			y := t.Attributes["y"].(bag.ScaledPoint)
+			height = t.Attributes["height"].(bag.ScaledPoint)
 			x := t.Attributes["x"].(bag.ScaledPoint)
 			cb.frontend.Doc.CurrentPage.OutputAt(x, y, t)
+			y -= height
 		}
 	}
 	return nil
@@ -251,11 +252,12 @@ func (cb *CSSBuilder) buildPages() error {
 // OutputAt places the text at the given coordinates and formats it to the given
 // width. OutputAt inserts page breaks if necessary.
 func (cb *CSSBuilder) OutputAt(text *frontend.Text, x, y, width bag.ScaledPoint) error {
-	_, err := cb.buildVlistInternal(text, width, x, y, 0)
+	bag.Logger.Debug("CSSBuilder#OutputAt")
+	inf, err := cb.buildVlistInternal(text, width, x, 0)
 	if err != nil {
 		return err
 	}
-
+	cb.pagebox = inf.pagebox
 	if err = cb.buildPages(); err != nil {
 		return err
 	}

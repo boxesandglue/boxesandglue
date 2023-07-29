@@ -13,7 +13,7 @@ func indent(s string) string {
 	return strings.Join(ret, "\n")
 }
 
-func (b SBlock) String() string {
+func (b sBlock) String() string {
 	ret := []string{}
 	var firstline string
 	if b.Name != "" {
@@ -34,7 +34,7 @@ func (b SBlock) String() string {
 	return strings.Join(ret, "\n")
 }
 
-func (t Tokenstream) String() string {
+func (t tokenstream) String() string {
 	ret := []string{}
 	for _, tok := range t {
 		ret = append(ret, tok.Value)
@@ -53,10 +53,11 @@ func (c *CSS) Show() string {
 	// 	w("    Bold: ", ff.Bold)
 	// 	w("    BoldItalic: ", ff.BoldItalic)
 	// }
+	var styles map[string]string
 	for name, pg := range c.Pages {
 		fmt.Fprintln(&sb, " Page", name)
 		fmt.Fprintln(&sb, "   Size", pg.Papersize)
-		styles, _ := ResolveAttributes(pg.Attributes)
+		styles, _, pg.Attributes = ResolveAttributes(pg.Attributes)
 		fmt.Fprintln(&sb, "   Margin: ", styles["margin-top"], styles["margin-right"], styles["margin-bottom"], styles["margin-left"])
 		for areaname, rules := range pg.pageareaRules {
 			fmt.Fprintln(&sb, "   @", areaname)

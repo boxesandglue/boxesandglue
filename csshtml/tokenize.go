@@ -6,13 +6,14 @@ import (
 	"path/filepath"
 
 	"github.com/speedata/css/scanner"
+	"golang.org/x/exp/slog"
 )
 
-// TokenizeCSSString converts a CSS string to a Tokenstream. Also read linked (@import) stylesheets.
-func (c *CSS) TokenizeCSSString(css string) (Tokenstream, error) {
-	var tokens Tokenstream
+// tokenizeAndApplyImport converts a CSS string to a Tokenstream. Also read linked (@import) stylesheets.
+func (c *CSS) tokenizeAndApplyImport(css string) (tokenstream, error) {
+	var tokens tokenstream
 	var err error
-	tokens = TokenizeCSSString(css)
+	tokens = tokenizeCSSString(css)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +32,7 @@ func (c *CSS) TokenizeCSSString(css string) (Tokenstream, error) {
 				}
 			}
 			importvalue := tokens[i]
-			toks, err := c.ParseCSSFile(importvalue.Value)
+			toks, err := c.tokenizeCSSFile(importvalue.Value)
 			if err != nil {
 				return nil, err
 			}
@@ -60,12 +61,13 @@ func (c *CSS) TokenizeCSSString(css string) (Tokenstream, error) {
 	return finalTokens, nil
 }
 
-// ParseCSSFile converts a CSS file into a Tokenstream
-func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
+// tokenizeCSSFile converts a CSS file into a Tokenstream and applies import
+// statements.
+func (c *CSS) tokenizeCSSFile(filename string) (tokenstream, error) {
 	if filename == "" {
-		return nil, fmt.Errorf("parseCSSFile: no filename given")
+		return nil, fmt.Errorf("tokenizeCSSFile: no filename given")
 	}
-	var tokens Tokenstream
+	var tokens tokenstream
 	var err error
 	dir, fn := filepath.Split(filename)
 	c.PushDir(dir)
@@ -92,7 +94,7 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 				}
 			}
 			importvalue := tokens[i]
-			toks, err := c.ParseCSSFile(importvalue.Value)
+			toks, err := c.tokenizeCSSFile(importvalue.Value)
 			if err != nil {
 				return nil, err
 			}
@@ -128,14 +130,14 @@ func (c *CSS) ParseCSSFile(filename string) (Tokenstream, error) {
 	return finalTokens, nil
 }
 
-func parseCSSBody(filename string) (Tokenstream, error) {
-	// logger.Info("Read file", "filename", filename)
+func parseCSSBody(filename string) (tokenstream, error) {
+	slog.Debug("parse CSS file", "filename", filename)
 	b, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	var tokens Tokenstream
+	var tokens tokenstream
 
 	s := scanner.New(string(b))
 	for {
@@ -160,9 +162,9 @@ func parseCSSBody(filename string) (Tokenstream, error) {
 	return tokens, nil
 }
 
-// TokenizeCSSString converts a string into a Tokenstream.
-func TokenizeCSSString(contents string) Tokenstream {
-	var tokens Tokenstream
+// tokenizeCSSString converts a string into a Tokenstream.
+func tokenizeCSSString(contents string) tokenstream {
+	var tokens tokenstream
 
 	s := scanner.New(contents)
 	for {

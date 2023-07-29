@@ -1,6 +1,7 @@
 package cssbuilder
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 	"github.com/speedata/boxesandglue/htmlstyle"
+	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 
@@ -77,7 +79,7 @@ func (cb *CSSBuilder) InitPage() error {
 	}
 	var err error
 	if defaultPage := cb.getPageType(); defaultPage != nil {
-		wdStr, htStr := csshtml.PapersizeWdHt(defaultPage.Papersize)
+		wdStr, htStr := csshtml.PapersizeWidthHeight(defaultPage.Papersize)
 		var wd, ht, mt, mb, ml, mr bag.ScaledPoint
 		if wd, err = bag.Sp(wdStr); err != nil {
 			return err
@@ -113,8 +115,9 @@ func (cb *CSSBuilder) InitPage() error {
 				return err
 			}
 		}
+		var res map[string]string
+		res, _, defaultPage.Attributes = csshtml.ResolveAttributes(defaultPage.Attributes)
 
-		res, _ := csshtml.ResolveAttributes(defaultPage.Attributes)
 		styles := cb.stylesStack.PushStyles()
 		if err = htmlstyle.StylesToStyles(styles, res, cb.frontend, cb.stylesStack.CurrentStyle().Fontsize); err != nil {
 			return err
@@ -242,8 +245,8 @@ func (cb *CSSBuilder) ParseHTMLFromNode(input *html.Node) (*frontend.Text, error
 	return te, nil
 }
 
-// ParseHTML interprets the HTML string and applies all previously read CSS data.
-func (cb *CSSBuilder) ParseHTML(html string) (*frontend.Text, error) {
+// HTMLToText interprets the HTML string and applies all previously read CSS data.
+func (cb *CSSBuilder) HTMLToText(html string) (*frontend.Text, error) {
 	doc, err := cb.css.ReadHTMLChunk(html)
 	if err != nil {
 		return nil, err
@@ -268,15 +271,20 @@ func (cb *CSSBuilder) ShowCSS() string {
 }
 
 // AddCSS reads the CSS instructions in css.
-func (cb *CSSBuilder) AddCSS(css string) {
-	cb.css.Stylesheet = append(cb.css.Stylesheet, csshtml.ConsumeBlock(csshtml.TokenizeCSSString(css), false))
+func (cb *CSSBuilder) AddCSS(css string) error {
+	return cb.css.AddCSSText(css)
 }
 
 type info struct {
-	sumht  bag.ScaledPoint
-	newY   bag.ScaledPoint
-	hv     frontend.HTMLValues
-	height bag.ScaledPoint
+	vl           *node.VList
+	marginTop    bag.ScaledPoint
+	marginBottom bag.ScaledPoint
+	pagebox      []node.Node
+	height       bag.ScaledPoint
+}
+
+func (inf *info) String() string {
+	return fmt.Sprintf("mt: %s mb: %s len(pb): %d vl: %v", inf.marginTop, inf.marginBottom, len(inf.pagebox), inf.vl)
 }
 
 func hasContents(areaAttributes map[string]string) bool {
@@ -296,10 +304,10 @@ type pageMarginBox struct {
 	ht          bag.ScaledPoint
 }
 
-// ParseCSSFile reads the given file name and tries to parse the CSS contents
+// ReadCSSFile reads the given file name and tries to parse the CSS contents
 // from the file.
-func (cb *CSSBuilder) ParseCSSFile(filename string) error {
-	// logger.Info("Read file", "filename", filename)
+func (cb *CSSBuilder) ReadCSSFile(filename string) error {
+	slog.Debug("Read file", "filename", filename)
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err

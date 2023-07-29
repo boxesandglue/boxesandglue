@@ -8,8 +8,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// OpenHTMLFile opens an HTML file
-func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
+// ReadHTMLWithStyles opens an HTML file and read linked stylesheets.
+func (c *CSS) ReadHTMLWithStyles(filename string) (*goquery.Document, error) {
 	dir, fn := filepath.Split(filename)
 	c.PushDir(dir)
 
@@ -30,19 +30,16 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	var errcond error
 	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile)
+			block, err := c.tokenizeCSSFile(stylesheetfile)
 			if err != nil {
 				errcond = err
 			}
-			parsedStyles := ConsumeBlock(block, false)
+			parsedStyles := consumeBlock(block, false)
 			c.Stylesheet = append(c.Stylesheet, parsedStyles)
 		}
 	})
 	if errcond != nil {
 		return nil, errcond
-	}
-	if err = c.processAtRules(); err != nil {
-		return nil, err
 	}
 	_, err = c.ApplyCSS(doc)
 	if err != nil {
@@ -51,9 +48,13 @@ func (c *CSS) OpenHTMLFile(filename string) (*goquery.Document, error) {
 	return doc, nil
 }
 
-// ParseHTMLFragmentWithCSS takes the HTML text and the CSS text and returns goquery selection.
+// ParseHTMLFragmentWithCSS takes the HTML text and the CSS text and returns
+// goquery selection.
 func (c *CSS) ParseHTMLFragmentWithCSS(htmltext, csstext string) (*goquery.Document, error) {
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(TokenizeCSSString(csstext), false))
+	var err error
+	if err = c.AddCSSText(csstext); err != nil {
+		return nil, err
+	}
 	doc, err := c.ReadHTMLChunk(htmltext)
 	if err != nil {
 		return nil, err
@@ -83,23 +84,27 @@ func (c *CSS) ReadHTMLChunk(htmltext string) (*goquery.Document, error) {
 	var errcond error
 	doc.Find(":root > head link").Each(func(i int, sel *goquery.Selection) {
 		if stylesheetfile, attExists := sel.Attr("href"); attExists {
-			block, err := c.ParseCSSFile(stylesheetfile)
+			block, err := c.tokenizeCSSFile(stylesheetfile)
 			if err != nil {
 				errcond = err
 			}
-			parsedStyles := ConsumeBlock(block, false)
+			parsedStyles := consumeBlock(block, false)
+			c.processAtRules(parsedStyles)
 			c.Stylesheet = append(c.Stylesheet, parsedStyles)
 		}
 	})
 	return doc, errcond
 }
 
-// AddCSSText parses CSS text and saves the rules for later.
+// AddCSSText parses CSS text and appends the rules to the previously
+// read rules.
 func (c *CSS) AddCSSText(fragment string) error {
-	toks, err := c.TokenizeCSSString(fragment)
+	toks, err := c.tokenizeAndApplyImport(fragment)
 	if err != nil {
 		return err
 	}
-	c.Stylesheet = append(c.Stylesheet, ConsumeBlock(toks, false))
+	block := consumeBlock(toks, false)
+	c.processAtRules(block)
+	c.Stylesheet = append(c.Stylesheet, block)
 	return nil
 }

@@ -8,14 +8,14 @@ import (
 
 // CreateVlist converts the te into a big vlist.
 func (cb *CSSBuilder) CreateVlist(te *frontend.Text, wd bag.ScaledPoint) (*node.VList, error) {
-	_, err := cb.buildVlistInternal(te, wd, 0, 0, 0)
+	info, err := cb.buildVlistInternal(te, wd, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 
 	var list node.Node
 
-	for _, n := range cb.pagebox {
+	for _, n := range info.pagebox {
 		switch t := n.(type) {
 		case *node.StartStop:
 			// ignore for now - should be used for frames
@@ -30,107 +30,110 @@ func (cb *CSSBuilder) CreateVlist(te *frontend.Text, wd bag.ScaledPoint) (*node.
 	return node.Vpack(list), nil
 }
 
-func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoint, x, y bag.ScaledPoint, prevMB bag.ScaledPoint) (*info, error) {
-	var sumHT bag.ScaledPoint
-	dim, err := cb.PageSize()
-	if err != nil {
-		return nil, err
-	}
+func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoint, x bag.ScaledPoint, shiftDown bag.ScaledPoint) (*info, error) {
 	hv := frontend.SettingsToValues(te.Settings)
-	// margin collapse
-	if hv.MarginTop > prevMB {
-		hv.MarginTop = hv.MarginTop - prevMB
-	} else {
-		hv.MarginTop = 0
-	}
 	hsize := width - hv.MarginLeft - hv.MarginRight - hv.BorderLeftWidth - hv.BorderRightWidth - hv.PaddingLeft - hv.PaddingRight
 	x += hv.MarginLeft
-	y -= hv.MarginTop
-	start := node.NewStartStop()
-	start.Attributes = node.H{
-		"hv":    hv,
-		"hsize": hsize,
-		"y":     y,
-		"x":     x,
-	}
-	y -= hv.BorderTopWidth
 	x += hv.PaddingLeft
-	cb.pagebox = append(cb.pagebox, start)
 
+	ret := &info{
+		marginTop:    hv.MarginTop,
+		marginBottom: hv.MarginBottom,
+	}
+
+	if prepend, ok := te.Settings[frontend.SettingPrepend]; ok {
+		if p, ok := prepend.(node.Node); ok {
+			g := node.NewGlue()
+			g.Stretch = bag.Factor
+			g.Shrink = bag.Factor
+			g.StretchOrder = node.StretchFil
+			g.ShrinkOrder = node.StretchFil
+			p = node.InsertBefore(p, p, g)
+			p = node.HpackTo(p, 0)
+			p.(*node.HList).Depth = 0
+			vl := node.Vpack(p)
+			vl.Height = 0
+			vl.Attributes = node.H{"height": bag.ScaledPoint(0), "x": x, "origin": "v prepend in HTML mode"}
+			ret.pagebox = append(ret.pagebox, vl)
+		}
+	}
+
+	var prevMB bag.ScaledPoint
 	if bx, ok := te.Settings[frontend.SettingBox]; ok && bx.(bool) {
 		// a box, containing one or more item (a div for example)
-		marginBottom := bag.ScaledPoint(0)
-
-		if prepend, ok := te.Settings[frontend.SettingPrepend]; ok {
-			if p, ok := prepend.(node.Node); ok {
-				g := node.NewGlue()
-				g.Stretch = bag.Factor
-				g.Shrink = bag.Factor
-				g.StretchOrder = node.StretchFil
-				g.ShrinkOrder = node.StretchFil
-				p = node.InsertBefore(p, p, g)
-				p = node.HpackTo(p, 0)
-				p.(*node.HList).Depth = 0
-				vl := node.Vpack(p)
-				vl.Height = 0
-				vl.Attributes = node.H{"y": y, "x": x, "origin": "v prepend in HTML mode"}
-				cb.pagebox = append(cb.pagebox, vl)
-			}
-		}
-
 		for _, itm := range te.Items {
 			if txt, ok := itm.(*frontend.Text); ok {
-				info, err := cb.buildVlistInternal(txt, hsize, x+hv.MarginLeft+hv.BorderLeftWidth, y, marginBottom)
+				info, err := cb.buildVlistInternal(txt, hsize, x+hv.MarginLeft+hv.BorderLeftWidth, shiftDown)
 				if err != nil {
 					return nil, err
 				}
-				y = info.newY
-				y -= info.height
-				sumHT += info.height
-				marginBottom = info.hv.MarginBottom
+
+				// margin collapse
+				if prevMB >= info.marginTop {
+					info.marginTop = 0
+				} else {
+					info.marginTop -= prevMB
+				}
+
+				if info.marginTop != 0 {
+					start := node.NewStartStop()
+					start.Attributes = node.H{
+						"shiftDown": info.marginTop,
+					}
+					ret.pagebox = append(ret.pagebox, start)
+				}
+
+				if info.vl == nil {
+					ret.pagebox = append(ret.pagebox, info.pagebox...)
+				} else {
+					ret.pagebox = append(ret.pagebox, info.vl)
+				}
+
+				if info.marginBottom != 0 {
+					start := node.NewStartStop()
+					start.Attributes = node.H{
+						"shiftDown": info.marginBottom,
+					}
+					ret.pagebox = append(ret.pagebox, start)
+				}
+				prevMB = info.marginBottom
 			}
 		}
-	} else {
-		// something like a p tag that contains some stuff
-		// to be typeset.
-		vl, err := cb.createVList(te, hsize, hv)
-		if err != nil {
-			return nil, err
-		}
-		sumHT = vl.Height
-		if y-vl.Height-vl.Depth < dim.MarginBottom {
-			start.Attributes["pagebreak"] = true
-			sumHT = vl.Height
-			y = dim.Height - dim.MarginTop
-			start.Attributes["y"] = y
-		}
-
-		if prepend, ok := te.Settings[frontend.SettingPrepend]; ok {
-			if p, ok := prepend.(node.Node); ok {
-				g := node.NewGlue()
-				g.Stretch = bag.Factor
-				g.Shrink = bag.Factor
-				g.StretchOrder = node.StretchFil
-				g.ShrinkOrder = node.StretchFil
-				p = node.InsertBefore(p, p, g)
-				p = node.HpackTo(p, 0)
-				p.(*node.HList).Depth = 0
-				n := node.InsertAfter(p, node.Tail(p), vl)
-				hl := node.Hpack(n)
-				hl.VAlign = node.VAlignTop
-				vl = node.Vpack(hl)
-			}
-		}
-		x += hv.BorderLeftWidth
-		vl.Attributes = node.H{"y": y, "x": x, "origin": "prepend in HTML mode"}
-		cb.pagebox = append(cb.pagebox, vl)
-
+		return ret, nil
 	}
 
-	y -= hv.MarginBottom
-	start.Attributes["height"] = sumHT
-	thisht := sumHT + hv.MarginTop + hv.MarginBottom + hv.BorderTopWidth + hv.BorderBottomWidth
-	return &info{sumht: sumHT, height: thisht, hv: hv, newY: y}, nil
+	// not a box
+	//
+	// something like a p tag that contains some stuff to be typeset.
+	vl, err := cb.createVList(te, hsize, hv)
+	if err != nil {
+		return nil, err
+	}
+
+	if prepend, ok := te.Settings[frontend.SettingPrepend]; ok {
+		if p, ok := prepend.(node.Node); ok {
+			g := node.NewGlue()
+			g.Stretch = bag.Factor
+			g.Shrink = bag.Factor
+			g.StretchOrder = node.StretchFil
+			g.ShrinkOrder = node.StretchFil
+			p = node.InsertBefore(p, p, g)
+			p = node.HpackTo(p, 0)
+			p.(*node.HList).Depth = 0
+			n := node.InsertAfter(p, node.Tail(p), vl)
+			hl := node.Hpack(n)
+			hl.VAlign = node.VAlignTop
+			vl = node.Vpack(hl)
+		}
+	}
+
+	vl.Attributes = node.H{
+		"height": vl.Height + vl.Depth,
+		"x":      x,
+	}
+
+	ret.vl = vl
+	return ret, nil
 }
 
 func (cb *CSSBuilder) createVList(te *frontend.Text, wd bag.ScaledPoint, hv frontend.HTMLValues) (*node.VList, error) {

@@ -989,9 +989,19 @@ func (d *PDFDocument) SetDefaultLanguage(l *lang.Lang) {
 	d.DefaultLanguage = l
 }
 
+func (d *PDFDocument) LoadFaceFromData(data []byte, index int) (*pdf.Face, error) {
+	f, err := pdf.NewFaceFromData(d.PDFWriter, data, index)
+	if err != nil {
+		return nil, err
+	}
+	d.Faces = append(d.Faces, f)
+	return f, nil
+}
+
 // LoadFace loads a font from a TrueType or OpenType collection.
 func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
-	// face already loaded? TODO: check index
+	// face already loaded? TODO: check index TODO: use PostscriptName instead
+	// of file name, since the face can be loaded from data
 	for _, fce := range d.Faces {
 		if fce.Filename == filename {
 			return fce, nil
