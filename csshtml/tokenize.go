@@ -3,10 +3,10 @@ package csshtml
 import (
 	"fmt"
 	"io/ioutil"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/speedata/css/scanner"
-	"golang.org/x/exp/slog"
 )
 
 // tokenizeAndApplyImport converts a CSS string to a Tokenstream. Also read linked (@import) stylesheets.

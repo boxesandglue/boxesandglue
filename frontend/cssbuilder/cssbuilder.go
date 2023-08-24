@@ -2,6 +2,7 @@ package cssbuilder
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/speedata/boxesandglue/frontend"
 	"github.com/speedata/boxesandglue/frontend/pdfdraw"
 	"github.com/speedata/boxesandglue/htmlstyle"
-	"golang.org/x/exp/slog"
 	"golang.org/x/net/html"
 )
 

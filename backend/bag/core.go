@@ -4,13 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 
 	pdf "github.com/speedata/baseline-pdf"
-	"golang.org/x/exp/slog"
 )
 
 var (
