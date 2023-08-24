@@ -204,7 +204,7 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 	for _, attr := range attrs {
 		key := attr.Key
 		if !strings.HasPrefix(key, "!") {
-			attributes[key] = attr.Val
+			newAttributes = append(newAttributes, attr)
 			continue
 		}
 		key = strings.TrimPrefix(key, "!")
@@ -236,7 +236,7 @@ func ResolveAttributes(attrs []html.Attribute) (resolved map[string]string, attr
 			values := getFourValues(attr.Val)
 			for _, padding := range toprightbottomleft {
 				resolved["padding-"+padding] = values[padding]
-				newAttributes = append(newAttributes, html.Attribute{Key: "!padding" + padding, Val: values[padding]})
+				newAttributes = append(newAttributes, html.Attribute{Key: "!padding-" + padding, Val: values[padding]})
 			}
 		case "border":
 			wd, style, color := parseBorderAttribute(attr.Val)

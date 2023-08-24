@@ -237,11 +237,31 @@ func (cb *CSSBuilder) buildPages() error {
 					return err
 				}
 			}
+			var hv frontend.HTMLValues
+			var ok bool
 			shiftDown = tAttribs["shiftDown"].(bag.ScaledPoint)
 			y -= shiftDown
+
+			if hv, ok = tAttribs["hv"].(frontend.HTMLValues); ok {
+				if t.StartNode == nil {
+					// top start node -> draw border
+					x := t.Attributes["x"].(bag.ScaledPoint)
+					vl := node.NewVList()
+					vl.Width = tAttribs["hsize"].(bag.ScaledPoint)
+					vl.Height = tAttribs["height"].(bag.ScaledPoint)
+					vl = cb.frontend.HTMLBorder(vl, hv)
+					cb.frontend.Doc.CurrentPage.OutputAt(x, y, vl)
+					y -= hv.PaddingTop + hv.BorderTopWidth
+				} else {
+					// bottom start node -> just move cursor
+					y -= hv.PaddingBottom + hv.BorderBottomWidth
+				}
+			}
+
 		case *node.VList:
-			height = t.Attributes["height"].(bag.ScaledPoint)
-			x := t.Attributes["x"].(bag.ScaledPoint)
+			tAttribs := t.Attributes
+			height = tAttribs["height"].(bag.ScaledPoint)
+			x := tAttribs["x"].(bag.ScaledPoint)
 			cb.frontend.Doc.CurrentPage.OutputAt(x, y, t)
 			y -= height
 		}

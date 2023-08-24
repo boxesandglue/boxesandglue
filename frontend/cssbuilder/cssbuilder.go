@@ -277,10 +277,14 @@ func (cb *CSSBuilder) AddCSS(css string) error {
 
 type info struct {
 	vl           *node.VList
+	hsize        bag.ScaledPoint
+	x            bag.ScaledPoint
 	marginTop    bag.ScaledPoint
 	marginBottom bag.ScaledPoint
 	pagebox      []node.Node
 	height       bag.ScaledPoint
+	hv           frontend.HTMLValues
+	debug        string
 }
 
 func (inf *info) String() string {

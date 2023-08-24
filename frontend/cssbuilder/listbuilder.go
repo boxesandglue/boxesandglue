@@ -34,7 +34,6 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 	hv := frontend.SettingsToValues(te.Settings)
 	hsize := width - hv.MarginLeft - hv.MarginRight - hv.BorderLeftWidth - hv.BorderRightWidth - hv.PaddingLeft - hv.PaddingRight
 	x += hv.MarginLeft
-	x += hv.PaddingLeft
 
 	ret := &info{
 		marginTop:    hv.MarginTop,
@@ -58,12 +57,12 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 		}
 	}
 
-	var prevMB bag.ScaledPoint
+	var prevMB, height bag.ScaledPoint
 	if bx, ok := te.Settings[frontend.SettingBox]; ok && bx.(bool) {
 		// a box, containing one or more item (a div for example)
 		for _, itm := range te.Items {
 			if txt, ok := itm.(*frontend.Text); ok {
-				info, err := cb.buildVlistInternal(txt, hsize, x+hv.MarginLeft+hv.BorderLeftWidth, shiftDown)
+				info, err := cb.buildVlistInternal(txt, hsize, x+hv.BorderLeftWidth+hv.PaddingLeft, shiftDown)
 				if err != nil {
 					return nil, err
 				}
@@ -74,14 +73,19 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 				} else {
 					info.marginTop -= prevMB
 				}
+				height += info.height
+				height += info.marginTop + info.marginBottom
+				height += info.hv.PaddingTop + info.hv.PaddingBottom + info.hv.BorderTopWidth + info.hv.BorderBottomWidth
 
-				if info.marginTop != 0 {
-					start := node.NewStartStop()
-					start.Attributes = node.H{
-						"shiftDown": info.marginTop,
-					}
-					ret.pagebox = append(ret.pagebox, start)
+				start := node.NewStartStop()
+				start.Attributes = node.H{
+					"shiftDown": info.marginTop,
+					"hv":        info.hv,
+					"height":    info.height,
+					"hsize":     info.hsize,
+					"x":         info.x,
 				}
+				ret.pagebox = append(ret.pagebox, start)
 
 				if info.vl == nil {
 					ret.pagebox = append(ret.pagebox, info.pagebox...)
@@ -89,16 +93,21 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 					ret.pagebox = append(ret.pagebox, info.vl)
 				}
 
-				if info.marginBottom != 0 {
-					start := node.NewStartStop()
-					start.Attributes = node.H{
-						"shiftDown": info.marginBottom,
-					}
-					ret.pagebox = append(ret.pagebox, start)
+				stop := node.NewStartStop()
+				stop.Attributes = node.H{
+					"shiftDown": info.marginBottom,
+					"height":    height,
+					"hv":        info.hv,
 				}
+				stop.StartNode = start
+				ret.pagebox = append(ret.pagebox, stop)
 				prevMB = info.marginBottom
 			}
 		}
+		ret.x = x
+		ret.hsize = hsize
+		ret.height = height
+		ret.hv = hv
 		return ret, nil
 	}
 
@@ -129,10 +138,14 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 
 	vl.Attributes = node.H{
 		"height": vl.Height + vl.Depth,
-		"x":      x,
+		"x":      x + hv.PaddingLeft + hv.BorderLeftWidth,
+		"hsize":  hsize,
 	}
-
+	ret.height = vl.Height + vl.Depth
 	ret.vl = vl
+	ret.hv = hv
+	ret.hsize = hsize
+	ret.x = x
 	return ret, nil
 }
 
