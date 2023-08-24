@@ -2,8 +2,8 @@ package csshtml
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/speedata/css/scanner"
@@ -132,7 +132,7 @@ func (c *CSS) tokenizeCSSFile(filename string) (tokenstream, error) {
 
 func parseCSSBody(filename string) (tokenstream, error) {
 	slog.Debug("parse CSS file", "filename", filename)
-	b, err := ioutil.ReadFile(filename)
+	b, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
