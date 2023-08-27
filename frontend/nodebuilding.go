@@ -793,9 +793,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	// features from the current settings.
 	fontfeatures = append(fontfeatures, parseHarfbuzzFontFeatures(fs.FontFeatures)...)
 	fontfeatures = append(fontfeatures, settingFontFeatures...)
-
 	if face, err = fe.LoadFace(fs); err != nil {
-		bag.Logger.Error("Cannot load face", "fs", fs.Name)
+		if fs.Name == "" {
+			bag.Logger.Error("Cannot load face", "location", fs.Location)
+		} else {
+			bag.Logger.Error("Cannot load face", "name", fs.Name)
+		}
 		return nil, err
 	}
 	if fe.usedFonts[face] == nil {

@@ -47,6 +47,7 @@ type CSS struct {
 	FrontendDocument *frontend.Document
 	Stylesheet       []sBlock
 	Pages            map[string]Page
+	FileFinder       func(string) (string, error)
 	dirstack         []string
 }
 
@@ -74,8 +75,14 @@ func (c *CSS) PopDir() {
 	c.dirstack = c.dirstack[:len(c.dirstack)-1]
 }
 
-// FindFile returns the absolute path of the file
+// FindFile returns the absolute path of the file. If the requested file is
+// found with the FileFinder then this value is returned instead.
 func (c *CSS) FindFile(filename string) (string, error) {
+	if c.FileFinder != nil {
+		if loc, err := c.FileFinder(filename); loc != "" && err == nil {
+			return loc, nil
+		}
+	}
 	lastEntry := c.dirstack[len(c.dirstack)-1]
 	if filepath.IsAbs(filename) {
 		return filename, nil
