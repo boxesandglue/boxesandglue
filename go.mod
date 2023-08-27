@@ -6,12 +6,11 @@ require (
 	github.com/PuerkitoBio/goquery v1.8.1
 	github.com/andybalholm/cascadia v1.3.2
 	github.com/google/uuid v1.3.0
-	github.com/speedata/baseline-pdf v0.0.0-20230730102707-4a7247b84eda
+	github.com/speedata/baseline-pdf v0.0.0-20230827180125-d544ccdb007e
 	github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553
 	github.com/speedata/hyphenation v1.0.1
 	github.com/speedata/optionparser v1.0.1
 	github.com/speedata/textlayout v0.0.0-20230613181208-b47193566b6f
-	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/net v0.10.0
 )
 
