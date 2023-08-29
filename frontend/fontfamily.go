@@ -65,11 +65,14 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	return f, nil
 }
 
-// GetFontLocationFromLocal returns the result of the mapping from the font
-// source name to the font source location. When adding a member to a font family,
-// the name of the font source is used as the key for the font source' location.
-func (fe *Document) GetFontLocationFromLocal(fontname string) string {
-	return fe.fontlocal[fontname].Location
+// AddDataToFontsource adds the font data to the font source.
+func (fe *Document) AddDataToFontsource(fs *FontSource, fontname string) error {
+	savedFS, ok := fe.fontlocal[fontname]
+	if !ok {
+		return fmt.Errorf("local font %q not found", fontname)
+	}
+	fs.Data = savedFS.Data
+	return nil
 }
 
 // FontSource defines a mapping of name to a font source including the font features.

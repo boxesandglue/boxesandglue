@@ -348,8 +348,10 @@ func (c *CSS) doFontFace(ff []qrule) error {
 			for _, v := range rule.Value {
 				switch v.Type {
 				case scanner.Local:
-					fs := c.FrontendDocument.GetFontLocationFromLocal(v.Value)
-					fontsource.Location = fs
+					if err := c.FrontendDocument.AddDataToFontsource(&fontsource, v.Value); err != nil {
+						return err
+					}
+					fontsource.Name = v.Value
 				case scanner.URI:
 					fs, err := c.FindFile(v.Value)
 					if err != nil {

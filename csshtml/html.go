@@ -89,7 +89,9 @@ func (c *CSS) ReadHTMLChunk(htmltext string) (*goquery.Document, error) {
 				errcond = err
 			}
 			parsedStyles := consumeBlock(block, false)
-			c.processAtRules(parsedStyles)
+			if err = c.processAtRules(parsedStyles); err != nil {
+				errcond = err
+			}
 			c.Stylesheet = append(c.Stylesheet, parsedStyles)
 		}
 	})
@@ -104,7 +106,9 @@ func (c *CSS) AddCSSText(fragment string) error {
 		return err
 	}
 	block := consumeBlock(toks, false)
-	c.processAtRules(block)
+	if err = c.processAtRules(block); err != nil {
+		return err
+	}
 	c.Stylesheet = append(c.Stylesheet, block)
 	return nil
 }

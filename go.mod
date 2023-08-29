@@ -10,7 +10,7 @@ require (
 	github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553
 	github.com/speedata/hyphenation v1.0.1
 	github.com/speedata/optionparser v1.0.1
-	github.com/speedata/textlayout v0.0.0-20230613181208-b47193566b6f
+	github.com/speedata/textlayout v0.0.0-20230827181055-b7ff752e85ae
 	golang.org/x/net v0.10.0
 )
 
