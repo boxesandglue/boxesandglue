@@ -12,6 +12,7 @@ import (
 	"github.com/speedata/boxesandglue/backend/color"
 	"github.com/speedata/boxesandglue/backend/document"
 	"github.com/speedata/boxesandglue/backend/font"
+	"github.com/speedata/boxesandglue/backend/image"
 	"github.com/speedata/boxesandglue/backend/lang"
 	"github.com/speedata/boxesandglue/backend/node"
 	"github.com/speedata/textlayout/harfbuzz"
@@ -446,6 +447,11 @@ func debugText(ts *Text, enc *xml.Encoder) {
 			enc.EncodeToken(xml.CharData(t))
 		case *node.VList:
 			enc.EncodeToken(xml.CharData(node.DebugToString(t)))
+		case *image.Image:
+			startImg := xml.StartElement{}
+			startImg.Name = xml.Name{Local: "Image"}
+			enc.EncodeToken(startImg)
+			enc.EncodeToken(startImg.End())
 		default:
 			panic(fmt.Sprintf("unknown type %T", t))
 		}

@@ -102,14 +102,19 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 			}
 
 			itm := &HTMLItem{
-				Typ:  html.ElementNode,
-				Data: thisNode.Data,
-				Dir:  newDir,
+				Typ:        html.ElementNode,
+				Data:       thisNode.Data,
+				Dir:        newDir,
+				Attributes: map[string]string{},
 			}
 			firstItem.Children = append(firstItem.Children, itm)
 			attributes := thisNode.Attr
 			if len(attributes) > 0 {
 				itm.Styles, itm.Attributes, attributes = csshtml.ResolveAttributes(attributes)
+				for _, attr := range attributes {
+					itm.Attributes[attr.Key] = attr.Val
+				}
+
 				for key, value := range itm.Styles {
 					if key == "white-space" {
 						if value == "pre" {
@@ -129,7 +134,7 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 			// just passthrough
 			DumpElement(thisNode.FirstChild, newDir, firstItem)
 		default:
-			return fmt.Errorf("Output: unknown node type %s", thisNode.Type)
+			return fmt.Errorf("Output: unknown node type %T", thisNode.Type)
 		}
 		thisNode = thisNode.NextSibling
 	}

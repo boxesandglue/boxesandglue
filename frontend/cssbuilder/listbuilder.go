@@ -1,8 +1,13 @@
 package cssbuilder
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/speedata/boxesandglue/backend/bag"
 	"github.com/speedata/boxesandglue/backend/node"
+
 	"github.com/speedata/boxesandglue/frontend"
 )
 
@@ -149,7 +154,45 @@ func (cb *CSSBuilder) buildVlistInternal(te *frontend.Text, width bag.ScaledPoin
 	return ret, nil
 }
 
+func (cb *CSSBuilder) fixupWidth(te *frontend.Text, hsize bag.ScaledPoint, hv frontend.HTMLValues) error {
+	var err error
+	for _, itm := range te.Items {
+		switch t := itm.(type) {
+		case *frontend.Text:
+			if err = cb.fixupWidth(t, hsize, hv); err != nil {
+				return err
+			}
+		case string:
+			// ignore
+		case *node.Image:
+			if wd, ok := t.Attributes["wd"]; ok {
+				t.Width = wd.(bag.ScaledPoint)
+			}
+			if ht, ok := t.Attributes["ht"]; ok {
+				t.Height = ht.(bag.ScaledPoint)
+			} else {
+				attr := t.Attributes["attr"].(map[string]string)
+				if k, ok := attr["!width"]; ok {
+					if str, ok := strings.CutSuffix(k, "%"); ok {
+						f, err := strconv.ParseFloat(str, 64)
+						if err != nil {
+							return err
+						}
+						t.Width = bag.MultiplyFloat(hsize, f/100)
+					}
+				}
+			}
+		default:
+			return fmt.Errorf("fixupWidth: unknown item %T", t)
+		}
+	}
+	return nil
+}
+
 func (cb *CSSBuilder) createVList(te *frontend.Text, wd bag.ScaledPoint, hv frontend.HTMLValues) (*node.VList, error) {
+	if err := cb.fixupWidth(te, wd, hv); err != nil {
+		return nil, err
+	}
 	vl, _, err := cb.frontend.FormatParagraph(te, wd)
 	// FIXME: vl can be nil if empty (empty li for example)
 	if err != nil {

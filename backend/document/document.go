@@ -313,12 +313,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			ifile := img.ImageFile
 			oc.usedImages[ifile] = true
-
-			scaleX := hlist.Width.ToPT() / ifile.ScaleX
-			scaleY := hlist.Height.ToPT() / ifile.ScaleY
+			scaleX := v.Width.ToPT() / ifile.ScaleX
+			scaleY := v.Height.ToPT() / ifile.ScaleY
 			posy := y
 			posx := x + sumX
 			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+			sumX += v.Width
 		case *node.StartStop:
 			posX := x + sumX
 			posY := y

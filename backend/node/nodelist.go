@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/speedata/boxesandglue/backend/bag"
@@ -218,7 +219,7 @@ func Hpack(firstNode Node) *HList {
 				maxht = v.Height
 			}
 		default:
-			// logger.Error(fmt.Sprintf("Hpack: unknown node %v", v))
+			bag.Logger.Error(fmt.Sprintf("Hpack: unknown node %v", v))
 		}
 	}
 	hl := NewHList()
@@ -431,6 +432,8 @@ func getWidth(n Node, dir Direction) bag.ScaledPoint {
 		return t.Width
 	case *HList:
 		return t.Width
+	case *Image:
+		return t.Width
 	case *Kern:
 		return t.Kern
 	case *VList:
@@ -438,7 +441,7 @@ func getWidth(n Node, dir Direction) bag.ScaledPoint {
 	case *StartStop, *Disc, *Lang:
 		return 0
 	default:
-		// logger.Error(fmt.Sprintf("getWidth: unknown node type %T", n))
+		bag.Logger.Error(fmt.Sprintf("getWidth: unknown node type %T", n))
 	}
 	return 0
 }
@@ -456,6 +459,8 @@ func getHeight(n Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint) {
 		return t.Height, t.Depth
 	case *Rule:
 		return t.Height, t.Depth
+	case *Image:
+		return t.Height, 0
 	case *Glue:
 		if dir == Vertical {
 			return t.Width, 0
@@ -464,7 +469,7 @@ func getHeight(n Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint) {
 	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
 		return 0, 0
 	default:
-		// logger.Error("getHeight: unknown node type %T", n)
+		bag.Logger.Error("getHeight: unknown node type %T", n)
 	}
 	return 0, 0
 }
@@ -482,7 +487,7 @@ func getDepth(n Node) bag.ScaledPoint {
 	case *VList:
 		return t.Depth
 	default:
-		// logger.Error(fmt.Sprintf("getDepth: unknown node type %T", n))
+		bag.Logger.Error(fmt.Sprintf("getDepth: unknown node type %T", n))
 	}
 	return 0
 }

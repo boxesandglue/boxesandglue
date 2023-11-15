@@ -272,6 +272,11 @@ func (cb *CSSBuilder) ShowCSS() string {
 
 // AddCSS reads the CSS instructions in css.
 func (cb *CSSBuilder) AddCSS(css string) error {
+	curwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	cb.css.PushDir(curwd)
 	return cb.css.AddCSSText(css)
 }
 

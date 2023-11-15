@@ -54,8 +54,7 @@ func ParseHorizontalAlign(align string, styles *FormattingStyles) frontend.Horiz
 // absolute size like 12pt but also a size like 1.2 or 2em. The provided dflt is
 // the source size. The root is the document's default value.
 func ParseRelativeSize(fs string, cur bag.ScaledPoint, root bag.ScaledPoint) bag.ScaledPoint {
-	if strings.HasSuffix(fs, "%") {
-		p := strings.TrimSuffix(fs, "%")
+	if p, ok := strings.CutSuffix(fs, "%"); ok {
 		f, err := strconv.ParseFloat(p, 64)
 		if err != nil {
 			panic(err)
@@ -63,13 +62,11 @@ func ParseRelativeSize(fs string, cur bag.ScaledPoint, root bag.ScaledPoint) bag
 		ret := bag.MultiplyFloat(cur, f/100)
 		return ret
 	}
-	if strings.HasSuffix(fs, "rem") {
+	if prefix, ok := strings.CutSuffix(fs, "rem"); ok {
 		if root == 0 {
 			// logger.Warn("Calculating an rem size without a root font size results in a size of 0.")
 			return 0
 		}
-
-		prefix := strings.TrimSuffix(fs, "rem")
 		factor, err := strconv.ParseFloat(prefix, 32)
 		if err != nil {
 			// logger.Error(fmt.Sprintf("Cannot convert relative size %s", fs))
@@ -77,12 +74,11 @@ func ParseRelativeSize(fs string, cur bag.ScaledPoint, root bag.ScaledPoint) bag
 		}
 		return bag.ScaledPoint(float64(root) * factor)
 	}
-	if strings.HasSuffix(fs, "em") {
+	if prefix, ok := strings.CutSuffix(fs, "em"); ok {
 		if cur == 0 {
 			// logger.Warn("Calculating an em size without a body font size results in a size of 0.")
 			return 0
 		}
-		prefix := strings.TrimSuffix(fs, "em")
 		factor, err := strconv.ParseFloat(prefix, 32)
 		if err != nil {
 			// logger.Error(fmt.Sprintf("Cannot convert relative size %s", fs))
@@ -629,31 +625,34 @@ func collectHorizontalNodes(te *frontend.Text, item *HTMLItem, ss StylesStack, c
 			hl := document.Hyperlink{URI: href}
 			childSettings[frontend.SettingHyperlink] = hl
 		case "img":
-			wd := bag.MustSp("3cm")
-			ht := wd
+			imgNode := node.NewImage()
+			imgNode.Attributes = node.H{}
+
+			cs := ss.CurrentStyle()
 			var filename string
 			for k, v := range item.Attributes {
 				switch k {
 				case "width":
-					wd = bag.MustSp(v)
+					imgNode.Attributes["wd"] = bag.MustSp(v)
+				case "!width":
+					if !strings.HasSuffix(v, "%") {
+						wd := ParseRelativeSize(v, cs.Fontsize, defaultFontsize)
+						imgNode.Attributes["wd"] = wd
+					}
 				case "height":
-					ht = bag.MustSp(v)
+					imgNode.Attributes["ht"] = bag.MustSp(v)
 				case "src":
 					filename = v
 				}
 			}
 			imgfile, err := df.Doc.LoadImageFile(filename)
 			if err != nil {
-				panic(err)
+				return err
 			}
-
 			ii := df.Doc.CreateImage(imgfile, 1, "/MediaBox")
-			imgNode := node.NewImage()
 			imgNode.Img = ii
-			imgNode.Width = wd
-			imgNode.Height = ht
-			hlist := node.Hpack(imgNode)
-			te.Items = append(te.Items, hlist)
+			imgNode.Attributes["attr"] = item.Attributes
+			te.Items = append(te.Items, imgNode)
 		}
 
 		for _, itm := range item.Children {

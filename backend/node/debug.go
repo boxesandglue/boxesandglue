@@ -130,6 +130,8 @@ func debugNode(n Node, enc *xml.Encoder) {
 			err = encodeAttributes(enc, &start, []kv{
 				{"id", v.ID},
 				{"filename", filename},
+				{"wd", v.Width},
+				{"ht", v.Height},
 			}, v.Attributes)
 		case *Kern:
 			err = encodeAttributes(enc, &start, []kv{
