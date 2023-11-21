@@ -615,14 +615,16 @@ func collectHorizontalNodes(te *frontend.Text, item *HTMLItem, ss StylesStack, c
 		childSettings := make(frontend.TypesettingSettings)
 		switch item.Data {
 		case "a":
-			var href string
+			var href, link string
 			for k, v := range item.Attributes {
 				switch k {
 				case "href":
 					href = v
+				case "link":
+					link = v
 				}
 			}
-			hl := document.Hyperlink{URI: href}
+			hl := document.Hyperlink{URI: href, Local: link}
 			childSettings[frontend.SettingHyperlink] = hl
 		case "img":
 			imgNode := node.NewImage()
