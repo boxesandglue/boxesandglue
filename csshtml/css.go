@@ -83,6 +83,9 @@ func (c *CSS) FindFile(filename string) (string, error) {
 			return loc, nil
 		}
 	}
+	if len(c.dirstack) == 0 {
+		return filename, nil
+	}
 	lastEntry := c.dirstack[len(c.dirstack)-1]
 	if filepath.IsAbs(filename) {
 		return filename, nil

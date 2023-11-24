@@ -182,6 +182,8 @@ func (cb *CSSBuilder) fixupWidth(te *frontend.Text, hsize bag.ScaledPoint, hv fr
 					}
 				}
 			}
+		case *frontend.Table:
+			// ignore
 		default:
 			return fmt.Errorf("fixupWidth: unknown item %T", t)
 		}
