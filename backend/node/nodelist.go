@@ -20,6 +20,7 @@ const (
 
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
+	SqueezeOverfullBoxes  bool
 	DemeritsFitness       int
 	DoublehyphenDemerits  int
 	HangingPunctuationEnd bool
@@ -153,7 +154,8 @@ func Dimensions(start Node, stop Node, dir Direction) bag.ScaledPoint {
 }
 
 type hpackSetting struct {
-	fontexpansion float64
+	fontexpansion      float64
+	avoidOverfullBoxes bool
 }
 
 // HpackOption controls the packaging of the box.
@@ -163,6 +165,13 @@ type HpackOption func(*hpackSetting)
 func FontExpansion(amount float64) HpackOption {
 	return func(p *hpackSetting) {
 		p.fontexpansion = amount
+	}
+}
+
+// SqueezeOverfullBoxes avoids overfull boxes by shrinking more than allowed.
+func SqueezeOverfullBoxes(avoid bool) HpackOption {
+	return func(p *hpackSetting) {
+		p.avoidOverfullBoxes = avoid
 	}
 }
 
@@ -345,9 +354,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 			badness = 10000
 		}
 	}
-	if highestOrderShrink > 0 || highestOrderStretch > 0 {
-		badness = 0
-	}
 	useExpand := false
 	if hs.fontexpansion != 0 {
 		if r < -1 {
@@ -359,8 +365,6 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		if r >= 0 && highestOrderStretch == g.StretchOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
-			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
-		} else if r < -1 && highestOrderShrink == g.ShrinkOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 		}
 	}

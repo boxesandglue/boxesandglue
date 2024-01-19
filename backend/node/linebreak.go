@@ -139,12 +139,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 		if z > 0 {
 			r = float64(maxwd-thisLineWidth) / float64(z)
 		} else {
-			r = negativeInf
-		}
-	}
-	if r == negativeInf || r == positiveInf {
-		if thisLineWidth+getNextNodeWidth(n, maxwd) > maxwd {
-			r = negativeInf
+			r = positiveInf
 		}
 	}
 	return r, maxExpand
@@ -533,7 +528,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			leftskip := settings.LineStartGlue.Copy().(*Glue)
 			leftskip.Width += lb.getIndent(e.Line)
 			startPos = InsertBefore(startPos, startPos, leftskip)
-			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize, FontExpansion(lb.settings.FontExpansion))
+			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize, FontExpansion(lb.settings.FontExpansion), SqueezeOverfullBoxes(settings.SqueezeOverfullBoxes))
 			if hl.Attributes == nil {
 				hl.Attributes = H{"origin": "line"}
 			} else {
