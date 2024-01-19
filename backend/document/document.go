@@ -409,7 +409,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			} else if action == node.ActionNone || action == node.ActionUserSetting {
 				// ignore
 			} else {
-				bag.Logger.Warn("start/stop node: unhandled action %s", action)
+				bag.Logger.Warn("start/stop node: unhandled action", "action", action)
 			}
 			switch v.Position {
 			case node.PDFOutputPage:
@@ -989,6 +989,7 @@ func (d *PDFDocument) SetDefaultLanguage(l *lang.Lang) {
 	d.DefaultLanguage = l
 }
 
+// LoadFaceFromData creates a Face from a byte stream.
 func (d *PDFDocument) LoadFaceFromData(data []byte, index int) (*pdf.Face, error) {
 	f, err := pdf.NewFaceFromData(d.PDFWriter, data, index)
 	if err != nil {
@@ -1207,7 +1208,7 @@ func (d *PDFDocument) Finish() error {
 	if d.Filename != "" {
 		bag.Logger.Info("Output written", "filename", d.Filename, "bytes", d.PDFWriter.Size())
 	} else {
-		bag.Logger.Info("Output written (%d bytes)", d.PDFWriter.Size())
+		bag.Logger.Info("Output written", "bytes", d.PDFWriter.Size())
 	}
 
 	return nil

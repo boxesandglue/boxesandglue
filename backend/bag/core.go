@@ -65,7 +65,7 @@ func (s ScaledPoint) ToPT() float64 {
 // ToUnit returns the scaled points converted to the given unit. It raises an
 // ErrConversion in case it cannot convert to the given unit.
 func (s ScaledPoint) ToUnit(unit string) (float64, error) {
-	const precisionFactor = 100000.0
+	const precisionFactor = 10000.0
 	round := func(f float64) float64 {
 		rounded := math.Round(precisionFactor*float64(s)*float64(f)/float64(Factor)) / precisionFactor
 		return rounded

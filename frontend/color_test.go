@@ -14,8 +14,8 @@ func TestSimple(t *testing.T) {
 		result     string
 		foreground bool
 	}{
-		{"red", "1 0 0 rg", true},
-		{"mycolor", "1 0 0 1 K", false},
+		{"red", "1 0 0 RG", true},
+		{"mycolor", "1 0 0 1 k", false},
 	}
 	for _, tc := range testdata {
 		col := f.GetColor(tc.colorname)
