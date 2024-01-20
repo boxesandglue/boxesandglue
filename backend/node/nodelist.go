@@ -154,8 +154,8 @@ func Dimensions(start Node, stop Node, dir Direction) bag.ScaledPoint {
 }
 
 type hpackSetting struct {
-	fontexpansion      float64
-	avoidOverfullBoxes bool
+	fontexpansion        float64
+	squeezeOverfullBoxes bool
 }
 
 // HpackOption controls the packaging of the box.
@@ -171,7 +171,7 @@ func FontExpansion(amount float64) HpackOption {
 // SqueezeOverfullBoxes avoids overfull boxes by shrinking more than allowed.
 func SqueezeOverfullBoxes(avoid bool) HpackOption {
 	return func(p *hpackSetting) {
-		p.avoidOverfullBoxes = avoid
+		p.squeezeOverfullBoxes = avoid
 	}
 }
 
@@ -366,6 +366,10 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
 		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
 			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
+		} else if r < -1 && highestOrderShrink == g.ShrinkOrder {
+			if hs.squeezeOverfullBoxes {
+				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
+			}
 		}
 	}
 	hl := NewHList()
