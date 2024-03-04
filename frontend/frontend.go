@@ -105,6 +105,23 @@ const (
 	// HAlignJustified makes text left and right aligned.
 	HAlignJustified
 )
+
+func (ha HorizontalAlignment) String() string {
+	switch ha {
+	case HAlignDefault:
+		return "default"
+	case HAlignLeft:
+		return "left"
+	case HAlignRight:
+		return "right"
+	case HAlignCenter:
+		return "center"
+	case HAlignJustified:
+		return "justified"
+	}
+	return "---"
+}
+
 const (
 	// VAlignDefault is an undefined vertical alignment.
 	VAlignDefault VerticalAlignment = iota

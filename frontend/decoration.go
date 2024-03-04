@@ -13,7 +13,8 @@ type styles struct {
 }
 
 func doUnderline(head, start, stop node.Node, st *styles) node.Node {
-	pdfUL := pdfdraw.NewStandalone().LineWidth(st.linewidth).Moveto(0, st.ulpos).Lineto(node.Dimensions(start, stop, node.Horizontal), st.ulpos).Stroke().String()
+	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
+	pdfUL := pdfdraw.NewStandalone().LineWidth(st.linewidth).Moveto(0, st.ulpos).Lineto(wd, st.ulpos).Stroke().String()
 	r := node.NewRule()
 	r.Hide = true
 	r.Pre = pdfUL

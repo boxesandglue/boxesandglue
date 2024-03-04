@@ -37,11 +37,11 @@ func (cb *CSSBuilder) outputOnPage(te *frontend.Text) error {
 	if err != nil {
 		return err
 	}
-	info, err := cb.buildVlistInternal(te, dim.ContentWidth, dim.MarginLeft, 0)
+	info, err := cb.frontend.BuildVlistInternal(te, dim.ContentWidth, dim.MarginLeft, 0)
 	if err != nil {
 		return err
 	}
-	cb.pagebox = info.pagebox
+	cb.pagebox = info.Pagebox
 
 	if err = cb.buildPages(); err != nil {
 		return err
@@ -273,11 +273,11 @@ func (cb *CSSBuilder) buildPages() error {
 // width. OutputAt inserts page breaks if necessary.
 func (cb *CSSBuilder) OutputAt(text *frontend.Text, x, y, width bag.ScaledPoint) error {
 	bag.Logger.Debug("CSSBuilder#OutputAt")
-	inf, err := cb.buildVlistInternal(text, width, x, 0)
+	inf, err := cb.frontend.BuildVlistInternal(text, width, x, 0)
 	if err != nil {
 		return err
 	}
-	cb.pagebox = inf.pagebox
+	cb.pagebox = inf.Pagebox
 	if err = cb.buildPages(); err != nil {
 		return err
 	}

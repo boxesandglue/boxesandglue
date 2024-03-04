@@ -108,10 +108,11 @@ caption         { display: table-caption }
 th              { font-weight: bold; text-align: center }
 caption         { text-align: center }
 body            { margin: 0pt; line-height: 1.2; hyphens: auto; font-weight: normal; }
+p               { font-size: 1em; margin: 1.5em 0 }
 h1              { font-size: 2em; margin:  .67em 0 }
 h2              { font-size: 1.5em; margin: .75em 0 }
 h3              { font-size: 1.17em; margin: .83em 0 }
-h4, p,
+h4,
 blockquote, ul,
 fieldset, form,
 ol, dl, dir,

@@ -98,12 +98,12 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	for _, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
-			_, info, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+			_, pi, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
 			if err != nil {
 				return 0, err
 			}
-			for _, inf := range info {
-				if wd := inf.Width; wd > minwd {
+			for _, wd := range pi.Widths {
+				if wd > minwd {
 					minwd = wd
 				}
 			}
@@ -132,8 +132,8 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 			if err != nil {
 				return 0, err
 			}
-			for _, inf := range info {
-				if wd := inf.Width; wd > maxwd {
+			for _, wd := range info.Widths {
+				if wd > maxwd {
 					maxwd = wd
 				}
 			}
@@ -152,17 +152,19 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 }
 
 func (cell *TableCell) build() (*node.VList, error) {
+	fe := cell.row.table.doc
 	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
 	var head node.Node
-	var vl *node.VList
+	var vl, formatted *node.VList
+	var err error
 	for _, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
-			para, _, err := cell.row.table.doc.FormatParagraph(t, paraWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize), HorizontalAlign(cell.HAlign))
+			formatted, err = fe.CreateVlist(t, paraWidth)
 			if err != nil {
 				return nil, err
 			}
-			head = node.InsertAfter(head, node.Tail(head), para)
+			head = node.InsertAfter(head, node.Tail(head), formatted)
 		case *node.HList:
 			head = node.InsertAfter(head, node.Tail(head), node.CopyList(t))
 		case FormatToVList:
@@ -371,6 +373,7 @@ func (row *TableRow) build() (*node.HList, error) {
 			g.Attributes = node.H{"origin": "rowspan skip"}
 			hl := node.HpackTo(g, row.table.columnWidths[x])
 			vl := node.Vpack(hl)
+			vl.Attributes = node.H{"origin": "dummy cell"}
 			head = node.InsertAfter(head, tail, vl)
 			tail = vl
 		}

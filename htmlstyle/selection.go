@@ -3,6 +3,8 @@ package htmlstyle
 import (
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
 
 	"github.com/speedata/boxesandglue/csshtml"
 	"github.com/speedata/boxesandglue/frontend"
@@ -55,9 +57,9 @@ func (itm *HTMLItem) String() string {
 	}
 }
 
-// DumpElement fills the firstItem with the contents of thisNode. Comments and
+// GetHTMLItemFromHTMLNode fills the firstItem with the contents of thisNode. Comments and
 // DocumentNodes are ignored.
-func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error {
+func GetHTMLItemFromHTMLNode(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error {
 	newDir := direction
 	for {
 		if thisNode == nil {
@@ -68,9 +70,15 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 			// ignore
 		case html.TextNode:
 			itm := &HTMLItem{}
-			ws := preserveWhitespace[len(preserveWhitespace)-1]
+			preserveWhitespace := preserveWhitespace[len(preserveWhitespace)-1]
 			txt := thisNode.Data
-			if !ws {
+			// When turning from vertical to horizontal (a text is always
+			// horizontal material), trim the left space. TODO: honor preserve
+			// whitespace setting
+			if direction == ModeVertical {
+				txt = strings.TrimLeftFunc(txt, unicode.IsSpace)
+			}
+			if !preserveWhitespace {
 				if isSpace.MatchString(txt) {
 					txt = " "
 				}
@@ -81,7 +89,7 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 				}
 			}
 			if txt != "" {
-				if !ws {
+				if !preserveWhitespace {
 					txt = reLeadcloseWhtsp.ReplaceAllString(txt, " ")
 					txt = reInsideWS.ReplaceAllString(txt, " ")
 				}
@@ -92,7 +100,6 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 		case html.ElementNode:
 			ws := preserveWhitespace[len(preserveWhitespace)-1]
 			eltname := thisNode.Data
-
 			if eltname == "body" || eltname == "address" || eltname == "article" || eltname == "aside" || eltname == "blockquote" || eltname == "br" || eltname == "canvas" || eltname == "dd" || eltname == "div" || eltname == "dl" || eltname == "dt" || eltname == "fieldset" || eltname == "figcaption" || eltname == "figure" || eltname == "footer" || eltname == "form" || eltname == "h1" || eltname == "h2" || eltname == "h3" || eltname == "h4" || eltname == "h5" || eltname == "h6" || eltname == "header" || eltname == "hr" || eltname == "li" || eltname == "main" || eltname == "nav" || eltname == "noscript" || eltname == "ol" || eltname == "p" || eltname == "pre" || eltname == "section" || eltname == "table" || eltname == "tfoot" || eltname == "thead" || eltname == "tbody" || eltname == "tr" || eltname == "td" || eltname == "th" || eltname == "ul" || eltname == "video" {
 				newDir = ModeVertical
 			} else if eltname == "b" || eltname == "big" || eltname == "i" || eltname == "small" || eltname == "tt" || eltname == "abbr" || eltname == "acronym" || eltname == "cite" || eltname == "code" || eltname == "dfn" || eltname == "em" || eltname == "kbd" || eltname == "strong" || eltname == "samp" || eltname == "var" || eltname == "a" || eltname == "bdo" || eltname == "img" || eltname == "map" || eltname == "object" || eltname == "q" || eltname == "script" || eltname == "span" || eltname == "sub" || eltname == "sup" || eltname == "button" || eltname == "input" || eltname == "label" || eltname == "select" || eltname == "textarea" {
@@ -127,12 +134,12 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 			}
 			if thisNode.FirstChild != nil {
 				preserveWhitespace = append(preserveWhitespace, ws)
-				DumpElement(thisNode.FirstChild, newDir, itm)
+				GetHTMLItemFromHTMLNode(thisNode.FirstChild, newDir, itm)
 				preserveWhitespace = preserveWhitespace[:len(preserveWhitespace)-1]
 			}
 		case html.DocumentNode:
 			// just passthrough
-			DumpElement(thisNode.FirstChild, newDir, firstItem)
+			GetHTMLItemFromHTMLNode(thisNode.FirstChild, newDir, firstItem)
 		default:
 			return fmt.Errorf("Output: unknown node type %T", thisNode.Type)
 		}
@@ -144,6 +151,6 @@ func DumpElement(thisNode *html.Node, direction Mode, firstItem *HTMLItem) error
 // HTMLNodeToText converts an HTML node to a *frontend.Text element.
 func HTMLNodeToText(n *html.Node, ss StylesStack, df *frontend.Document) (*frontend.Text, error) {
 	h := &HTMLItem{Dir: ModeVertical}
-	DumpElement(n, ModeVertical, h)
+	GetHTMLItemFromHTMLNode(n, ModeVertical, h)
 	return Output(h, ss, df)
 }

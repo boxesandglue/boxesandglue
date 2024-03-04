@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	pdf "github.com/speedata/baseline-pdf"
@@ -219,42 +220,42 @@ const (
 func (st SettingType) String() string {
 	var settingName string
 	switch st {
-	case SettingBox:
-		settingName = "SettingBox"
 	case SettingBackgroundColor:
 		settingName = "SettingBackgroundColor"
-	case SettingBorderBottomWidth:
-		settingName = "SettingBorderBottomWidth"
-	case SettingBorderTopWidth:
-		settingName = "SettingBorderTopWidth"
-	case SettingBorderRightWidth:
-		settingName = "SettingBorderRightWidth"
-	case SettingBorderLeftWidth:
-		settingName = "SettingBorderLeftWidth"
 	case SettingBorderBottomColor:
 		settingName = "SettingBorderBottomColor"
-	case SettingBorderTopColor:
-		settingName = "SettingBorderTopColor"
-	case SettingBorderRightColor:
-		settingName = "SettingBorderRightColor"
-	case SettingBorderLeftColor:
-		settingName = "SettingBorderLeftColor"
-	case SettingBorderBottomStyle:
-		settingName = "SettingBorderBottomStyle"
-	case SettingBorderTopStyle:
-		settingName = "SettingBorderTopStyle"
-	case SettingBorderRightStyle:
-		settingName = "SettingBorderRightStyle"
-	case SettingBorderLeftStyle:
-		settingName = "SettingBorderLeftStyle"
-	case SettingBorderTopLeftRadius:
-		settingName = "SettingBorderTopLeftRadius"
-	case SettingBorderTopRightRadius:
-		settingName = "SettingBorderTopRightRadius"
 	case SettingBorderBottomLeftRadius:
 		settingName = "SettingBorderBottomLeftRadius"
 	case SettingBorderBottomRightRadius:
 		settingName = "SettingBorderBottomRightRadius"
+	case SettingBorderBottomStyle:
+		settingName = "SettingBorderBottomStyle"
+	case SettingBorderBottomWidth:
+		settingName = "SettingBorderBottomWidth"
+	case SettingBorderLeftColor:
+		settingName = "SettingBorderLeftColor"
+	case SettingBorderLeftStyle:
+		settingName = "SettingBorderLeftStyle"
+	case SettingBorderLeftWidth:
+		settingName = "SettingBorderLeftWidth"
+	case SettingBorderRightColor:
+		settingName = "SettingBorderRightColor"
+	case SettingBorderRightStyle:
+		settingName = "SettingBorderRightStyle"
+	case SettingBorderRightWidth:
+		settingName = "SettingBorderRightWidth"
+	case SettingBorderTopColor:
+		settingName = "SettingBorderTopColor"
+	case SettingBorderTopLeftRadius:
+		settingName = "SettingBorderTopLeftRadius"
+	case SettingBorderTopRightRadius:
+		settingName = "SettingBorderTopRightRadius"
+	case SettingBorderTopStyle:
+		settingName = "SettingBorderTopStyle"
+	case SettingBorderTopWidth:
+		settingName = "SettingBorderTopWidth"
+	case SettingBox:
+		settingName = "SettingBox"
 	case SettingColor:
 		settingName = "SettingColor"
 	case SettingDebug:
@@ -291,10 +292,10 @@ func (st SettingType) String() string {
 		settingName = "SettingOpenTypeFeature"
 	case SettingPaddingBottom:
 		settingName = "SettingPaddingBottom"
-	case SettingPaddingRight:
-		settingName = "SettingPaddingRight"
 	case SettingPaddingLeft:
 		settingName = "SettingPaddingLeft"
+	case SettingPaddingRight:
+		settingName = "SettingPaddingRight"
 	case SettingPaddingTop:
 		settingName = "SettingPaddingTop"
 	case SettingPrepend:
@@ -313,10 +314,10 @@ func (st SettingType) String() string {
 		settingName = "SettingTextDecorationLine"
 	case SettingVAlign:
 		settingName = "SettingVAlign"
-	case SettingYOffset:
-		settingName = "SettingYOffset"
 	case SettingWidth:
 		settingName = "SettingWidth"
+	case SettingYOffset:
+		settingName = "SettingYOffset"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -373,7 +374,15 @@ func debugText(ts *Text, enc *xml.Encoder) {
 	if dbg, ok := ts.Settings[SettingDebug]; ok {
 		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "debug"}, Value: fmt.Sprint(dbg)})
 	}
-	for k, v := range ts.Settings {
+	fields := []int{}
+	for field := range ts.Settings {
+		fields = append(fields, int(field))
+	}
+	sort.Ints(fields)
+
+	for _, field := range fields {
+		k := SettingType(field)
+		v := ts.Settings[k]
 		showSetting := true
 		switch t := v.(type) {
 		case int:
@@ -443,6 +452,32 @@ func debugText(ts *Text, enc *xml.Encoder) {
 		switch t := itm.(type) {
 		case *Text:
 			debugText(t, enc)
+		case *Table:
+			startTable := xml.StartElement{Name: xml.Name{Local: "Table"}}
+			enc.EncodeToken(startTable)
+			for _, row := range t.Rows {
+				startRow := xml.StartElement{Name: xml.Name{Local: "Row"}}
+				enc.EncodeToken(startRow)
+
+				for _, col := range row.Cells {
+					startCell := xml.StartElement{Name: xml.Name{Local: "Cell"}}
+					enc.EncodeToken(startCell)
+					for _, v := range col.Contents {
+						switch t := v.(type) {
+						case *Text:
+							debugText(t, enc)
+						default:
+							startUnknown := xml.StartElement{Name: xml.Name{Local: "Unknown"}}
+							enc.EncodeToken(startUnknown)
+							enc.EncodeToken(startUnknown.End())
+
+						}
+					}
+					enc.EncodeToken(startCell.End())
+				}
+				enc.EncodeToken(startRow.End())
+			}
+			enc.EncodeToken(startTable.End())
 		case string:
 			enc.EncodeToken(xml.CharData(t))
 		case *node.VList:
@@ -533,9 +568,16 @@ func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
 	}
 }
 
+// ParagraphInfo contains information about the whole paragraph and each line.
+type ParagraphInfo struct {
+	Height bag.ScaledPoint
+	Depth  bag.ScaledPoint
+	Widths []bag.ScaledPoint
+}
+
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph.
-func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, []*node.Breakpoint, error) {
+func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
 	bag.Logger.Log(nil, -8, "FormatParagraph")
 	if len(te.Items) == 0 {
 		g := node.NewGlue()
@@ -562,6 +604,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if p.Fontfamily != nil {
 		te.Settings[SettingFontFamily] = p.Fontfamily
 	}
+	pi := ParagraphInfo{}
 	if len(te.Items) > 0 {
 		if tbl, ok := te.Items[0].(*Table); ok {
 			if sWd, ok := te.Settings[SettingWidth]; ok {
@@ -573,15 +616,20 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			}
 			tbl.MaxWidth = hsize
 			vls, err := fe.BuildTable(tbl)
+			for _, vl := range vls {
+				pi.Widths = append(pi.Widths, vl.Width)
+				pi.Height += vl.Height
+			}
 			if err != nil {
-				return nil, nil, err
+				return nil, &pi, err
 			}
 			vl := vls[0]
-			return vl, nil, nil
+			return vl, &pi, nil
 		}
 	}
 	var hlist, tail node.Node
 	var err error
+
 	hlist, tail, err = fe.Mknodes(te)
 	if err != nil {
 		return nil, nil, err
@@ -639,6 +687,11 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		ls.LineStartGlue = lg
 	}
 	vlist, info := node.Linebreak(hlist, ls)
+
+	for _, inf := range info {
+		pi.Widths = append(pi.Widths, inf.Width)
+	}
+	_ = info
 	for _, cb := range fe.postLinebreakCallback {
 		vlist = cb(vlist)
 	}
@@ -671,9 +724,10 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 				head = node.InsertAfter(head, vlist, bottomGlue)
 			}
 			vlist = node.Vpack(head)
+			vlist.Attributes = node.H{"origin": "FormatParagraph, setHeight"}
 		}
 	}
-	return vlist, info, nil
+	return vlist, &pi, nil
 }
 
 func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {

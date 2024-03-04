@@ -143,14 +143,28 @@ func CopyList(nl Node) Node {
 	return copied
 }
 
-// Dimensions returns the width of the node list starting at n. If dir is
+// Dimensions returns the width, height and the depth of the node list starting
+// at n and ending with the stop node or at the end if stop is nil. If dir is
 // Horizontal, then calculate in horizontal mode, otherwise in vertical mode.
-func Dimensions(start Node, stop Node, dir Direction) bag.ScaledPoint {
-	var sumwd bag.ScaledPoint
-	for e := start; e != stop; e = e.Next() {
-		sumwd += getWidth(e, dir)
+func Dimensions(start Node, stop Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint, bag.ScaledPoint) {
+	var sumwd, sumht, sumdp bag.ScaledPoint
+
+	for e := start; e != nil; e = e.Next() {
+		wd := getWidth(e, dir)
+		sumwd += wd
+
+		ht, dp := getHeight(e, dir)
+		if ht > sumht {
+			sumht = ht
+		}
+		if dp > sumdp {
+			sumdp = dp
+		}
+		if e == stop {
+			break
+		}
 	}
-	return sumwd
+	return sumwd, sumht, sumdp
 }
 
 type hpackSetting struct {

@@ -32,7 +32,7 @@ func getMaxWidthHlistWithoutStretch(hl *node.HList) bag.ScaledPoint {
 		}
 	}
 
-	wd := node.Dimensions(start, stop, node.Horizontal)
+	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
 	return wd
 }
 
@@ -66,6 +66,6 @@ func getMinWidthHlistWithoutStretch(hl *node.HList) bag.ScaledPoint {
 		}
 	}
 
-	wd := node.Dimensions(start, stop, node.Horizontal)
+	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
 	return wd
 }

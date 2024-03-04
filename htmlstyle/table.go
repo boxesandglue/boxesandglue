@@ -103,11 +103,11 @@ func processTr(item *HTMLItem, ss StylesStack, df *frontend.Document) (*frontend
 			tc.VAlign = styles.Valign
 			tc.HAlign = styles.Halign
 
-			x, err := Output(itm, ss, df)
+			text, err := Output(itm, ss, df)
 			if err != nil {
 				return nil, err
 			}
-			tc.Contents = append(tc.Contents, x)
+			tc.Contents = append(tc.Contents, text)
 			tr.Cells = append(tr.Cells, tc)
 			ss.PopStyles()
 		}

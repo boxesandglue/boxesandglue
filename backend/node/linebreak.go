@@ -108,7 +108,8 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 		thisLineWidth += t.Width
 	case *Disc:
 		if !lb.settings.HangingPunctuationEnd {
-			thisLineWidth += Dimensions(t.Pre, nil, Horizontal)
+			wd, _, _ := Dimensions(t.Pre, nil, Horizontal)
+			thisLineWidth += wd
 		}
 	case *Glue:
 		if lb.settings.HangingPunctuationEnd {
@@ -563,6 +564,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		vert = InsertAfter(vert, hl, lineskip)
 	}
 	vl := Vpack(vert)
+	vl.Attributes = H{"origin": "Linebreak"}
 	return vl, bps
 }
 
