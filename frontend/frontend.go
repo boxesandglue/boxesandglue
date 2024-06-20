@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"io"
 	"os"
 	"time"
 
@@ -37,18 +38,30 @@ func initDocument() *Document {
 	return d
 }
 
-// New creates a new PDF file. After Doc.Finish() is called, the file is closed.
+// New creates a new document writing to a new PDF file
+// with the given filename. New DOES NOT close this file.
 func New(filename string) (*Document, error) {
 	w, err := os.Create(filename)
 	if err != nil {
 		return nil, err
 	}
+
+    fe, err := NewForWriter(w)
+    if err != nil {
+        return nil, err
+    }
+
+    fe.Doc.Filename = filename
+    return fe, nil
+}
+
+// NewForWriter creates a new Document writing to w. w is never closed.
+func NewForWriter(w io.Writer) (*Document, error) {
 	fe := initDocument()
 	fe.Doc = document.NewDocument(w)
-	if err = fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
+    if err := fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
 		return nil, err
 	}
-	fe.Doc.Filename = filename
 	return fe, nil
 }
 
