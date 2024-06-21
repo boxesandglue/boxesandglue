@@ -6,8 +6,8 @@ github.com/andybalholm/cascadia v1.3.2/go.mod h1:7gtRlve5FxPPgIgX36uWBX58OdBsSS6
 github.com/benoitkugler/textlayout-testdata v0.1.1 h1:AvFxBxpfrQd8v55qH59mZOJOQjtD6K2SFe9/HvnIbJk=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
 github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/speedata/baseline-pdf v0.0.0-20231122102911-d3b0bd534820 h1:7oxf+dMF062+vl2NXMOa9AEG2eQw5jo+UPh2QtbEeKE=
-github.com/speedata/baseline-pdf v0.0.0-20231122102911-d3b0bd534820/go.mod h1:ptfWHTOg/v3zstZUxF9DwET4q4NOMCGyzDvtm11SIWs=
+github.com/speedata/baseline-pdf v0.0.0-20240621111510-9e70fb550141 h1:KqpEJukPEzWJP0crbX81DzofBboNce+EuxHx/uR5foc=
+github.com/speedata/baseline-pdf v0.0.0-20240621111510-9e70fb550141/go.mod h1:ptfWHTOg/v3zstZUxF9DwET4q4NOMCGyzDvtm11SIWs=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553 h1:L9Sqi5S7G4JjODI5tZZ1IzZ7Yb4s71xFOq/uZtLv1Wg=
 github.com/speedata/css/scanner v0.0.0-20201005071706-2ed32c3ce553/go.mod h1:uF4+EGySaBnGeZpXZ0boh/oR6P0vNiYfQ2MAJXCU9hE=
 github.com/speedata/gofpdi v1.0.18 h1:LEiIN62ckZcA4n8AtBu16M2P2fBK3OnwpTGDfe13v/4=
