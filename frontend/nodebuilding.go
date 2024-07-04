@@ -114,6 +114,16 @@ const (
 	TextDecorationLineThrough
 )
 
+// BorderStyle represents the HTML border styles such as solid, dashed, ...
+type BorderStyle uint
+
+const (
+	// BorderStyleNone is no border
+	BorderStyleNone BorderStyle = iota
+	// BorderStyleSolid is a solid line
+	BorderStyleSolid
+)
+
 const (
 	// SettingDummy is a no op.
 	SettingDummy SettingType = iota
@@ -687,11 +697,10 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		ls.LineStartGlue = lg
 	}
 	vlist, info := node.Linebreak(hlist, ls)
-
 	for _, inf := range info {
 		pi.Widths = append(pi.Widths, inf.Width)
 	}
-	_ = info
+
 	for _, cb := range fe.postLinebreakCallback {
 		vlist = cb(vlist)
 	}
@@ -880,9 +889,6 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		hyperlinkStart = node.NewStartStop()
 		hyperlinkStart.Action = node.ActionHyperlink
 		hyperlinkStart.Value = &hyperlink
-		if head != nil {
-			head = node.InsertAfter(head, head, hyperlinkStart)
-		}
 		head = hyperlinkStart
 	}
 	var underlineStart *node.StartStop

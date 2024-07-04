@@ -160,7 +160,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 	for _, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
-			formatted, err = fe.CreateVlist(t, paraWidth)
+			formatted, _, err = fe.FormatParagraph(t, paraWidth)
 			if err != nil {
 				return nil, err
 			}
