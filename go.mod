@@ -15,7 +15,7 @@ require (
 )
 
 require (
-	github.com/speedata/gofpdi v1.0.18 // indirect
+	github.com/boxesandglue/gofpdi v1.0.18 // indirect
 	golang.org/x/image v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 )
