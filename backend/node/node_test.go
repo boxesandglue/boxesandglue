@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
 type gluTestData struct {

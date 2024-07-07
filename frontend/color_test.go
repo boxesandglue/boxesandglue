@@ -3,7 +3,7 @@ package frontend
 import (
 	"testing"
 
-	"github.com/speedata/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/color"
 )
 
 func TestSimple(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	pdf "github.com/speedata/baseline-pdf"
+	pdf "github.com/boxesandglue/baseline-pdf"
 )
 
 var (

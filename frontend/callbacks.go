@@ -3,7 +3,7 @@ package frontend
 import (
 	"fmt"
 
-	"github.com/speedata/boxesandglue/backend/node"
+	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
 type callbackType int

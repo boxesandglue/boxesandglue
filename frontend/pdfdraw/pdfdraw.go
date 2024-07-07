@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/color"
 )
 
 // Object represents a set of PDF instructions to draw a PDF graphic

@@ -1,9 +1,9 @@
 package frontend
 
 import (
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/node"
-	"github.com/speedata/boxesandglue/frontend/pdfdraw"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/node"
+	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 )
 
 type styles struct {

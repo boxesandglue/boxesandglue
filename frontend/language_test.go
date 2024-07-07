@@ -6,9 +6,9 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/document"
-	"github.com/speedata/boxesandglue/backend/node"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/document"
+	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
 func TestLoadLang(t *testing.T) {

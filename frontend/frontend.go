@@ -5,11 +5,11 @@ import (
 	"os"
 	"time"
 
-	pdf "github.com/speedata/baseline-pdf"
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/color"
-	"github.com/speedata/boxesandglue/backend/document"
-	"github.com/speedata/boxesandglue/backend/font"
+	pdf "github.com/boxesandglue/baseline-pdf"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/document"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/speedata/textlayout/harfbuzz"
 )
 

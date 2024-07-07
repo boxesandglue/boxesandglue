@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/speedata/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
 var (

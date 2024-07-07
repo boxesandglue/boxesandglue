@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/frontend/pdfdraw"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 )
 
 // Direction represents the direction of the node list. This can be horizontal or vertical.

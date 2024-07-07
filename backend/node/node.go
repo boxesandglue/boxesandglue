@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/font"
-	"github.com/speedata/boxesandglue/backend/image"
-	"github.com/speedata/boxesandglue/backend/lang"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
+	"github.com/boxesandglue/boxesandglue/backend/image"
+	"github.com/boxesandglue/boxesandglue/backend/lang"
 )
 
 var (

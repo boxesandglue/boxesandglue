@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/speedata/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/color"
 )
 
 // DefineColor associates a color with a name for later use.

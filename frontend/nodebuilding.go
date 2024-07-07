@@ -8,14 +8,14 @@ import (
 	"sort"
 	"strings"
 
-	pdf "github.com/speedata/baseline-pdf"
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/backend/color"
-	"github.com/speedata/boxesandglue/backend/document"
-	"github.com/speedata/boxesandglue/backend/font"
-	"github.com/speedata/boxesandglue/backend/image"
-	"github.com/speedata/boxesandglue/backend/lang"
-	"github.com/speedata/boxesandglue/backend/node"
+	pdf "github.com/boxesandglue/baseline-pdf"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/document"
+	"github.com/boxesandglue/boxesandglue/backend/font"
+	"github.com/boxesandglue/boxesandglue/backend/image"
+	"github.com/boxesandglue/boxesandglue/backend/lang"
+	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/speedata/textlayout/harfbuzz"
 )
 

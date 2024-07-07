@@ -1,6 +1,6 @@
 package frontend
 
-import "github.com/speedata/boxesandglue/backend/color"
+import "github.com/boxesandglue/boxesandglue/backend/color"
 
 var (
 	csscolors = map[string]*color.Color{
