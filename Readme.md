@@ -44,7 +44,7 @@ mastodon: [@speedata](https://typo.social/@speedata), [@boxesandglue](https://ty
 
 ## Sample code
 
-See the [bagme library](https://github.com/speedata/bagme) and [boxesandglue-examples](https://github.com/speedata/boxesandglue-examples) for code using boxes and glue.
+See the [bagme library](https://github.com/boxesandglue/bagme) and [boxesandglue-examples](https://github.com/speedata/boxesandglue-examples) for code using boxes and glue.
 
 For a starter here is a simple `main.go` to play with. The result is
 

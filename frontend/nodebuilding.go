@@ -16,7 +16,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/image"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
-	"github.com/speedata/textlayout/harfbuzz"
+	"github.com/boxesandglue/textlayout/harfbuzz"
 )
 
 // FormatToVList is a function that gets collects typesetting material and gets

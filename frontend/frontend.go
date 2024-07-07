@@ -10,7 +10,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/document"
 	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/speedata/textlayout/harfbuzz"
+	"github.com/boxesandglue/textlayout/harfbuzz"
 )
 
 // Document holds convenience functions.

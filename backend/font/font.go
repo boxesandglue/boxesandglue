@@ -5,7 +5,7 @@ import (
 
 	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
-	"github.com/speedata/textlayout/harfbuzz"
+	"github.com/boxesandglue/textlayout/harfbuzz"
 )
 
 // An Atom contains size information about the glyphs as a result of Shape
