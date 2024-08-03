@@ -1,4 +1,4 @@
-[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/speedata/boxesandglue)&nbsp;[![Fund the development](https://img.shields.io/badge/Sponsor-Fund%20development-yellow)](https://github.com/sponsors/speedata)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)
+[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/boxesandglue/boxesandglue)&nbsp;[![Fund the development](https://img.shields.io/badge/Sponsor-Fund%20development-yellow)](https://github.com/sponsors/speedata)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)
 
 
 # Boxes and Glue
@@ -31,7 +31,7 @@ The frontend has high level methods to create a PDF document, load fonts, insert
 
 The backend has the small building blocks that are used to create documents. These building blocks are called “nodes” which can be chained together in linked lists, a node list.
 
-See the [architecture overview](https://github.com/speedata/boxesandglue/discussions/2) for a more detailed description.
+See the [architecture overview](https://github.com/boxesandglue/boxesandglue/discussions/2) for a more detailed description.
 
 ## Status
 
@@ -44,7 +44,7 @@ mastodon: [@speedata](https://typo.social/@speedata), [@boxesandglue](https://ty
 
 ## Sample code
 
-See the [bagme library](https://github.com/boxesandglue/bagme) and [boxesandglue-examples](https://github.com/speedata/boxesandglue-examples) for code using boxes and glue.
+See the [bagme library](https://github.com/boxesandglue/bagme) and [boxesandglue-examples](https://github.com/boxesandglue/boxesandglue-examples) for code using boxes and glue.
 
 For a starter here is a simple `main.go` to play with. The result is
 
@@ -61,8 +61,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/speedata/boxesandglue/backend/bag"
-	"github.com/speedata/boxesandglue/frontend"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/frontend"
 )
 
 var (
@@ -133,7 +133,7 @@ func main() {
 ```
 
 
-To get a PDF/UA (universal accessibility) document, insert the following lines before `.OutputAt...` and add `"github.com/speedata/boxesandglue/backend/document"` to the import section.
+To get a PDF/UA (universal accessibility) document, insert the following lines before `.OutputAt...` and add `"github.com/boxesandglue/boxesandglue/backend/document"` to the import section.
 
 ```go
 	f.Doc.RootStructureElement = &document.StructureElement{
