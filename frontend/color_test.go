@@ -1,13 +1,14 @@
 package frontend
 
 import (
+	"io"
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/color"
 )
 
 func TestSimple(t *testing.T) {
-	f := initDocument()
+	f, _ := initDocument(io.Discard)
 	f.DefineColor("mycolor", &color.Color{Space: color.ColorCMYK, C: 1, M: 0, Y: 0, K: 1})
 	testdata := []struct {
 		colorname  string

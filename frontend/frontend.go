@@ -27,15 +27,21 @@ type Document struct {
 	postLinebreakCallback []PostLinebreakCallbackFunc
 }
 
-func initDocument() *Document {
+func initDocument(w io.Writer) (*Document, error) {
 	d := &Document{
 		usedSpotcolors: make(map[*color.Color]bool),
 		usedcolors:     make(map[string]*color.Color),
 		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
 		FontFamilies:   make(map[string]*FontFamily),
 		fontlocal:      make(map[string]*FontSource),
+		Doc:            document.NewDocument(w),
 	}
-	return d
+	var err error
+	if d.Doc.DefaultLanguage, err = GetLanguage("en"); err != nil {
+		return nil, err
+	}
+
+	return d, nil
 }
 
 // New creates a new document writing to a new PDF file
@@ -57,15 +63,18 @@ func New(filename string) (*Document, error) {
 
 // NewForWriter creates a new Document writing to w. w is never closed.
 func NewForWriter(w io.Writer) (*Document, error) {
-	fe := initDocument()
-	fe.Doc = document.NewDocument(w)
-	if err := fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
+	fe, err := initDocument(w)
+	if err != nil {
+		return nil, err
+	}
+	if err = fe.RegisterCallback(CallbackPostLinebreak, PostLinebreakCallbackFunc(postLinebreak)); err != nil {
 		return nil, err
 	}
 	return fe, nil
 }
 
-// SetSuppressInfo sets the suppressinfo flag.
+// SetSuppressInfo sets the suppressinfo flag. This tries to write reproducible
+// PDF files by having the time stamp set to a fixed date.
 func (fe *Document) SetSuppressInfo(si bool) {
 	fe.suppressInfo = si
 	fe.Doc.SuppressInfo = si

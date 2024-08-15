@@ -67,37 +67,11 @@ type linebreaker struct {
 	settings         *LinebreakSettings
 }
 
-func newLinebreaker(hl Node, settings *LinebreakSettings) *linebreaker {
+func newLinebreaker(settings *LinebreakSettings) *linebreaker {
 	lb := &linebreaker{
 		settings: settings,
 	}
 	return lb
-}
-
-func getNextNodeWidth(n Node, maxwidth bag.ScaledPoint) bag.ScaledPoint {
-	sumwd := bag.ScaledPoint(0)
-	firstGlue := true
-sum:
-	for e := n; e != nil; e = e.Next() {
-		switch t := e.(type) {
-		case *Glue:
-			if firstGlue {
-				firstGlue = false
-				sumwd += t.Width
-			} else {
-				break sum
-			}
-		case *Penalty:
-			if t.Penalty < 10000 {
-				break sum
-			}
-		case *Disc:
-			break sum
-		default:
-			sumwd += getWidth(e, Horizontal)
-		}
-	}
-	return sumwd
 }
 
 func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, bag.ScaledPoint) {
@@ -429,7 +403,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		return nil, nil
 	}
 	var prevItemBox bool
-	lb := newLinebreaker(n, settings)
+	lb := newLinebreaker(settings)
 	lb.activeNodesA = &Breakpoint{id: <-breakpointIDs, Fitness: 1, Position: n}
 	var endNode Node
 

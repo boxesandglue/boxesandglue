@@ -491,7 +491,7 @@ func getHeight(n Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint) {
 	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
 		return 0, 0
 	default:
-		bag.Logger.Error("getHeight: unknown node type %T", n)
+		bag.Logger.Error("getHeight: unknown node type", "type", fmt.Sprintf("%T", n))
 	}
 	return 0, 0
 }
@@ -509,7 +509,7 @@ func getDepth(n Node) bag.ScaledPoint {
 	case *VList:
 		return t.Depth
 	default:
-		bag.Logger.Error(fmt.Sprintf("getDepth: unknown node type %T", n))
+		bag.Logger.Error("getDepth: unknown node type", "type", fmt.Sprintf("%T", n))
 	}
 	return 0
 }
