@@ -428,11 +428,11 @@ func Boxit(n Node) Node {
 	r.Hide = true
 	switch t := n.(type) {
 	case *VList:
-		p := pdfdraw.NewStandalone().LineWidth(bag.MustSp("0.4pt")).Rect(0, 0, t.Width, -t.Height+t.Depth).Stroke()
+		p := pdfdraw.NewStandalone().LineWidth(bag.MustSP("0.4pt")).Rect(0, 0, t.Width, -t.Height+t.Depth).Stroke()
 		r.Pre = p.String()
 		t.List = InsertBefore(t.List, t.List, r)
 	case *HList:
-		p := pdfdraw.NewStandalone().LineWidth(bag.MustSp("0.4pt")).Rect(0, 0, t.Width, -t.Height+t.Depth).Stroke()
+		p := pdfdraw.NewStandalone().LineWidth(bag.MustSP("0.4pt")).Rect(0, 0, t.Width, -t.Height+t.Depth).Stroke()
 		r.Pre = p.String()
 		t.List = InsertBefore(t.List, t.List, r)
 	}

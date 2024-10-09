@@ -94,10 +94,10 @@ func (s ScaledPoint) ToUnit(unit string) (float64, error) {
 	}
 }
 
-// Sp return the unit converted to ScaledPoint. Unit can be a string like "1cm"
+// SP return the unit converted to ScaledPoint. Unit can be a string like "1cm"
 // or "12.5in". The units which are interpreted are pt, in, mm, cm, m, px and
 // pc. A (wrapped) ErrConversion is returned in case of an error.
-func Sp(unit string) (ScaledPoint, error) {
+func SP(unit string) (ScaledPoint, error) {
 	if unit == "0" {
 		return ScaledPoint(0), nil
 	}
@@ -141,10 +141,10 @@ func Sp(unit string) (ScaledPoint, error) {
 	}
 }
 
-// MustSp converts the unit to ScaledPoints. In case of an error, the function
+// MustSP converts the unit to ScaledPoints. In case of an error, the function
 // panics.
-func MustSp(unit string) ScaledPoint {
-	val, err := Sp(unit)
+func MustSP(unit string) ScaledPoint {
+	val, err := SP(unit)
 	if err != nil {
 		if errors.Is(err, ErrConversion) {
 			Logger.Error(err.Error())

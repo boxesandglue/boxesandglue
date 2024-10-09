@@ -359,9 +359,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					}
 
 					if hyperlink.Local != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.StringToPDF(hyperlink.Local))
+						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(hyperlink.Local))
 					} else if hyperlink.URI != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.StringToPDF(hyperlink.URI))
+						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
 					}
 
 					oc.p.Annotations = append(oc.p.Annotations, a)
@@ -375,16 +375,6 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				y := posY + hlist.Height + hlist.Depth
 				var destname string
 				switch t := v.Value.(type) {
-				case int:
-					destnum := t
-					d := &pdf.NumDest{
-						Num:              destnum,
-						X:                posX.ToPT(),
-						Y:                y.ToPT(),
-						PageObjectnumber: oc.pageObjectnumber,
-					}
-					destname = fmt.Sprintf("%d", destnum)
-					oc.p.document.PDFWriter.NumDestinations[destnum] = d
 				case string:
 					d := &pdf.NameDest{
 						Name:             pdf.String(t),
@@ -393,7 +383,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						PageObjectnumber: oc.pageObjectnumber,
 					}
 					destname = t
-					oc.p.document.PDFWriter.NameDestinations = append(oc.p.document.PDFWriter.NameDestinations, d)
+					oc.p.document.PDFWriter.NameDestinations[d.Name] = d
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
@@ -404,7 +394,6 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					fmt.Fprint(oc.s, circ)
 					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
 					oc.debugAt(posX, y, destname)
-					// oc.gotoTextMode(4)
 				}
 			} else if action == node.ActionNone || action == node.ActionUserSetting {
 				// ignore
@@ -508,7 +497,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if oc.p.document.IsTrace(VTraceHBoxes) {
 				r := node.NewRule()
 				r.Hide = true
-				p := pdfdraw.NewStandalone().LineWidth(bag.MustSp("0.4pt")).Rect(0, -v.Depth, v.Width, v.Height+v.Depth).Stroke()
+				p := pdfdraw.NewStandalone().LineWidth(bag.MustSP("0.4pt")).Rect(0, -v.Depth, v.Width, v.Height+v.Depth).Stroke()
 				r.Pre = p.String()
 				v.List = node.InsertBefore(v.List, v.List, r)
 			}
@@ -620,9 +609,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					}
 
 					if hyperlink.Local != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.StringToPDF(hyperlink.Local))
+						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(hyperlink.Local))
 					} else if hyperlink.URI != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.StringToPDF(hyperlink.URI))
+						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
 					}
 
 					oc.p.Annotations = append(oc.p.Annotations, a)
@@ -636,16 +625,6 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				y := posY + vlist.Height + vlist.Depth
 				var destname string // for debugging only
 				switch t := v.Value.(type) {
-				case int:
-					destnum := t
-					d := &pdf.NumDest{
-						Num:              destnum,
-						X:                posX.ToPT(),
-						Y:                y.ToPT(),
-						PageObjectnumber: oc.pageObjectnumber,
-					}
-					destname = fmt.Sprintf("%d", destnum)
-					oc.p.document.PDFWriter.NumDestinations[destnum] = d
 				case string:
 					d := &pdf.NameDest{
 						Name:             pdf.String(t),
@@ -654,7 +633,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						PageObjectnumber: oc.pageObjectnumber,
 					}
 					destname = t
-					oc.p.document.PDFWriter.NameDestinations = append(oc.p.document.PDFWriter.NameDestinations, d)
+					oc.p.document.PDFWriter.NameDestinations[d.Name] = d
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
@@ -669,7 +648,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			} else if action == node.ActionNone {
 				// ignore
 			} else {
-				bag.Logger.Warn(fmt.Sprintf("start/stop node: unhandled action %s", action))
+				bag.Logger.Warn("start/stop node: unhandled action", "action", action)
 			}
 			switch v.Position {
 			case node.PDFOutputPage:
@@ -852,11 +831,11 @@ func (p *Page) Shipout() {
 				"Type": "/StructElem",
 				"S":    "/" + se.Role,
 				"K":    fmt.Sprintf("%d", se.ID),
-				"Pg":   page.Dictnum.Ref(),
+				"Pg":   page.Objnum.Ref(),
 				"P":    parent.Obj.ObjectNumber.Ref(),
 			}
 			if se.ActualText != "" {
-				se.Obj.Dictionary["ActualText"] = pdf.StringToPDF(se.ActualText)
+				se.Obj.Dictionary["ActualText"] = pdf.Serialize(se.ActualText)
 			}
 			se.Obj.Save()
 			structureElementObjectIDs = append(structureElementObjectIDs, se.Obj.ObjectNumber.Ref())
@@ -938,13 +917,14 @@ type PDFDocument struct {
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   []CallbackShipout
 	usedPDFImages        map[string]*pdf.Imagefile
+	numDestinations      map[int]NumDest
 }
 
 // NewDocument creates an empty document.
 func NewDocument(w io.Writer) *PDFDocument {
 	d := &PDFDocument{
-		DefaultPageWidth:  bag.MustSp("210mm"),
-		DefaultPageHeight: bag.MustSp("297mm"),
+		DefaultPageWidth:  bag.MustSP("210mm"),
+		DefaultPageHeight: bag.MustSP("297mm"),
 		CreationDate:      time.Now(),
 		Languages:         make(map[string]*lang.Lang),
 		ViewerPreferences: make(map[string]string),
@@ -991,7 +971,7 @@ func (d *PDFDocument) SetDefaultLanguage(l *lang.Lang) {
 
 // LoadFaceFromData creates a Face from a byte stream.
 func (d *PDFDocument) LoadFaceFromData(data []byte, index int) (*pdf.Face, error) {
-	f, err := pdf.NewFaceFromData(d.PDFWriter, data, index)
+	f, err := d.PDFWriter.NewFaceFromData(data, index)
 	if err != nil {
 		return nil, err
 	}
@@ -1010,7 +990,7 @@ func (d *PDFDocument) LoadFace(filename string, index int) (*pdf.Face, error) {
 	}
 	bag.Logger.Debug("LoadFace", "filename", filename)
 
-	f, err := pdf.LoadFace(d.PDFWriter, filename, index)
+	f, err := d.PDFWriter.LoadFace(filename, index)
 	if err != nil {
 		return nil, err
 	}
@@ -1032,7 +1012,7 @@ func (d *PDFDocument) LoadImageFileWithBox(filename string, box string, pagenumb
 	if imgf, ok := d.usedPDFImages[key]; ok {
 		return imgf, nil
 	}
-	imgf, err := pdf.LoadImageFileWithBox(d.PDFWriter, filename, box, pagenumber)
+	imgf, err := d.PDFWriter.LoadImageFileWithBox(filename, box, pagenumber)
 	if err != nil {
 		return nil, err
 	}
@@ -1115,8 +1095,8 @@ func (d *PDFDocument) Finish() error {
 				pdf.Name(col.Basecolor),
 				pdf.Array{"/ICCBased", cp.ObjectNumber},
 				pdf.Dict{
-					"C0":           pdf.ArrayToString(pdf.Array{0, 0, 0, 0}),
-					"C1":           pdf.ArrayToString(pdf.Array{sep.C, sep.M, sep.Y, sep.K}),
+					"C0":           pdf.Serialize(pdf.Array{0, 0, 0, 0}),
+					"C1":           pdf.Serialize(pdf.Array{sep.C, sep.M, sep.Y, sep.K}),
 					"Domain":       "[ 0 1 ]",
 					"FunctionType": "2",
 					"N":            "1",
@@ -1154,7 +1134,7 @@ func (d *PDFDocument) Finish() error {
 			"K":    fmt.Sprintf("%s", childObjectNumbers),
 			"P":    structRoot.ObjectNumber.Ref(),
 			"Type": "/StructElem",
-			"T":    pdf.StringToPDF(d.Title),
+			"T":    pdf.Serialize(d.Title),
 		}
 		se.Obj.Save()
 
@@ -1183,22 +1163,22 @@ func (d *PDFDocument) Finish() error {
 	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight.ToPT()
 
 	d.PDFWriter.InfoDict = pdf.Dict{
-		"Producer": pdf.StringToPDF(d.producer),
+		"Producer": pdf.Serialize(pdf.String(d.producer)),
 	}
 	if t := d.Title; t != "" {
 		d.PDFWriter.InfoDict["Title"] = pdf.String(t)
 	}
 	if t := d.Author; t != "" {
-		d.PDFWriter.InfoDict["Author"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Author"] = pdf.Serialize(pdf.String(t))
 	}
 	if t := d.Creator; t != "" {
-		d.PDFWriter.InfoDict["Creator"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Creator"] = pdf.Serialize(pdf.String(t))
 	}
 	if t := d.Subject; t != "" {
-		d.PDFWriter.InfoDict["Subject"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Subject"] = pdf.Serialize(pdf.String(t))
 	}
 	if t := d.Keywords; t != "" {
-		d.PDFWriter.InfoDict["Keywords"] = pdf.StringToPDF(t)
+		d.PDFWriter.InfoDict["Keywords"] = pdf.Serialize(pdf.String(t))
 	}
 	d.PDFWriter.InfoDict["CreationDate"] = d.CreationDate.Format("(D:20060102150405)")
 

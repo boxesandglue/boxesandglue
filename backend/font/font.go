@@ -101,7 +101,7 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 
 			// only add kern if the next item is not a space
 			if i < len(buf.Info)-1 {
-				if buf.Info[i+1].Glyph != space {
+				if int(buf.Info[i+1].Glyph) != space {
 					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
 				}
 			}

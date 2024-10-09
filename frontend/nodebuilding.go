@@ -349,6 +349,7 @@ type Text struct {
 func NewText() *Text {
 	te := Text{}
 	te.Settings = make(TypesettingSettings)
+	te.Items = make([]any, 0)
 	return &te
 }
 
@@ -798,7 +799,15 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingFontFamily:
 			fontfamily = v.(*FontFamily)
 		case SettingSize:
-			fontsize = v.(bag.ScaledPoint)
+			switch t := v.(type) {
+			case int64:
+				// assume it is sp
+				fontsize = bag.ScaledPoint(t)
+			case bag.ScaledPoint:
+				fontsize = t
+			default:
+				return nil, fmt.Errorf("Unknown type for SettingSize %T", t)
+			}
 		case SettingColor:
 			switch t := v.(type) {
 			case string:

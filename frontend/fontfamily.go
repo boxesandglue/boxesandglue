@@ -107,7 +107,7 @@ type FontFamily struct {
 // AddMember adds a member to the font family.
 func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) error {
 	ff.doc.fontlocal[fontsource.Name] = fontsource
-	bag.Logger.Debug("Add member to font family", "id", ff.ID, "weight", weight, "style", style)
+	bag.Logger.Debug("Add member to font family", "id", ff.ID, "weight", weight, "style", style, "source", fontsource)
 	if fontsource == nil {
 		return fmt.Errorf("Font source is nil")
 	}

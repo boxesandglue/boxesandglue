@@ -1,6 +1,6 @@
 github.com/benoitkugler/textlayout-testdata v0.1.1 h1:AvFxBxpfrQd8v55qH59mZOJOQjtD6K2SFe9/HvnIbJk=
-github.com/boxesandglue/baseline-pdf v0.0.0-20240707171747-eb4f68a9505a h1:oAdWZHJfdMpP76d0Vp4dnD4O3jyIZJqNevVkIy5PhPw=
-github.com/boxesandglue/baseline-pdf v0.0.0-20240707171747-eb4f68a9505a/go.mod h1:w8d4hvDNL+fOB1DflMTa7a9VFsU/56eKuhwfh50oRDQ=
+github.com/boxesandglue/baseline-pdf v0.0.0-20241009175044-248369dd34e3 h1:1oSXkacR7enxQLNvrRejCiAzw2Uy7Yv3UOQi6e3bi0w=
+github.com/boxesandglue/baseline-pdf v0.0.0-20241009175044-248369dd34e3/go.mod h1:vHHOX9Wb/F6LvTVhxdOTyRBW6XtM0POP8BjxXkQHag4=
 github.com/boxesandglue/gofpdi v1.0.19 h1:GZX1/akVhVsZgCwjc/jTbJZ6kuoHw7CvwwGzF9Ie37U=
 github.com/boxesandglue/gofpdi v1.0.19/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
 github.com/boxesandglue/textlayout v0.0.0-20240707131722-d155d7ceedcd h1:FLN+OITDawCwzY9fpU9651CtmfhR8ej71uSqsl3tV+k=
