@@ -888,7 +888,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 
 	var found bool
 	if fnt, found = fe.usedFonts[face][fontsize]; !found {
-		fnt = fe.Doc.CreateFont(face, fontsize)
+		fnt = font.NewFont(face, fontsize)
 		fe.usedFonts[face][fontsize] = fnt
 	}
 

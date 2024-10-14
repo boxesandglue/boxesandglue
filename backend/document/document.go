@@ -687,7 +687,7 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 	fmt.Fprintf(oc.s, " q %s 8 Tf 0 0 1 rg ", f0.InternalName())
 	oc.moveto(x, y)
 	fmt.Fprint(oc.s, "[<")
-	fnt := oc.p.document.CreateFont(f0, 4*bag.Factor)
+	fnt := font.NewFont(f0, 4*bag.Factor)
 	cp := []int{}
 	for _, v := range fnt.Shape(text, nil) {
 		fmt.Fprintf(oc.s, "%04x", v.Codepoint)
@@ -1029,6 +1029,9 @@ func (d *PDFDocument) CreateImage(imgfile *pdf.Imagefile, pagenumber int, box st
 	img.PageNumber = pagenumber
 	switch img.ImageFile.Format {
 	case "pdf":
+		if box == "" {
+			box = "/MediaBox"
+		}
 		mb, err := imgfile.GetPDFBoxDimensions(pagenumber, box)
 		if err != nil {
 			return nil
@@ -1058,11 +1061,6 @@ func (d *PDFDocument) NewPage() *Page {
 
 	d.Pages = append(d.Pages, d.CurrentPage)
 	return d.CurrentPage
-}
-
-// CreateFont returns a new Font object for this face at a given size.
-func (d *PDFDocument) CreateFont(face *pdf.Face, size bag.ScaledPoint) *font.Font {
-	return font.NewFont(face, size)
 }
 
 // Finish writes all objects to the PDF and writes the XRef section. Finish does

@@ -13,7 +13,7 @@ import (
 
 //go:generate rake genpatterns
 
-var codeVarname = map[string]string{
+var languagecodeVarname = map[string]string{
 	"bg":    "bg",
 	"ca":    "ca",
 	"cs":    "cs",
@@ -62,16 +62,17 @@ var codeVarname = map[string]string{
 	"uk":    "uk",
 }
 
-// GetLanguage returns a language object for the language.
+// GetLanguage returns a language object for the language. language can be "de"
+// or "de_DE".
 func GetLanguage(langname string) (*lang.Lang, error) {
 	newLangname := strings.ToLower(langname)
 	var r io.Reader
-	if vn, ok := codeVarname[newLangname]; ok {
+	if vn, ok := languagecodeVarname[newLangname]; ok {
 		r = strings.NewReader(hyphenationpatterns[vn])
 	} else {
 		if split := strings.Split(newLangname, "_"); len(split) > 1 {
 			newLangname = split[0]
-			if vn, ok := codeVarname[newLangname]; ok {
+			if vn, ok := languagecodeVarname[newLangname]; ok {
 				r = strings.NewReader(hyphenationpatterns[vn])
 			}
 		}

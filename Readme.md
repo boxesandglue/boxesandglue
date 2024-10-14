@@ -103,9 +103,9 @@ func typesetSample() error {
 
 	// Format the text into a paragraph. Some of these settings (font family and
 	// font size) can be part of the typesetting element.
-	vlist, _, err := f.FormatParagraph(para, bag.MustSp("125pt"),
-		frontend.Leading(bag.MustSp("14pt")),
-		frontend.FontSize(bag.MustSp("12pt")),
+	vlist, _, err := f.FormatParagraph(para, bag.MustSP("125pt"),
+		frontend.Leading(bag.MustSP("14pt")),
+		frontend.FontSize(bag.MustSP("12pt")),
 		frontend.Family(ff),
 	)
 	if err != nil {
@@ -114,7 +114,7 @@ func typesetSample() error {
 
 	// Output the text and finish the page and the PDF file.
 	p := f.Doc.NewPage()
-	p.OutputAt(bag.MustSp("1cm"), bag.MustSp("26cm"), vlist)
+	p.OutputAt(bag.MustSP("1cm"), bag.MustSP("26cm"), vlist)
 	p.Shipout()
 	if err = f.Doc.Finish(); err != nil {
 		return err

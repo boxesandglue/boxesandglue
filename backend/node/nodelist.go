@@ -42,7 +42,7 @@ func NewLinebreakSettings() *LinebreakSettings {
 		DoublehyphenDemerits: 3000,
 		DemeritsFitness:      100,
 		Hyphenpenalty:        50,
-		Tolerance:            positiveInf,
+		Tolerance:            4.0,
 		LineStartGlue:        NewGlue(),
 		LineEndGlue:          NewGlue(),
 	}
