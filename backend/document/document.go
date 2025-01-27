@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -132,13 +133,14 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 			oc.textmode = 2
 		}
 		if oc.textmode == 2 && oc.textmode < newMode {
-			fmt.Fprint(oc.s, "]TJ\n")
+			fmt.Fprint(oc.s, "]TJ")
 			oc.textmode = 3
 		}
 		if oc.textmode == 3 && oc.textmode < newMode {
-			fmt.Fprint(oc.s, "ET\n")
+			fmt.Fprintln(oc.s)
+			fmt.Fprint(oc.s, "ET")
 			if oc.tag != nil {
-				fmt.Fprint(oc.s, "EMC\n")
+				fmt.Fprint(oc.s, "\nEMC")
 				oc.tag = nil
 			}
 			oc.textmode = 4
@@ -204,7 +206,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			if v.Font != oc.currentFont {
 				oc.gotoTextMode(3)
-				fmt.Fprintf(oc.s, "\n%s %s Tf ", v.Font.Face.InternalName(), v.Font.Size)
+				fmt.Fprintf(oc.s, "\n%s %s Tf ", v.Font.Face.InternalName(), bag.MultiplyFloat(v.Font.Size, v.Font.Face.Scale))
 				oc.usedFaces[v.Font.Face] = true
 				oc.currentFont = v.Font
 			}
@@ -254,20 +256,16 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				od.Attributes["origin"] = origin
 			}
 			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-			if oc.textmode == 2 {
-				oc.gotoTextMode(1)
-			}
-			if oc.textmode == 1 {
-				var goBackwards bag.ScaledPoint
+			if oc.textmode < 3 {
 				if curFont := oc.currentFont; curFont != nil {
-					oc.gotoTextMode(1)
-					fmt.Fprintf(oc.s, "%04x", curFont.SpaceChar.Codepoint)
-					curFont.Face.RegisterChar(curFont.SpaceChar.Codepoint)
-					goBackwards = curFont.SpaceChar.Advance
-
 					if oc.currentFont.Size != 0 {
-						oc.gotoTextMode(2)
-						fmt.Fprintf(oc.s, " %d ", -1*1000*(v.Width-goBackwards)/oc.currentFont.Size)
+						adv := v.Width.ToPT() / oc.currentFont.Size.ToPT()
+						scale := curFont.Face.Scale
+						move := int(-1 * 1000 / scale * adv)
+						if move != 0 {
+							oc.gotoTextMode(2)
+							fmt.Fprintf(oc.s, " %d ", move)
+						}
 					}
 				}
 			}
@@ -302,7 +300,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
-			fmt.Fprintf(oc.s, strings.Join(pdfinstructions, " "))
+			fmt.Fprint(oc.s, strings.Join(pdfinstructions, " "))
 		case *node.Image:
 			oc.gotoTextMode(4)
 			img := v.Img
@@ -435,8 +433,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 
 			if oc.currentFont != nil {
-				oc.gotoTextMode(2)
-				fmt.Fprintf(oc.s, " %d ", -1000*v.Kern/oc.currentFont.Size)
+				y := v.Kern.ToPT() / oc.currentFont.Size.ToPT()
+				if kern := int(math.Round(-1000 * y)); kern != 0 {
+					oc.gotoTextMode(2)
+					fmt.Fprintf(oc.s, " %d ", kern)
+				}
 			}
 			sumX += v.Kern
 		case *node.Lang, *node.Penalty:
@@ -568,7 +569,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				pdfinstructions = append(pdfinstructions, v.Post)
 			}
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
-			fmt.Fprintf(oc.s, strings.Join(pdfinstructions, " "))
+			fmt.Fprint(oc.s, strings.Join(pdfinstructions, " "))
 		case *node.StartStop:
 			posX := x
 			posY := y

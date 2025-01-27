@@ -587,7 +587,7 @@ type ParagraphInfo struct {
 }
 
 // FormatParagraph creates a rectangular text from the data stored in the
-// Paragraph.
+// Paragraph. It applies hyphenation to the node list.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
 	bag.Logger.Log(nil, -8, "FormatParagraph")
 	if len(te.Items) == 0 {
