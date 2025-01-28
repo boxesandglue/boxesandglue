@@ -1,11 +1,11 @@
 github.com/benoitkugler/textlayout-testdata v0.1.1 h1:AvFxBxpfrQd8v55qH59mZOJOQjtD6K2SFe9/HvnIbJk=
 github.com/benoitkugler/textlayout-testdata v0.1.1/go.mod h1:i/qZl09BbUOtd7Bu/W1CAubRwTWrEXWq6JwMkw8wYxo=
-github.com/boxesandglue/baseline-pdf v1.0.3 h1:Lf/9j26A+AbbaBlKFFZUd55/GlyAMv5kr+OmNnaCP2g=
-github.com/boxesandglue/baseline-pdf v1.0.3/go.mod h1:ahf5CwzBROR999z2nzTR3nF81BPKZIsAhCefHaFYz84=
+github.com/boxesandglue/baseline-pdf v1.0.4 h1:QyIQXGNMVTPsWP4ipbeKd09kVy1ok8yggm2knVNXSqs=
+github.com/boxesandglue/baseline-pdf v1.0.4/go.mod h1:hk72EshgS7535d8pTboigR3IHblDkFa789AEmBE57BU=
 github.com/boxesandglue/gofpdi v1.0.19 h1:GZX1/akVhVsZgCwjc/jTbJZ6kuoHw7CvwwGzF9Ie37U=
 github.com/boxesandglue/gofpdi v1.0.19/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
-github.com/boxesandglue/textlayout v1.0.3 h1:v14P7eUxH6awMtqZgNjXzPbOFLmIp/0GDBECwHSliDU=
-github.com/boxesandglue/textlayout v1.0.3/go.mod h1:3tRmlcJxdD64z1azBwjYAeOOzEDqvIfwyz9Tp+HDebg=
+github.com/boxesandglue/textlayout v1.0.4 h1:xNFAOqHFGYEvlTynheyzZGyVG0tQ8iYHn4e1fVvtcmE=
+github.com/boxesandglue/textlayout v1.0.4/go.mod h1:3tRmlcJxdD64z1azBwjYAeOOzEDqvIfwyz9Tp+HDebg=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
