@@ -83,10 +83,32 @@ type objectContext struct {
 	shiftX           bag.ScaledPoint
 	outputDebug      *outputDebug
 	curOutputDebug   *outputDebug
+	hasNewline       bool
+}
+
+// writef writes a formatted string to the object stream
+func (oc *objectContext) writef(format string, args ...any) {
+	fmt.Fprintf(oc.s, format, args...)
+	oc.hasNewline = false
+}
+
+// write emits a non-formatted string to the object stream
+func (oc *objectContext) write(args ...any) {
+	fmt.Fprint(oc.s, args...)
+	oc.hasNewline = false
+}
+
+// newline makes sure a newline is inserted at the current position
+func (oc *objectContext) newline() {
+	if !oc.hasNewline {
+		fmt.Fprintln(oc.s)
+		oc.hasNewline = true
+	}
 }
 
 func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
-	fmt.Fprintf(oc.s, "\n1 0 0 1 %s %s Tm ", x, y)
+	oc.newline()
+	oc.writef("1 0 0 1 %s %s Tm ", x, y)
 }
 
 type outputDebug struct {
@@ -129,43 +151,45 @@ func (od outputDebug) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 func (oc *objectContext) gotoTextMode(newMode uint8) {
 	if newMode > oc.textmode {
 		if oc.textmode == 1 {
-			fmt.Fprint(oc.s, ">")
+			oc.writef(">")
 			oc.textmode = 2
 		}
 		if oc.textmode == 2 && oc.textmode < newMode {
-			fmt.Fprint(oc.s, "]TJ")
+			oc.writef("]TJ")
+			oc.newline()
 			oc.textmode = 3
 		}
 		if oc.textmode == 3 && oc.textmode < newMode {
-			fmt.Fprintln(oc.s)
-			fmt.Fprint(oc.s, "ET")
+			oc.newline()
+			oc.writef("ET")
+			oc.newline()
 			if oc.tag != nil {
-				fmt.Fprint(oc.s, "\nEMC")
+				oc.writef("EMC")
 				oc.tag = nil
 			}
+			oc.newline()
 			oc.textmode = 4
-
 		}
 		return
 	}
 	if newMode < oc.textmode {
 		if oc.textmode == 4 {
 			if oc.tag != nil {
-				fmt.Fprintf(oc.s, "/%s<</MCID %d>>BDC ", oc.tag.Role, oc.tag.ID)
+				oc.writef("/%s<</MCID %d>>BDC ", oc.tag.Role, oc.tag.ID)
 			}
-			fmt.Fprint(oc.s, "BT ")
+			oc.writef("BT ")
 			if oc.currentExpand != 0 {
-				fmt.Fprint(oc.s, "100 Tz ")
+				oc.writef("100 Tz ")
 				oc.currentExpand = 0
 			}
 			oc.textmode = 3
 		}
 		if oc.textmode == 3 && newMode < oc.textmode {
-			fmt.Fprint(oc.s, "[")
+			oc.writef("[")
 			oc.textmode = 2
 		}
 		if oc.textmode == 2 && newMode < oc.textmode {
-			fmt.Fprint(oc.s, "<")
+			oc.writef("<")
 			oc.textmode = 1
 		}
 	}
@@ -206,7 +230,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			if v.Font != oc.currentFont {
 				oc.gotoTextMode(3)
-				fmt.Fprintf(oc.s, "\n%s %s Tf ", v.Font.Face.InternalName(), bag.MultiplyFloat(v.Font.Size, v.Font.Face.Scale))
+				oc.newline()
+				oc.writef("%s %s Tf ", v.Font.Face.InternalName(), bag.MultiplyFloat(v.Font.Size, v.Font.Face.Scale))
 				oc.usedFaces[v.Font.Face] = true
 				oc.currentFont = v.Font
 			}
@@ -214,20 +239,20 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				if ex, ok := exp.(int); ok {
 					if ex != oc.currentExpand {
 						oc.gotoTextMode(3)
-						fmt.Fprintf(oc.s, "%d Tz ", 100+ex)
+						oc.writef("%d Tz ", 100+ex)
 						oc.currentExpand = ex
 					}
 				}
 			} else {
 				if oc.currentExpand != 0 {
 					oc.gotoTextMode(3)
-					fmt.Fprint(oc.s, "100 Tz ")
+					oc.writef("100 Tz ")
 					oc.currentExpand = 0
 				}
 			}
 			if v.YOffset != oc.currentVShift {
 				oc.gotoTextMode(3)
-				fmt.Fprintf(oc.s, "%s Ts", v.YOffset)
+				oc.writef("%s Ts", v.YOffset)
 				oc.currentVShift = v.YOffset
 			}
 			if oc.textmode > 3 {
@@ -243,7 +268,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			v.Font.Face.RegisterChar(v.Codepoint)
 			oc.gotoTextMode(1)
-			fmt.Fprintf(oc.s, "%04x", v.Codepoint)
+			oc.writef("%04x", v.Codepoint)
 			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
 			od := &outputDebug{
@@ -264,7 +289,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						move := int(-1 * 1000 / scale * adv)
 						if move != 0 {
 							oc.gotoTextMode(2)
-							fmt.Fprintf(oc.s, " %d ", move)
+							oc.writef(" %d ", move)
 						}
 					}
 				}
@@ -300,7 +325,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
-			fmt.Fprint(oc.s, strings.Join(pdfinstructions, " "))
+			oc.write(strings.Join(pdfinstructions, " "))
 		case *node.Image:
 			oc.gotoTextMode(4)
 			img := v.Img
@@ -315,7 +340,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			scaleY := v.Height.ToPT() / ifile.ScaleY
 			posy := y
 			posx := x + sumX
-			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
 			sumX += v.Width
 		case *node.StartStop:
 			posX := x + sumX
@@ -365,7 +390,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.p.Annotations = append(oc.p.Annotations, a)
 					if oc.p.document.IsTrace(VTraceHyperlinks) {
 						oc.gotoTextMode(3)
-						fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
+						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 					}
 				}
 			} else if action == node.ActionDest {
@@ -388,9 +413,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.gotoTextMode(4)
 					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
 					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
-					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
-					fmt.Fprint(oc.s, circ)
-					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
+					oc.writef(" 1 0 0 1 %s %s cm ", posX, y)
+					oc.write(circ)
+					oc.writef(" 1 0 0 1 %s %s cm ", -posX, -y)
 					oc.debugAt(posX, y, destname)
 				}
 			} else if action == node.ActionNone || action == node.ActionUserSetting {
@@ -405,12 +430,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.gotoTextMode(3)
 			case node.PDFOutputHere:
 				oc.gotoTextMode(4)
-				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+				oc.writef(" 1 0 0 1 %s %s cm ", posX, posY)
 			case node.PDFOutputLowerLeft:
 				oc.gotoTextMode(4)
 			}
 			if v.ShipoutCallback != nil {
-				fmt.Fprint(oc.s, v.ShipoutCallback(v))
+				oc.write(v.ShipoutCallback(v))
 			}
 			switch v.Position {
 			case node.PDFOutputHere:
@@ -436,7 +461,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				y := v.Kern.ToPT() / oc.currentFont.Size.ToPT()
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
 					oc.gotoTextMode(2)
-					fmt.Fprintf(oc.s, " %d ", kern)
+					oc.writef(" %d ", kern)
 				}
 			}
 			sumX += v.Kern
@@ -526,9 +551,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			posy := y - ht
 			posx := x
 			if oc.p.document.IsTrace(VTraceImages) {
-				fmt.Fprintf(oc.s, "q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
+				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
 			}
-			fmt.Fprintf(oc.s, "q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
 		case *node.Glue:
 			od = &outputDebug{
 				Name: "glue",
@@ -569,7 +594,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				pdfinstructions = append(pdfinstructions, v.Post)
 			}
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
-			fmt.Fprint(oc.s, strings.Join(pdfinstructions, " "))
+			oc.write(strings.Join(pdfinstructions, " "))
 		case *node.StartStop:
 			posX := x
 			posY := y
@@ -618,7 +643,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					oc.p.Annotations = append(oc.p.Annotations, a)
 					if oc.p.document.IsTrace(VTraceHyperlinks) {
 						oc.gotoTextMode(3)
-						fmt.Fprintf(oc.s, "q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
+						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 					}
 				}
 			} else if action == node.ActionDest {
@@ -641,9 +666,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					oc.gotoTextMode(4)
 					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
 					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
-					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, y)
-					fmt.Fprint(oc.s, circ)
-					fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", -posX, -y)
+					oc.writef(" 1 0 0 1 %s %s cm ", posX, y)
+					oc.write(circ)
+					oc.writef(" 1 0 0 1 %s %s cm ", -posX, -y)
 					oc.debugAt(posX, y, destname)
 				}
 			} else if action == node.ActionNone {
@@ -658,12 +683,12 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.gotoTextMode(3)
 			case node.PDFOutputHere:
 				oc.gotoTextMode(4)
-				fmt.Fprintf(oc.s, " 1 0 0 1 %s %s cm ", posX, posY)
+				oc.writef(" 1 0 0 1 %s %s cm ", posX, posY)
 			case node.PDFOutputLowerLeft:
 				oc.gotoTextMode(4)
 			}
 			if v.ShipoutCallback != nil {
-				fmt.Fprint(oc.s, v.ShipoutCallback(v))
+				oc.write(v.ShipoutCallback(v))
 			}
 			switch v.Position {
 			case node.PDFOutputHere:
@@ -685,17 +710,17 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 	}
 	oc.gotoTextMode(3)
 	f0 := oc.p.document.Faces[0]
-	fmt.Fprintf(oc.s, " q %s 8 Tf 0 0 1 rg ", f0.InternalName())
+	oc.writef(" q %s 8 Tf 0 0 1 rg ", f0.InternalName())
 	oc.moveto(x, y)
-	fmt.Fprint(oc.s, "[<")
+	oc.writef("[<")
 	fnt := font.NewFont(f0, 4*bag.Factor)
 	cp := []int{}
 	for _, v := range fnt.Shape(text, nil) {
-		fmt.Fprintf(oc.s, "%04x", v.Codepoint)
+		oc.writef("%04x", v.Codepoint)
 		cp = append(cp, v.Codepoint)
 	}
 	f0.RegisterChars(cp)
-	fmt.Fprint(oc.s, ">]TJ Q ")
+	oc.writef(">]TJ Q ")
 	oc.gotoTextMode(4)
 }
 
@@ -788,7 +813,7 @@ func (p *Page) Shipout() {
 
 		x := obj.X + offsetX
 		y := obj.Y + offsetY
-		// output vertical items
+
 		oc.outputVerticalItems(x, y, vlist)
 		for k := range oc.usedFaces {
 			usedFaces[k] = true
