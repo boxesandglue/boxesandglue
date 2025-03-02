@@ -5,7 +5,7 @@ go 1.21
 toolchain go1.23.2
 
 require (
-	github.com/boxesandglue/baseline-pdf v1.0.4
+	github.com/boxesandglue/baseline-pdf v1.0.5
 	github.com/boxesandglue/textlayout v1.0.4
 	github.com/google/uuid v1.6.0
 	github.com/speedata/hyphenation v1.0.1
