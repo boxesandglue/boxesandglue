@@ -72,14 +72,14 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 			},
 		}
 	}
+	runes := []rune(text)
 	buf := harfbuzz.NewBuffer()
-	buf.AddRunes([]rune(text), 0, -1)
+	buf.AddRunes(runes, 0, -1)
 	buf.Flags = harfbuzz.RemoveDefaultIgnorables
 	ha := f.Face.HarfbuzzFont.Face().HorizontalAdvance
 
 	buf.GuessSegmentProperties()
 	buf.Shape(f.Face.HarfbuzzFont, features)
-	runes := []rune(text)
 	glyphs := make([]Atom, 0, len(buf.Info))
 	space := f.Face.Codepoint(' ')
 	lenBufInfo := len(buf.Info)
