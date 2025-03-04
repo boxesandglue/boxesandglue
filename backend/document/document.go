@@ -198,36 +198,41 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 // outputHorizontalItems outputs a list of horizontal item and advances the
 // cursor. x and y must be the start of the base line coordinate.
 func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node.HList) {
-	od := &outputDebug{
-		Name: "hlist",
-		Attributes: map[string]any{
-			"valign": hlist.VAlign,
-			"width":  hlist.Width,
-			"height": hlist.Height,
-			"depth":  hlist.Depth,
-			"x":      x,
-			"y":      y,
-		},
+	var od, saveCurOutputDebug *outputDebug
+	if oc.p.document.DumpOutput {
+		od = &outputDebug{
+			Name: "hlist",
+			Attributes: map[string]any{
+				"valign": hlist.VAlign,
+				"width":  hlist.Width,
+				"height": hlist.Height,
+				"depth":  hlist.Depth,
+				"x":      x,
+				"y":      y,
+			},
+		}
+		if origin, ok := hlist.Attributes["origin"]; ok {
+			od.Attributes["origin"] = origin
+		}
+		saveCurOutputDebug = oc.curOutputDebug
+		oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+		oc.curOutputDebug = od
 	}
-	if origin, ok := hlist.Attributes["origin"]; ok {
-		od.Attributes["origin"] = origin
-	}
-	saveCurOutputDebug := oc.curOutputDebug
-	oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-	oc.curOutputDebug = od
 	sumX := bag.ScaledPoint(0)
 	for hItem := hlist.List; hItem != nil; hItem = hItem.Next() {
 		switch v := hItem.(type) {
 		case *node.Glyph:
-			od = &outputDebug{
-				Name: "glyph",
-				Attributes: map[string]any{
-					"cp":         v.Codepoint,
-					"fontsize":   v.Font.Size,
-					"faceid":     v.Font.Face.FaceID,
-					"components": v.Components,
-				}}
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+			if oc.p.document.DumpOutput {
+				od = &outputDebug{
+					Name: "glyph",
+					Attributes: map[string]any{
+						"cp":         v.Codepoint,
+						"fontsize":   v.Font.Size,
+						"faceid":     v.Font.Face.FaceID,
+						"components": v.Components,
+					}}
+				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+			}
 			if v.Font != oc.currentFont {
 				oc.gotoTextMode(3)
 				oc.newline()
@@ -271,16 +276,19 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.writef("%04x", v.Codepoint)
 			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
-			od := &outputDebug{
-				Name: "glue",
-				Attributes: map[string]any{
-					"width": v.Width,
-				}}
+			var od *outputDebug
+			if oc.p.document.DumpOutput {
+				od = &outputDebug{
+					Name: "glue",
+					Attributes: map[string]any{
+						"width": v.Width,
+					}}
 
-			if origin, ok := v.Attributes["origin"]; ok {
-				od.Attributes["origin"] = origin
+				if origin, ok := v.Attributes["origin"]; ok {
+					od.Attributes["origin"] = origin
+				}
+				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			if oc.textmode < 3 {
 				if curFont := oc.currentFont; curFont != nil {
 					if oc.currentFont.Size != 0 {
@@ -296,18 +304,19 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Rule:
-			od = &outputDebug{
-				Name: "rule",
-				Attributes: map[string]any{
-					"width":  v.Width,
-					"height": v.Height,
-					"depth":  v.Depth,
-				}}
-			if origin, ok := v.Attributes["origin"]; ok {
-				od.Attributes["origin"] = origin
+			if oc.p.document.DumpOutput {
+				od = &outputDebug{
+					Name: "rule",
+					Attributes: map[string]any{
+						"width":  v.Width,
+						"height": v.Height,
+						"depth":  v.Depth,
+					}}
+				if origin, ok := v.Attributes["origin"]; ok {
+					od.Attributes["origin"] = origin
+				}
+				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-
 			oc.gotoTextMode(4)
 			posX := x + sumX
 			posY := y
@@ -442,16 +451,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.moveto(-posX, -posY)
 			}
 		case *node.Kern:
-			od = &outputDebug{
-				Name: "kern",
-				Attributes: map[string]any{
-					"kern": v.Kern,
-				}}
-			if origin, ok := v.Attributes["origin"]; ok {
-				od.Attributes["origin"] = origin
+			if oc.p.document.DumpOutput {
+				od = &outputDebug{
+					Name: "kern",
+					Attributes: map[string]any{
+						"kern": v.Kern,
+					}}
+				if origin, ok := v.Attributes["origin"]; ok {
+					od.Attributes["origin"] = origin
+				}
+				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-
 			if oc.textmode > 2 {
 				oc.moveto(x+oc.shiftX+sumX, (y))
 				oc.shiftX = 0
@@ -493,25 +503,30 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			bag.Logger.Warn(fmt.Sprintf("Shipout: unknown node %v", hItem))
 		}
 	}
-	oc.curOutputDebug = saveCurOutputDebug
+	if oc.p.document.DumpOutput {
+		oc.curOutputDebug = saveCurOutputDebug
+	}
 }
 
 // outputVerticalItems iterates through the vlist's list and outputs each item
 // beneath each other.
 func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.VList) {
-	od := &outputDebug{
-		Name: "vlist",
-		Attributes: map[string]any{
-			"width":  vlist.Width,
-			"height": vlist.Height,
-			"depth":  vlist.Depth,
-			"x":      x,
-			"y":      y,
-		},
+	var od, saveCurOutputDebug *outputDebug
+	if oc.p.document.DumpOutput {
+		od := &outputDebug{
+			Name: "vlist",
+			Attributes: map[string]any{
+				"width":  vlist.Width,
+				"height": vlist.Height,
+				"depth":  vlist.Depth,
+				"x":      x,
+				"y":      y,
+			},
+		}
+		saveCurOutputDebug = oc.curOutputDebug
+		oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+		oc.curOutputDebug = od
 	}
-	saveCurOutputDebug := oc.curOutputDebug
-	oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-	oc.curOutputDebug = od
 	sumY := bag.ScaledPoint(0)
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
 		switch v := vItem.(type) {
@@ -555,31 +570,37 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
 		case *node.Glue:
-			od = &outputDebug{
-				Name: "glue",
-				Attributes: map[string]any{
-					"width":   v.Width,
-					"stretch": v.Stretch,
-					"shrink":  v.Shrink,
-				}}
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-
+			if oc.p.document.DumpOutput {
+				if oc.p.document.DumpOutput {
+					od = &outputDebug{
+						Name: "glue",
+						Attributes: map[string]any{
+							"width":   v.Width,
+							"stretch": v.Stretch,
+							"shrink":  v.Shrink,
+						}}
+					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+				}
+			}
 			// Let's assume that the glue ratio has been determined and the
 			// natural width is in v.Width for now.
 			sumY += v.Width
 		case *node.Rule:
-			od = &outputDebug{
-				Name: "rule",
-				Attributes: map[string]any{
-					"width":  v.Width,
-					"height": v.Height,
-					"depth":  v.Depth,
-				}}
-			if origin, ok := v.Attributes["origin"]; ok {
-				od.Attributes["origin"] = origin
+			if oc.p.document.DumpOutput {
+				if oc.p.document.DumpOutput {
+					od = &outputDebug{
+						Name: "rule",
+						Attributes: map[string]any{
+							"width":  v.Width,
+							"height": v.Height,
+							"depth":  v.Depth,
+						}}
+					if origin, ok := v.Attributes["origin"]; ok {
+						od.Attributes["origin"] = origin
+					}
+					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+				}
 			}
-			oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-
 			posX := x
 			posY := y - sumY
 			sumY += v.Height + v.Depth
@@ -701,7 +722,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			bag.Logger.Error(fmt.Sprintf("Shipout: unknown node %T in vertical mode", v))
 		}
 	}
-	oc.curOutputDebug = saveCurOutputDebug
+	if oc.p.document.DumpOutput {
+		oc.curOutputDebug = saveCurOutputDebug
+	}
 }
 
 func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
@@ -781,10 +804,11 @@ func (p *Page) Shipout() {
 	objs = append(objs, p.Objects...)
 	usedFaces := make(map[*pdf.Face]bool)
 	usedImages := make(map[*pdf.Imagefile]bool)
-	p.outputDebug = &outputDebug{
-		Name: "page",
+	if p.document.DumpOutput {
+		p.outputDebug = &outputDebug{
+			Name: "page",
+		}
 	}
-
 	st := p.document.PDFWriter.NewObject()
 	st.SetCompression(p.document.CompressLevel)
 
@@ -822,7 +846,9 @@ func (p *Page) Shipout() {
 			usedImages[k] = true
 		}
 		oc.gotoTextMode(4)
-		p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
+		if oc.p.document.DumpOutput {
+			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
+		}
 	}
 
 	page := p.document.PDFWriter.AddPage(st, pageObjectNumber)
@@ -922,6 +948,7 @@ type PDFDocument struct {
 	DefaultLanguage      *lang.Lang
 	DefaultPageHeight    bag.ScaledPoint
 	DefaultPageWidth     bag.ScaledPoint
+	DumpOutput           bool
 	Faces                []*pdf.Face
 	Filename             string
 	Keywords             string
