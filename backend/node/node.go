@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/boxesandglue/boxesandglue/backend/image"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 )
 
@@ -1056,9 +1056,11 @@ func IsVList(elt Node) (*VList, bool) {
 // An Image contains a reference to the image object.
 type Image struct {
 	basenode
-	Width  bag.ScaledPoint
-	Height bag.ScaledPoint
-	Img    *image.Image
+	Width      bag.ScaledPoint
+	Height     bag.ScaledPoint
+	PageNumber int // Requested page number
+	ImageFile  *pdf.Imagefile
+	Used       bool
 }
 
 func (img *Image) String() string {
@@ -1105,7 +1107,9 @@ func (img *Image) Copy() Node {
 	n := NewImage()
 	n.Width = img.Width
 	n.Height = img.Height
-	n.Img = img.Img
+	n.ImageFile = img.ImageFile
+	n.PageNumber = img.PageNumber
+	n.Used = img.Used
 	return n
 }
 

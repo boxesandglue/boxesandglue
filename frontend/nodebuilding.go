@@ -13,7 +13,6 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/document"
 	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/boxesandglue/boxesandglue/backend/image"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/textlayout/harfbuzz"
@@ -493,7 +492,7 @@ func debugText(ts *Text, enc *xml.Encoder) {
 			enc.EncodeToken(xml.CharData(t))
 		case *node.VList:
 			enc.EncodeToken(xml.CharData(node.DebugToString(t)))
-		case *image.Image:
+		case *node.Image:
 			startImg := xml.StartElement{}
 			startImg.Name = xml.Name{Local: "Image"}
 			enc.EncodeToken(startImg)

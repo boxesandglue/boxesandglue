@@ -13,7 +13,6 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/boxesandglue/boxesandglue/backend/image"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
@@ -59,6 +58,16 @@ type Page struct {
 	Objectnumber      pdf.Objectnumber
 	outputDebug       *outputDebug
 }
+
+// Format returns the PDF flavor
+type Format int
+
+const (
+	// FormatPDF is the standard PDF format
+	FormatPDF Format = iota
+	// FormatPDFA3b is the PDF/A-3b format
+	FormatPDFA3b
+)
 
 const (
 	pdfCodepointMode = 1
@@ -337,19 +346,18 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.write(strings.Join(pdfinstructions, " "))
 		case *node.Image:
 			oc.gotoTextMode(4)
-			img := v.Img
-			if img.Used {
+			if v.Used {
 				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
 			} else {
-				img.Used = true
+				v.Used = true
 			}
-			ifile := img.ImageFile
+			ifile := v.ImageFile
 			oc.usedImages[ifile] = true
 			scaleX := v.Width.ToPT() / ifile.ScaleX
 			scaleY := v.Height.ToPT() / ifile.ScaleY
 			posy := y
 			posx := x + sumX
-			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, v.ImageFile.InternalName())
 			sumX += v.Width
 		case *node.StartStop:
 			posX := x + sumX
@@ -549,13 +557,12 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.gotoTextMode(3)
 			}
 		case *node.Image:
-			img := v.Img
-			if img.Used {
+			if v.Used {
 				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", v.ID))
 			} else {
-				img.Used = true
+				v.Used = true
 			}
-			ifile := img.ImageFile
+			ifile := v.ImageFile
 			oc.usedImages[ifile] = true
 			oc.gotoTextMode(4)
 
@@ -568,7 +575,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if oc.p.document.IsTrace(VTraceImages) {
 				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
 			}
-			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, img.ImageFile.InternalName())
+			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, v.ImageFile.InternalName())
 		case *node.Glue:
 			if oc.p.document.DumpOutput {
 				if oc.p.document.DumpOutput {
@@ -939,6 +946,7 @@ func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
 // PDFDocument contains all references to a document
 type PDFDocument struct {
 	Author               string
+	Attachments          []Attachment
 	Bleed                bag.ScaledPoint
 	ColorProfile         *ColorProfile
 	CompressLevel        uint
@@ -951,6 +959,7 @@ type PDFDocument struct {
 	DumpOutput           bool
 	Faces                []*pdf.Face
 	Filename             string
+	Format               Format
 	Keywords             string
 	Languages            map[string]*lang.Lang
 	Pages                []*Page
@@ -978,6 +987,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 	d := &PDFDocument{
 		DefaultPageWidth:  bag.MustSP("210mm"),
 		DefaultPageHeight: bag.MustSP("297mm"),
+		Creator:           "speedata/boxesandglue",
 		CreationDate:      time.Now(),
 		Languages:         make(map[string]*lang.Lang),
 		ViewerPreferences: make(map[string]string),
@@ -1073,29 +1083,39 @@ func (d *PDFDocument) LoadImageFileWithBox(filename string, box string, pagenumb
 	return imgf, nil
 }
 
-// CreateImage returns a new Image derived from the image file. The parameter
-// pagenumber is honored only in PDF files. The Box is one of "/MediaBox", "/CropBox",
-// "/TrimBox", "/BleedBox" or "/ArtBox"
-func (d *PDFDocument) CreateImage(imgfile *pdf.Imagefile, pagenumber int, box string) *image.Image {
-	img := &image.Image{}
-	img.ImageFile = imgfile
-	img.PageNumber = pagenumber
-	switch img.ImageFile.Format {
+func GetDimensions(imgf *pdf.Imagefile, pagenumber int, box string) (width bag.ScaledPoint, height bag.ScaledPoint, err error) {
+	switch imgf.Format {
 	case "pdf":
 		if box == "" {
 			box = "/MediaBox"
 		}
-		mb, err := imgfile.GetPDFBoxDimensions(pagenumber, box)
+		mb, err := imgf.GetPDFBoxDimensions(pagenumber, box)
 		if err != nil {
-			return nil
+			return 0, 0, err
 		}
 
-		img.Width = bag.ScaledPointFromFloat(mb["w"])
-		img.Height = bag.ScaledPointFromFloat(mb["h"])
+		width = bag.ScaledPointFromFloat(mb["w"])
+		height = bag.ScaledPointFromFloat(mb["h"])
 	case "jpeg", "png":
-		img.Width = bag.ScaledPoint(imgfile.W) * bag.Factor
-		img.Height = bag.ScaledPoint(imgfile.H) * bag.Factor
+		width = bag.ScaledPoint(imgf.W) * bag.Factor
+		height = bag.ScaledPoint(imgf.H) * bag.Factor
 	}
+	return
+}
+
+// CreateImageNodeFromImagefile returns a new Image derived from the image file. The parameter
+// pagenumber is honored only in PDF files. The Box is one of "/MediaBox", "/CropBox",
+// "/TrimBox", "/BleedBox" or "/ArtBox"
+func (d *PDFDocument) CreateImageNodeFromImagefile(imgfile *pdf.Imagefile, pagenumber int, box string) *node.Image {
+	img := &node.Image{}
+	img.ImageFile = imgfile
+	wd, ht, err := GetDimensions(imgfile, pagenumber, box)
+	if err != nil {
+		return nil
+	}
+	img.Width = wd
+	img.Height = ht
+	imgfile.PageNumber = pagenumber
 	return img
 }
 
@@ -1121,8 +1141,21 @@ func (d *PDFDocument) NewPage() *Page {
 func (d *PDFDocument) Finish() error {
 	var err error
 	d.PDFWriter.Catalog = pdf.Dict{}
+
+	switch d.Format {
+	case FormatPDFA3b:
+		if d.ColorProfile == nil {
+			d.ColorProfile, err = d.LoadDefaultColorprofile()
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	var cp *pdf.Object
+
 	if d.ColorProfile != nil {
-		cp := d.PDFWriter.NewObject()
+		cp = d.PDFWriter.NewObject()
 		cp.Data.Write(d.ColorProfile.data)
 		cp.Dictionary = pdf.Dict{
 			"N": fmt.Sprintf("%d", d.ColorProfile.Colors),
@@ -1157,6 +1190,22 @@ func (d *PDFDocument) Finish() error {
 			sep.Obj = sepObj.ObjectNumber
 			d.PDFWriter.Colorspaces = append(d.PDFWriter.Colorspaces, &sep)
 		}
+	}
+
+	switch d.Format {
+	case FormatPDFA3b:
+		outputIntent := d.PDFWriter.NewObject()
+		outputIntent.Dictionary = pdf.Dict{
+			"DestOutputProfile":         cp.ObjectNumber.Ref(),
+			"Info":                      pdf.Serialize(pdf.String(d.ColorProfile.Info)),
+			"OutputCondition":           pdf.Serialize(pdf.String(d.ColorProfile.Condition)),
+			"OutputConditionIdentifier": pdf.Serialize(pdf.String(d.ColorProfile.Identifier)),
+			"RegistryName":              pdf.Serialize(pdf.String(d.ColorProfile.Registry)),
+			"S":                         pdf.Name("GTS_PDFA1"),
+			"Type":                      pdf.Name("OutputIntent"),
+		}
+		outputIntent.Save()
+		d.PDFWriter.Catalog["OutputIntents"] = pdf.Array{outputIntent.ObjectNumber}
 	}
 
 	if se := d.RootStructureElement; se != nil {
@@ -1197,7 +1246,7 @@ func (d *PDFDocument) Finish() error {
 	}
 
 	rdf := d.PDFWriter.NewObject()
-	rdf.Data.WriteString(d.getMetadata())
+	d.getMetadata(rdf.Data)
 	rdf.Dictionary = pdf.Dict{
 		"Type":    "/Metadata",
 		"Subtype": "/XML",
@@ -1233,6 +1282,49 @@ func (d *PDFDocument) Finish() error {
 	}
 	d.PDFWriter.InfoDict["CreationDate"] = d.CreationDate.Format("(D:20060102150405)")
 
+	af := pdf.Array{}
+	nameTreeData := pdf.NameTreeData{}
+	for _, attachment := range d.Attachments {
+		pdfAttachment := d.PDFWriter.NewObject()
+		pdfAttachment.Dictionary = pdf.Dict{
+			"Type":    "/EmbeddedFile",
+			"Length":  fmt.Sprintf("%d", len(attachment.Data)),
+			"Subtype": pdf.Name(attachment.MimeType),
+			"Params": pdf.Dict{
+				"Size": fmt.Sprintf("%d", len(attachment.Data)),
+			},
+		}
+		if !attachment.ModDate.IsZero() {
+			pdfAttachment.Dictionary["Params"].(pdf.Dict)["ModDate"] = attachment.ModDate.UTC().Format("(D:20060102150405)")
+		}
+		pdfAttachment.SetCompression(9)
+		pdfAttachment.Data.Write(attachment.Data)
+		if err = pdfAttachment.Save(); err != nil {
+			return err
+		}
+		filespec := d.PDFWriter.NewObject()
+		filespec.Dictionary = pdf.Dict{
+			"Type":           "/Filespec",
+			"AFRelationship": pdf.Name("Alternative"),
+			"F":              pdf.String(attachment.Name),
+			"UF":             pdf.String(attachment.Name),
+			"EF": pdf.Dict{
+				"F":  pdfAttachment.ObjectNumber.Ref(),
+				"UF": pdfAttachment.ObjectNumber.Ref(),
+			},
+			"Desc": pdf.String(attachment.Description),
+		}
+		nameTreeData[pdf.String(attachment.Name)] = filespec.ObjectNumber
+		if err = filespec.Save(); err != nil {
+			return err
+		}
+		af = append(af, filespec.ObjectNumber)
+	}
+	if len(af) > 0 {
+		ef := d.PDFWriter.GetCatalogNameTreeDict("EmbeddedFiles")
+		ef["Names"] = nameTreeData
+		d.PDFWriter.Catalog["AF"] = pdf.Serialize(af)
+	}
 	if err = d.PDFWriter.Finish(); err != nil {
 		return err
 	}

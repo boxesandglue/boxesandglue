@@ -122,8 +122,8 @@ func debugNode(n Node, enc *xml.Encoder) {
 			}, v.Attributes)
 		case *Image:
 			var filename string
-			if v.Img != nil && v.Img.ImageFile != nil {
-				filename = v.Img.ImageFile.Filename
+			if v.ImageFile != nil {
+				filename = v.ImageFile.Filename
 			} else {
 				filename = "(image object not set)"
 			}

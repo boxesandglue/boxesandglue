@@ -1,11 +1,12 @@
 module github.com/boxesandglue/boxesandglue
 
-go 1.21
+go 1.21.0
 
-toolchain go1.23.2
+toolchain go1.24.0
 
 require (
-	github.com/boxesandglue/baseline-pdf v1.0.5
+	github.com/beevik/etree v1.5.0
+	github.com/boxesandglue/baseline-pdf v1.0.6
 	github.com/boxesandglue/textlayout v1.0.4
 	github.com/google/uuid v1.6.0
 	github.com/speedata/hyphenation v1.0.1

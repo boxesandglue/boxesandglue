@@ -1,7 +1,9 @@
+github.com/beevik/etree v1.5.0 h1:iaQZFSDS+3kYZiGoc9uKeOkUY3nYMXOKLl6KIJxiJWs=
+github.com/beevik/etree v1.5.0/go.mod h1:gPNJNaBGVZ9AwsidazFZyygnd+0pAU38N4D+WemwKNs=
 github.com/benoitkugler/textlayout-testdata v0.1.1 h1:AvFxBxpfrQd8v55qH59mZOJOQjtD6K2SFe9/HvnIbJk=
 github.com/benoitkugler/textlayout-testdata v0.1.1/go.mod h1:i/qZl09BbUOtd7Bu/W1CAubRwTWrEXWq6JwMkw8wYxo=
-github.com/boxesandglue/baseline-pdf v1.0.5 h1:6MrjsiAPbF9UoiI2dymzpJqUGwcTAz/LfbNbJTvxzeQ=
-github.com/boxesandglue/baseline-pdf v1.0.5/go.mod h1:hk72EshgS7535d8pTboigR3IHblDkFa789AEmBE57BU=
+github.com/boxesandglue/baseline-pdf v1.0.6 h1:qGCMIVionNgS7UpmrOTaJIcAXFSaqrALtECTqIcV0E0=
+github.com/boxesandglue/baseline-pdf v1.0.6/go.mod h1:hk72EshgS7535d8pTboigR3IHblDkFa789AEmBE57BU=
 github.com/boxesandglue/gofpdi v1.0.19 h1:GZX1/akVhVsZgCwjc/jTbJZ6kuoHw7CvwwGzF9Ie37U=
 github.com/boxesandglue/gofpdi v1.0.19/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
 github.com/boxesandglue/textlayout v1.0.4 h1:xNFAOqHFGYEvlTynheyzZGyVG0tQ8iYHn4e1fVvtcmE=
