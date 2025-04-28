@@ -508,6 +508,8 @@ func getDepth(n Node) bag.ScaledPoint {
 		return 0
 	case *VList:
 		return t.Depth
+	case *Image:
+		return 0
 	default:
 		bag.Logger.Error("getDepth: unknown node type", "type", fmt.Sprintf("%T", n))
 	}
