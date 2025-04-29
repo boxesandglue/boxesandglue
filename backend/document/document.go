@@ -65,8 +65,18 @@ type Format int
 const (
 	// FormatPDF is the standard PDF format
 	FormatPDF Format = iota
+	// FormatPDFA3a is the PDF/A-3a format
+	FormatPDFA3a
 	// FormatPDFA3b is the PDF/A-3b format
 	FormatPDFA3b
+	// FormatPDFX1a is the PDF/X-1a format
+	FormatPDFX1a
+	// FormatPDFX3 is the PDF/X-3 format
+	FormatPDFX3
+	// FormatPDFX4 is the PDF/X-4 format
+	FormatPDFX4
+	// FormatPDFUA is the PDF/UA format
+	FormatPDFUA
 )
 
 const (
@@ -804,6 +814,11 @@ func (p *Page) Shipout() {
 
 		instructions = append(instructions, "Q ")
 		s.WriteString(strings.Join(instructions, "\n"))
+		rule := node.NewRule()
+		rule.Pre = s.String()
+		rule.Hide = true
+		vl := node.Vpack(rule)
+		p.Background = append(p.Background, Object{-offsetX, -offsetY, vl})
 	}
 
 	objs := make([]Object, 0, len(p.Background)+len(p.Objects))
@@ -959,7 +974,7 @@ type PDFDocument struct {
 	DumpOutput           bool
 	Faces                []*pdf.Face
 	Filename             string
-	Format               Format
+	Format               Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
 	Keywords             string
 	Languages            map[string]*lang.Lang
 	Pages                []*Page
@@ -987,13 +1002,13 @@ func NewDocument(w io.Writer) *PDFDocument {
 	d := &PDFDocument{
 		DefaultPageWidth:  bag.MustSP("210mm"),
 		DefaultPageHeight: bag.MustSP("297mm"),
-		Creator:           "speedata/boxesandglue",
+		Creator:           "boxesandglue.dev",
 		CreationDate:      time.Now(),
 		Languages:         make(map[string]*lang.Lang),
 		ViewerPreferences: make(map[string]string),
 		PDFWriter:         pdf.NewPDFWriter(w),
 		CompressLevel:     9,
-		producer:          "speedata/boxesandglue",
+		producer:          "boxesandglue.dev",
 		usedPDFImages:     make(map[string]*pdf.Imagefile),
 		outputDebug: &outputDebug{
 			Name: "pdfdocument",
@@ -1256,9 +1271,12 @@ func (d *PDFDocument) Finish() error {
 		return err
 	}
 	d.PDFWriter.Catalog["Metadata"] = rdf.ObjectNumber.Ref()
+	vp := make(pdf.Dict, len(d.ViewerPreferences))
 	for k, v := range d.ViewerPreferences {
-		d.PDFWriter.Catalog[pdf.Name(k)] = v
+		vp[pdf.Name(k)] = v
 	}
+	d.PDFWriter.Catalog["ViewerPreferences"] = vp
+
 	d.PDFWriter.DefaultPageWidth = d.DefaultPageWidth.ToPT()
 	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight.ToPT()
 
