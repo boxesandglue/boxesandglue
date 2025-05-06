@@ -65,12 +65,8 @@ type Format int
 const (
 	// FormatPDF is the standard PDF format
 	FormatPDF Format = iota
-	// FormatPDFA3a is the PDF/A-3a format
-	FormatPDFA3a
 	// FormatPDFA3b is the PDF/A-3b format
 	FormatPDFA3b
-	// FormatPDFX1a is the PDF/X-1a format
-	FormatPDFX1a
 	// FormatPDFX3 is the PDF/X-3 format
 	FormatPDFX3
 	// FormatPDFX4 is the PDF/X-4 format
@@ -1151,6 +1147,25 @@ func (d *PDFDocument) NewPage() *Page {
 	return d.CurrentPage
 }
 
+func formatDate(t time.Time) string {
+	// base format
+	base := t.Format("20060102150405")
+
+	// timezone offset
+	_, offset := t.Zone()
+	offsetHours := offset / 3600
+	offsetMinutes := (offset % 3600) / 60
+
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offsetHours = -offsetHours
+		offsetMinutes = -offsetMinutes
+	}
+
+	return fmt.Sprintf("(D:%s%s%02d'%02d')", base, sign, offsetHours, offsetMinutes)
+}
+
 // Finish writes all objects to the PDF and writes the XRef section. Finish does
 // not close the writer.
 func (d *PDFDocument) Finish() error {
@@ -1158,7 +1173,7 @@ func (d *PDFDocument) Finish() error {
 	d.PDFWriter.Catalog = pdf.Dict{}
 
 	switch d.Format {
-	case FormatPDFA3b:
+	case FormatPDFA3b, FormatPDFX3, FormatPDFX4:
 		if d.ColorProfile == nil {
 			d.ColorProfile, err = d.LoadDefaultColorprofile()
 			if err != nil {
@@ -1208,7 +1223,7 @@ func (d *PDFDocument) Finish() error {
 	}
 
 	switch d.Format {
-	case FormatPDFA3b:
+	case FormatPDFA3b, FormatPDFX3, FormatPDFX4:
 		outputIntent := d.PDFWriter.NewObject()
 		outputIntent.Dictionary = pdf.Dict{
 			"DestOutputProfile":         cp.ObjectNumber.Ref(),
@@ -1216,8 +1231,13 @@ func (d *PDFDocument) Finish() error {
 			"OutputCondition":           pdf.Serialize(pdf.String(d.ColorProfile.Condition)),
 			"OutputConditionIdentifier": pdf.Serialize(pdf.String(d.ColorProfile.Identifier)),
 			"RegistryName":              pdf.Serialize(pdf.String(d.ColorProfile.Registry)),
-			"S":                         pdf.Name("GTS_PDFA1"),
 			"Type":                      pdf.Name("OutputIntent"),
+		}
+		switch d.Format {
+		case FormatPDFA3b:
+			outputIntent.Dictionary["S"] = pdf.Name("GTS_PDFA1")
+		case FormatPDFX3, FormatPDFX4:
+			outputIntent.Dictionary["S"] = pdf.Name("GTS_PDFX")
 		}
 		outputIntent.Save()
 		d.PDFWriter.Catalog["OutputIntents"] = pdf.Array{outputIntent.ObjectNumber}
@@ -1298,7 +1318,12 @@ func (d *PDFDocument) Finish() error {
 	if t := d.Keywords; t != "" {
 		d.PDFWriter.InfoDict["Keywords"] = pdf.Serialize(pdf.String(t))
 	}
-	d.PDFWriter.InfoDict["CreationDate"] = d.CreationDate.Format("(D:20060102150405)")
+	d.PDFWriter.InfoDict["CreationDate"] = formatDate(d.CreationDate)
+	if d.Format == FormatPDFX3 {
+		d.PDFWriter.InfoDict["GTS_PDFXVersion"] = pdf.String("PDF/X-3:2002")
+		d.PDFWriter.InfoDict["ModDate"] = formatDate(d.CreationDate)
+		d.PDFWriter.InfoDict["Trapped"] = pdf.Name("False")
+	}
 
 	af := pdf.Array{}
 	nameTreeData := pdf.NameTreeData{}
@@ -1313,7 +1338,7 @@ func (d *PDFDocument) Finish() error {
 			},
 		}
 		if !attachment.ModDate.IsZero() {
-			pdfAttachment.Dictionary["Params"].(pdf.Dict)["ModDate"] = attachment.ModDate.UTC().Format("(D:20060102150405)")
+			pdfAttachment.Dictionary["Params"].(pdf.Dict)["ModDate"] = formatDate(attachment.ModDate.UTC())
 		}
 		pdfAttachment.SetCompression(9)
 		pdfAttachment.Data.Write(attachment.Data)
