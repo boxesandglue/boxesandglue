@@ -2,6 +2,8 @@ package document
 
 import (
 	_ "embed" // embed is used to embed the default color profile
+	"io"
+	"os"
 )
 
 // ColorProfile represents a color profile
@@ -23,9 +25,17 @@ var b []byte
 
 // LoadColorprofile loads an icc based color profile from the URL.
 func (d *PDFDocument) LoadColorprofile(filename string) (*ColorProfile, error) {
-
-	cp := &ColorProfile{}
-
+	r, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	cp := &ColorProfile{data: data}
+	d.ColorProfile = cp
 	return cp, nil
 }
 

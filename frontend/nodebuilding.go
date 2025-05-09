@@ -684,6 +684,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	}
 	if p.Alignment == HAlignLeft || p.Alignment == HAlignCenter {
 		lg := node.NewGlue()
+		lg.Attributes = node.H{"origin": "glue line end"}
 		lg.Stretch = bag.Factor
 		lg.StretchOrder = 3
 		lg.Subtype = node.GlueLineEnd
@@ -691,6 +692,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	}
 	if p.Alignment == HAlignRight || p.Alignment == HAlignCenter {
 		lg := node.NewGlue()
+		lg.Attributes = node.H{"origin": "glue line start"}
 		lg.Stretch = bag.Factor
 		lg.StretchOrder = 3
 		lg.Subtype = node.GlueLineStart
@@ -794,6 +796,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				fontweight = FontWeight(t)
 			case FontWeight:
 				fontweight = t
+			default:
+				bag.Logger.Error("Unknown type for SettingFontWeight", "type", fmt.Sprintf("%T", t))
 			}
 		case SettingFontFamily:
 			fontfamily = v.(*FontFamily)
@@ -805,7 +809,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			case bag.ScaledPoint:
 				fontsize = t
 			default:
-				return nil, fmt.Errorf("Unknown type for SettingSize %T", t)
+				bag.Logger.Error("Unknown type for SettingSize", "type", fmt.Sprintf("%T", t))
 			}
 		case SettingColor:
 			switch t := v.(type) {
@@ -940,6 +944,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				case "\t":
 					// tab size...
 					g := node.NewGlue()
+					g.Attributes = node.H{"origin": "tab"}
 					hasTabsize := false
 					if wd, ok := ts[SettingTabSize]; ok {
 						if tabsize, ok := wd.(bag.ScaledPoint); ok && tabsize > 0 {
@@ -970,6 +975,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					p1 := node.NewPenalty()
 					p1.Penalty = 10000
 					g := node.NewGlue()
+					g.Attributes = node.H{"origin": "newline"}
 					g.Stretch = bag.Factor
 					g.StretchOrder = node.StretchFill
 					p2 := node.NewPenalty()
@@ -983,6 +989,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 
 				if lastglue == nil {
 					g := node.NewGlue()
+					g.Attributes = node.H{"origin": "lastglue=nil"}
 					g.Width = fnt.Space
 					g.Stretch = fnt.SpaceStretch
 					g.Shrink = fnt.SpaceShrink
