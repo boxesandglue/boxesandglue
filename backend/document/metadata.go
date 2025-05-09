@@ -5,11 +5,18 @@ import (
 	"time"
 
 	"github.com/beevik/etree"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/google/uuid"
 )
 
 func (d *PDFDocument) getMetadata(w io.Writer) {
-
+	var inner *etree.Document
+	if d.AdditionalXMLMetadata != "" {
+		inner = etree.NewDocument()
+		if err := inner.ReadFromString("<dummy>" + d.AdditionalXMLMetadata + "</dummy>"); err != nil {
+			bag.Logger.Error("error reading additional XML metadata", "error", err)
+		}
+	}
 	var docID, instanceID string
 	formattedDate := d.CreationDate.Format(time.RFC3339)
 	if d.SuppressInfo {
@@ -78,7 +85,11 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 			desc.CreateElement("dc:creator").SetText(a)
 		}
 	}
-
+	if inner != nil {
+		for _, v := range inner.Root().ChildElements() {
+			rdf.AddChild(v.Copy())
+		}
+	}
 	doc.Indent(2)
 	_, _ = doc.WriteTo(w)
 }

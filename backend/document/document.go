@@ -956,41 +956,42 @@ func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
 
 // PDFDocument contains all references to a document
 type PDFDocument struct {
-	Author               string
-	Attachments          []Attachment
-	Bleed                bag.ScaledPoint
-	ColorProfile         *ColorProfile
-	CompressLevel        uint
-	Creator              string
-	CreationDate         time.Time
-	CurrentPage          *Page
-	DefaultLanguage      *lang.Lang
-	DefaultPageHeight    bag.ScaledPoint
-	DefaultPageWidth     bag.ScaledPoint
-	DumpOutput           bool
-	Faces                []*pdf.Face
-	Filename             string
-	Format               Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
-	Keywords             string
-	Languages            map[string]*lang.Lang
-	Pages                []*Page
-	PDFWriter            *pdf.PDF
-	RootStructureElement *StructureElement
-	ShowCutmarks         bool
-	ShowHyperlinks       bool
-	Spotcolors           []*color.Color
-	Subject              string
-	SuppressInfo         bool
-	Title                string
-	ViewerPreferences    map[string]string
-	producer             string
-	tracing              VTrace
-	outputDebug          *outputDebug
-	curOutputDebug       *outputDebug
-	pdfStructureObjects  []*pdfStructureObject
-	preShipoutCallback   []CallbackShipout
-	usedPDFImages        map[string]*pdf.Imagefile
-	numDestinations      map[int]NumDest
+	AdditionalXMLMetadata string // Extra XML metadata to be added to the PDF. Must be a correctly formatted XML fragment (multiple elements are not allowed).
+	Author                string
+	Attachments           []Attachment
+	Bleed                 bag.ScaledPoint
+	ColorProfile          *ColorProfile
+	CompressLevel         uint
+	Creator               string
+	CreationDate          time.Time
+	CurrentPage           *Page
+	DefaultLanguage       *lang.Lang
+	DefaultPageHeight     bag.ScaledPoint
+	DefaultPageWidth      bag.ScaledPoint
+	DumpOutput            bool
+	Faces                 []*pdf.Face
+	Filename              string
+	Format                Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
+	Keywords              string
+	Languages             map[string]*lang.Lang
+	Pages                 []*Page
+	PDFWriter             *pdf.PDF
+	RootStructureElement  *StructureElement
+	ShowCutmarks          bool
+	ShowHyperlinks        bool
+	Spotcolors            []*color.Color
+	Subject               string
+	SuppressInfo          bool
+	Title                 string
+	ViewerPreferences     map[string]string
+	producer              string
+	tracing               VTrace
+	outputDebug           *outputDebug
+	curOutputDebug        *outputDebug
+	pdfStructureObjects   []*pdfStructureObject
+	preShipoutCallback    []CallbackShipout
+	usedPDFImages         map[string]*pdf.Imagefile
+	numDestinations       map[int]NumDest
 }
 
 // NewDocument creates an empty document.
