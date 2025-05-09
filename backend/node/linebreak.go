@@ -99,9 +99,11 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 	maxExpand := lb.sumExpand - a.sumExpand
 	r := 0.0
 	if thisLineWidth < maxwd {
+		// needs to stretch
 		y := lb.sumY - a.sumY + maxExpand
 		if y > 0 {
-			if lb.stretchFil > 0 || lb.stretchFill > 0 || lb.stretchFilll > 0 {
+			if (lb.stretchFil-a.stretchFil) > 0 || (lb.stretchFill-a.stretchFill) > 0 || (lb.stretchFilll-a.stretchFilll) > 0 {
+				// stretchable glue available
 				r = 0
 			} else {
 				r = float64(maxwd-thisLineWidth) / float64(y)
@@ -110,6 +112,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 			r = positiveInf
 		}
 	} else if maxwd < thisLineWidth {
+		// needs to shrink
 		z := lb.sumZ - a.sumZ + maxExpand
 		if z > 0 {
 			r = float64(maxwd-thisLineWidth) / float64(z)
@@ -344,6 +347,9 @@ func (lb *linebreaker) mainLoop(n Node) {
 				calculatedExpand: lb.sumExpand - lastInactive.sumExpand,
 				R:                0,
 				Demerits:         lastInactive.Demerits + 1000,
+				stretchFil:       lb.stretchFil,
+				stretchFill:      lb.stretchFill,
+				stretchFilll:     lb.stretchFilll,
 			}
 			lb.appendNewBreakpoint(bp)
 		}
@@ -381,6 +387,9 @@ func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*
 				calculatedExpand: ec[c],
 				R:                rc[c],
 				Demerits:         dc[c],
+				stretchFil:       lb.stretchFil,
+				stretchFill:      lb.stretchFill,
+				stretchFilll:     lb.stretchFilll,
 			}
 			lb.appendNewBreakpoint(bp)
 		}
@@ -497,10 +506,13 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		curPre = e.Pre
 		if startPos != nil {
 			// if PDF/UA is written, the line end should have a space at the end.
-			InsertAfter(startPos, endNode.Prev(), settings.LineEndGlue.Copy())
+			lineEnd := settings.LineEndGlue.Copy().(*Glue)
+			lineEnd.Attributes = H{"origin": "lineend"}
+			InsertAfter(startPos, endNode.Prev(), lineEnd)
 
 			// indentation
 			leftskip := settings.LineStartGlue.Copy().(*Glue)
+			leftskip.Attributes = H{"origin": "leftskip"}
 			leftskip.Width += lb.getIndent(e.Line)
 			startPos = InsertBefore(startPos, startPos, leftskip)
 			hl := HpackToWithEnd(startPos, endNode.Prev(), lb.settings.HSize, FontExpansion(lb.settings.FontExpansion), SqueezeOverfullBoxes(settings.SqueezeOverfullBoxes))
@@ -553,6 +565,7 @@ func AppendLineEndAfter(head, n Node) (Node, Node) {
 	p.Penalty = 10000
 	head = InsertAfter(head, n, p)
 	g := NewGlue()
+	g.Attributes = H{"origin": "lineend"}
 	g.Width = 0
 	g.Stretch = 1 * bag.Factor
 	g.StretchOrder = 1
