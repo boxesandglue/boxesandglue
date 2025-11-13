@@ -102,6 +102,9 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 			if err != nil {
 				return 0, err
 			}
+			if pi == nil {
+				return 0, nil
+			}
 			for _, wd := range pi.Widths {
 				if wd > minwd {
 					minwd = wd
