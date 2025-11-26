@@ -286,7 +286,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.moveto(x+oc.shiftX+sumX, yPos)
 				oc.shiftX = 0
 			}
-			v.Font.Face.RegisterChar(v.Codepoint)
+			v.Font.Face.RegisterCodepoint(v.Codepoint)
 			oc.gotoTextMode(1)
 			oc.writef("%04x", v.Codepoint)
 			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
@@ -755,7 +755,7 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 		oc.writef("%04x", v.Codepoint)
 		cp = append(cp, v.Codepoint)
 	}
-	f0.RegisterChars(cp)
+	f0.RegisterCodepoints(cp)
 	oc.writef(">]TJ Q ")
 	oc.gotoTextMode(4)
 }

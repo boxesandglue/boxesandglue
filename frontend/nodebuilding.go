@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -438,19 +439,21 @@ func debugText(ts *Text, enc *xml.Encoder) {
 				v = t.Name
 			}
 		}
-		if k == SettingPrepend {
+		switch k {
+		case SettingPrepend:
 			v = node.StringValue(v.(node.Node))
-		} else if k == SettingPreserveWhitespace {
+		case SettingPreserveWhitespace:
 			if v == false {
 				showSetting = false
 			}
-		} else if k == SettingTabSizeSpaces {
+		case SettingTabSizeSpaces:
 			if v == 4 {
 				showSetting = false
 			}
-		} else if k == SettingDebug {
+		case SettingDebug:
 			showSetting = false
 		}
+
 		if showSetting {
 			start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: strings.TrimPrefix(fmt.Sprint(k), "Setting")}, Value: fmt.Sprint(v)})
 		}
@@ -588,7 +591,7 @@ type ParagraphInfo struct {
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph. It applies hyphenation to the node list.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
-	bag.Logger.Log(nil, -8, "FormatParagraph")
+	bag.Logger.Log(context.TODO(), -8, "FormatParagraph")
 	if len(te.Items) == 0 {
 		g := node.NewGlue()
 		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
@@ -865,7 +868,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}
-	bag.Logger.Log(nil, -8, "GetFontSource", "fs", fs.Name)
+	bag.Logger.Log(context.TODO(), -8, "GetFontSource", "fs", fs.Name)
 	// fs.SizeAdjust is CSS size-adjust normalized so that 0 = 100% and negative = shrinking.
 	if fs.SizeAdjust != 0 {
 		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
