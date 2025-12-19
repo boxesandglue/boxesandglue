@@ -598,6 +598,18 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			// Let's assume that the glue ratio has been determined and the
 			// natural width is in v.Width for now.
 			sumY += v.Width
+		case *node.Kern:
+			if oc.p.document.DumpOutput {
+				if oc.p.document.DumpOutput {
+					od = &outputDebug{
+						Name: "kern",
+						Attributes: map[string]any{
+							"kern": v.Kern,
+						}}
+					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+				}
+			}
+			sumY += v.Kern
 		case *node.Rule:
 			if oc.p.document.DumpOutput {
 				if oc.p.document.DumpOutput {

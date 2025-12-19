@@ -608,6 +608,20 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			p.Alignment = HAlignDefault
 		}
 	}
+	// Apply indent/margin settings from Text settings
+	if il, ok := te.Settings[SettingIndentLeft]; ok {
+		p.IndentLeft = il.(bag.ScaledPoint)
+	}
+	if ilr, ok := te.Settings[SettingIndentLeftRows]; ok {
+		p.IndentLeftRows = ilr.(int)
+	}
+	// Use padding-left as indent for all rows (HTML list behavior)
+	if pl, ok := te.Settings[SettingPaddingLeft]; ok {
+		if p.IndentLeft == 0 {
+			p.IndentLeft = pl.(bag.ScaledPoint)
+			p.IndentLeftRows = 0 // 0 means all rows
+		}
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
