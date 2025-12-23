@@ -75,11 +75,19 @@ const (
 	FormatPDFUA
 )
 
+// TextScope represents the nesting level within PDF content stream.
+// The values form a hierarchy from innermost (ScopeGlyph) to outermost (ScopePage).
+type TextScope uint8
+
 const (
-	pdfCodepointMode = 1
-	pdfBracketMode   = 2
-	pdfTextMode      = 3
-	pdfOuterMode     = 4
+	// ScopeGlyph is inside hex string < ... > for glyph codepoints
+	ScopeGlyph TextScope = 1
+	// ScopeArray is inside square brackets [ ... ] for TJ arrays
+	ScopeArray TextScope = 2
+	// ScopeText is inside BT ... ET text object
+	ScopeText TextScope = 3
+	// ScopePage is in page content stream, outside text object
+	ScopePage TextScope = 4
 )
 
 // objectContext contains information about the current position of the cursor
@@ -90,7 +98,7 @@ type objectContext struct {
 	currentFont      *font.Font
 	currentExpand    int
 	currentVShift    bag.ScaledPoint
-	textmode         uint8
+	textmode         TextScope
 	usedFaces        map[*pdf.Face]bool
 	usedImages       map[*pdf.Imagefile]bool
 	tag              *StructureElement
@@ -122,6 +130,10 @@ func (oc *objectContext) newline() {
 }
 
 func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
+	// Tm must be inside a BT...ET block, so ensure we're in ScopeText
+	if oc.textmode > ScopeText {
+		oc.gotoTextMode(ScopeText)
+	}
 	oc.newline()
 	oc.writef("1 0 0 1 %s %s Tm ", x, y)
 }
@@ -157,24 +169,27 @@ func (od outputDebug) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	return nil
 }
 
-// gotoTextMode inserts PDF instructions to switch to a inner/outer text mode.
-// Textmode 1 is within collection of hexadecimal digits inside angle brackets
-// (< ... >), textmode 2 is inside square brackets ([ ... ]), textmode 3 is
-// within BT ... ET and textmode 4 is inside the page content stream.
-// gotoTextMode makes sure all necessary brackets are opened so you can write
-// the data you need.
-func (oc *objectContext) gotoTextMode(newMode uint8) {
+// gotoTextMode inserts PDF instructions to switch to an inner/outer text mode.
+// The modes form a hierarchy from innermost to outermost:
+//   - ScopeGlyph (1): inside hex string < ... >
+//   - ScopeArray (2): inside TJ array [ ... ]
+//   - ScopeText  (3): inside text object BT ... ET
+//   - ScopePage  (4): page content stream, outside text object
+//
+// gotoTextMode makes sure all necessary brackets are opened/closed so you can
+// write the data you need at the requested scope level.
+func (oc *objectContext) gotoTextMode(newMode TextScope) {
 	if newMode > oc.textmode {
-		if oc.textmode == 1 {
+		if oc.textmode == ScopeGlyph {
 			oc.writef(">")
-			oc.textmode = 2
+			oc.textmode = ScopeArray
 		}
-		if oc.textmode == 2 && oc.textmode < newMode {
+		if oc.textmode == ScopeArray && oc.textmode < newMode {
 			oc.writef("]TJ")
 			oc.newline()
-			oc.textmode = 3
+			oc.textmode = ScopeText
 		}
-		if oc.textmode == 3 && oc.textmode < newMode {
+		if oc.textmode == ScopeText && oc.textmode < newMode {
 			oc.newline()
 			oc.writef("ET")
 			oc.newline()
@@ -183,12 +198,12 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 				oc.tag = nil
 			}
 			oc.newline()
-			oc.textmode = 4
+			oc.textmode = ScopePage
 		}
 		return
 	}
 	if newMode < oc.textmode {
-		if oc.textmode == 4 {
+		if oc.textmode == ScopePage {
 			if oc.tag != nil {
 				oc.writef("/%s<</MCID %d>>BDC ", oc.tag.Role, oc.tag.ID)
 			}
@@ -197,15 +212,15 @@ func (oc *objectContext) gotoTextMode(newMode uint8) {
 				oc.writef("100 Tz ")
 				oc.currentExpand = 0
 			}
-			oc.textmode = 3
+			oc.textmode = ScopeText
 		}
-		if oc.textmode == 3 && newMode < oc.textmode {
+		if oc.textmode == ScopeText && newMode < oc.textmode {
 			oc.writef("[")
-			oc.textmode = 2
+			oc.textmode = ScopeArray
 		}
-		if oc.textmode == 2 && newMode < oc.textmode {
+		if oc.textmode == ScopeArray && newMode < oc.textmode {
 			oc.writef("<")
-			oc.textmode = 1
+			oc.textmode = ScopeGlyph
 		}
 	}
 }
@@ -249,7 +264,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			if v.Font != oc.currentFont {
-				oc.gotoTextMode(3)
+				oc.gotoTextMode(ScopeText)
 				oc.newline()
 				oc.writef("%s %s Tf ", v.Font.Face.InternalName(), bag.MultiplyFloat(v.Font.Size, v.Font.Face.Scale))
 				oc.usedFaces[v.Font.Face] = true
@@ -258,27 +273,27 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if exp, ok := hlist.Attributes["expand"]; ok {
 				if ex, ok := exp.(int); ok {
 					if ex != oc.currentExpand {
-						oc.gotoTextMode(3)
+						oc.gotoTextMode(ScopeText)
 						oc.writef("%d Tz ", 100+ex)
 						oc.currentExpand = ex
 					}
 				}
 			} else {
 				if oc.currentExpand != 0 {
-					oc.gotoTextMode(3)
+					oc.gotoTextMode(ScopeText)
 					oc.writef("100 Tz ")
 					oc.currentExpand = 0
 				}
 			}
 			if v.YOffset != oc.currentVShift {
-				oc.gotoTextMode(3)
+				oc.gotoTextMode(ScopeText)
 				oc.writef("%s Ts", v.YOffset)
 				oc.currentVShift = v.YOffset
 			}
-			if oc.textmode > 3 {
-				oc.gotoTextMode(3)
+			if oc.textmode > ScopeText {
+				oc.gotoTextMode(ScopeText)
 			}
-			if oc.textmode > 2 {
+			if oc.textmode > ScopeArray {
 				yPos := y
 				if hlist.VAlign == node.VAlignTop {
 					yPos -= v.Height
@@ -287,7 +302,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.shiftX = 0
 			}
 			v.Font.Face.RegisterCodepoint(v.Codepoint)
-			oc.gotoTextMode(1)
+			oc.gotoTextMode(ScopeGlyph)
 			oc.writef("%04x", v.Codepoint)
 			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
@@ -304,14 +319,14 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			if oc.textmode < 3 {
+			if oc.textmode < ScopeText {
 				if curFont := oc.currentFont; curFont != nil {
 					if oc.currentFont.Size != 0 {
 						adv := v.Width.ToPT() / oc.currentFont.Size.ToPT()
 						scale := curFont.Face.Scale
 						move := int(-1 * 1000 / scale * adv)
 						if move != 0 {
-							oc.gotoTextMode(2)
+							oc.gotoTextMode(ScopeArray)
 							oc.writef(" %d ", move)
 						}
 					}
@@ -332,7 +347,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			oc.gotoTextMode(4)
+			oc.gotoTextMode(ScopePage)
 			posX := x + sumX
 			posY := y
 			if hlist.VAlign == node.VAlignTop {
@@ -351,7 +366,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
 			oc.write(strings.Join(pdfinstructions, " "))
 		case *node.Image:
-			oc.gotoTextMode(4)
+			oc.gotoTextMode(ScopePage)
 			if v.Used {
 				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
 			} else {
@@ -412,7 +427,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 
 					oc.p.Annotations = append(oc.p.Annotations, a)
 					if oc.p.document.IsTrace(VTraceHyperlinks) {
-						oc.gotoTextMode(3)
+						oc.gotoTextMode(ScopeText)
 						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 					}
 				}
@@ -433,7 +448,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
-					oc.gotoTextMode(4)
+					oc.gotoTextMode(ScopePage)
 					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
 					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
 					oc.writef(" 1 0 0 1 %s %s cm ", posX, y)
@@ -448,14 +463,14 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			switch v.Position {
 			case node.PDFOutputPage:
-				oc.gotoTextMode(4)
+				oc.gotoTextMode(ScopePage)
 			case node.PDFOutputDirect:
-				oc.gotoTextMode(3)
+				oc.gotoTextMode(ScopeText)
 			case node.PDFOutputHere:
-				oc.gotoTextMode(4)
+				oc.gotoTextMode(ScopePage)
 				oc.writef(" 1 0 0 1 %s %s cm ", posX, posY)
 			case node.PDFOutputLowerLeft:
-				oc.gotoTextMode(4)
+				oc.gotoTextMode(ScopePage)
 			}
 			if v.ShipoutCallback != nil {
 				oc.write(v.ShipoutCallback(v))
@@ -476,7 +491,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			if oc.textmode > 2 {
+			if oc.textmode > ScopeArray {
 				oc.moveto(x+oc.shiftX+sumX, (y))
 				oc.shiftX = 0
 			}
@@ -484,7 +499,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if oc.currentFont != nil {
 				y := v.Kern.ToPT() / oc.currentFont.Size.ToPT()
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
-					oc.gotoTextMode(2)
+					oc.gotoTextMode(ScopeArray)
 					oc.writef(" %d ", kern)
 				}
 			}
@@ -501,7 +516,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.outputHorizontalItems(x+sumX, moveY, v)
 			sumX += v.Width
 		case *node.VList:
-			oc.gotoTextMode(4)
+			oc.gotoTextMode(ScopePage)
 			saveX := x
 			saveY := y
 			moveY := y + hlist.Height
@@ -559,8 +574,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			oc.outputHorizontalItems(x, shiftDown, v)
 			sumY += v.Height
 			sumY += v.Depth
-			if oc.textmode < 3 {
-				oc.gotoTextMode(3)
+			if oc.textmode < ScopeText {
+				oc.gotoTextMode(ScopeText)
 			}
 		case *node.Image:
 			if v.Used {
@@ -570,7 +585,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			ifile := v.ImageFile
 			oc.usedImages[ifile] = true
-			oc.gotoTextMode(4)
+			oc.gotoTextMode(ScopePage)
 
 			scaleX := v.Width.ToPT() / ifile.ScaleX
 			scaleY := v.Height.ToPT() / ifile.ScaleY
@@ -688,7 +703,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 
 					oc.p.Annotations = append(oc.p.Annotations, a)
 					if oc.p.document.IsTrace(VTraceHyperlinks) {
-						oc.gotoTextMode(3)
+						oc.gotoTextMode(ScopeText)
 						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 					}
 				}
@@ -709,7 +724,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
-					oc.gotoTextMode(4)
+					oc.gotoTextMode(ScopePage)
 					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
 					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
 					oc.writef(" 1 0 0 1 %s %s cm ", posX, y)
@@ -724,14 +739,14 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			switch v.Position {
 			case node.PDFOutputPage:
-				oc.gotoTextMode(4)
+				oc.gotoTextMode(ScopePage)
 			case node.PDFOutputDirect:
-				oc.gotoTextMode(3)
+				oc.gotoTextMode(ScopeText)
 			case node.PDFOutputHere:
-				oc.gotoTextMode(4)
+				oc.gotoTextMode(ScopePage)
 				oc.writef(" 1 0 0 1 %s %s cm ", posX, posY)
 			case node.PDFOutputLowerLeft:
-				oc.gotoTextMode(4)
+				oc.gotoTextMode(ScopePage)
 			}
 			if v.ShipoutCallback != nil {
 				oc.write(v.ShipoutCallback(v))
@@ -756,7 +771,7 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 	if len(oc.p.document.Faces) == 0 {
 		return
 	}
-	oc.gotoTextMode(3)
+	oc.gotoTextMode(ScopeText)
 	f0 := oc.p.document.Faces[0]
 	oc.writef(" q %s 8 Tf 0 0 1 rg ", f0.InternalName())
 	oc.moveto(x, y)
@@ -769,7 +784,7 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 	}
 	f0.RegisterCodepoints(cp)
 	oc.writef(">]TJ Q ")
-	oc.gotoTextMode(4)
+	oc.gotoTextMode(ScopePage)
 }
 
 // OutputAt places the nodelist at the position.
@@ -844,7 +859,7 @@ func (p *Page) Shipout() {
 
 	for _, obj := range objs {
 		oc := &objectContext{
-			textmode:         4,
+			textmode:         ScopePage,
 			s:                st.Data,
 			usedFaces:        make(map[*pdf.Face]bool),
 			usedImages:       make(map[*pdf.Imagefile]bool),
@@ -875,7 +890,7 @@ func (p *Page) Shipout() {
 		for k := range oc.usedImages {
 			usedImages[k] = true
 		}
-		oc.gotoTextMode(4)
+		oc.gotoTextMode(ScopePage)
 		if oc.p.document.DumpOutput {
 			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
 		}

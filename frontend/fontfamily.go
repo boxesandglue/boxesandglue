@@ -1,6 +1,7 @@
 package frontend
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -123,7 +124,7 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 
 // GetFontSource tries to get the face closest to the requested face.
 func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
-	bag.Logger.Log(nil, -8, "FontFamily#GetFontSource", "weight", weight, "style", style)
+	bag.Logger.Log(context.Background(), -8, "FontFamily#GetFontSource", "weight", weight, "style", style)
 	if ff == nil {
 		return nil, fmt.Errorf("no font family specified")
 	}

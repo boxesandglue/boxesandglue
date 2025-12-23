@@ -197,6 +197,8 @@ func Hpack(firstNode Node) *HList {
 
 	for e := firstNode; e != nil; e = e.Next() {
 		switch v := e.(type) {
+		case *Disc:
+			// Discretionary nodes do not contribute to box dimensions
 		case *Glyph:
 			sumwd = sumwd + v.Width
 			if v.Height > maxht {

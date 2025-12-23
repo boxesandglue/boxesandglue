@@ -98,16 +98,27 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	for _, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
-			_, pi, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
-			if err != nil {
-				return 0, err
-			}
-			if pi == nil {
-				return 0, nil
-			}
-			for _, wd := range pi.Widths {
-				if wd > minwd {
+			// Check if this is a box element
+			if isBox, ok := t.Settings[SettingBox]; ok && isBox.(bool) {
+				vl, err := cell.row.table.doc.formatBoxElement(t, formatWidth)
+				if err != nil {
+					return 0, err
+				}
+				if wd := minWidthWithoutStretch(vl); wd > minwd {
 					minwd = wd
+				}
+			} else {
+				_, pi, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+				if err != nil {
+					return 0, err
+				}
+				if pi == nil {
+					return 0, nil
+				}
+				for _, wd := range pi.Widths {
+					if wd > minwd {
+						minwd = wd
+					}
 				}
 			}
 		case FormatToVList:
@@ -131,13 +142,24 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	for _, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
-			_, info, err := cell.row.table.doc.FormatParagraph(t, formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
-			if err != nil {
-				return 0, err
-			}
-			for _, wd := range info.Widths {
-				if wd > maxwd {
+			// Check if this is a box element
+			if isBox, ok := t.Settings[SettingBox]; ok && isBox.(bool) {
+				vl, err := cell.row.table.doc.formatBoxElement(t, formatWidth)
+				if err != nil {
+					return 0, err
+				}
+				if wd := maxWidthWithoutStretch(vl); wd > maxwd {
 					maxwd = wd
+				}
+			} else {
+				_, info, err := cell.row.table.doc.FormatParagraph(t, formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+				if err != nil {
+					return 0, err
+				}
+				for _, wd := range info.Widths {
+					if wd > maxwd {
+						maxwd = wd
+					}
 				}
 			}
 		case FormatToVList:
@@ -163,27 +185,41 @@ func (cell *TableCell) build() (*node.VList, error) {
 	for _, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
-			formatted, _, err = fe.FormatParagraph(t, paraWidth)
-			if err != nil {
-				return nil, err
+			// Check if this is a box element that needs vertical formatting
+			if isBox, ok := t.Settings[SettingBox]; ok && isBox.(bool) {
+				// Box elements need vertical stacking, not horizontal formatting
+				boxVL, err := fe.formatBoxElement(t, paraWidth)
+				if err != nil {
+					return nil, err
+				}
+				head = node.InsertAfter(head, node.Tail(head), boxVL)
+			} else {
+				formatted, _, err = fe.FormatParagraph(t, paraWidth)
+				if err != nil {
+					return nil, err
+				}
+				head = node.InsertAfter(head, node.Tail(head), formatted)
 			}
-			head = node.InsertAfter(head, node.Tail(head), formatted)
 		case *node.HList:
 			head = node.InsertAfter(head, node.Tail(head), node.CopyList(t))
 		case FormatToVList:
-			var err error
-			head, err = t(paraWidth)
+			ftvResult, err := t(paraWidth)
 			if err != nil {
 				return nil, err
 			}
+			head = node.InsertAfter(head, node.Tail(head), ftvResult)
 		default:
 			return nil, fmt.Errorf("Table cell build(): unknown node type %T", t)
 		}
 	}
-	hl := node.HpackTo(head, paraWidth)
-	hl.Attributes = node.H{"origin": "hpack cell"}
-
-	vl = node.Vpack(hl)
+	// If head is already a single VList, use it directly; otherwise pack horizontally first
+	if existingVL, ok := head.(*node.VList); ok && head.Next() == nil {
+		vl = existingVL
+	} else {
+		hl := node.HpackTo(head, paraWidth)
+		hl.Attributes = node.H{"origin": "hpack cell"}
+		vl = node.Vpack(hl)
+	}
 	vl.Attributes = node.H{"origin": "cell contents"}
 	cellHeight := cell.CalculatedHeight
 	if cellHeight == 0 {
@@ -266,7 +302,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 		r.Attributes = node.H{"origin": "right rule"}
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
-	hl = node.Hpack(head)
+	hl := node.Hpack(head)
 	hl.Attributes = node.H{"origin": "hpack cell (2)"}
 	head = hl
 
@@ -607,7 +643,7 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	tbl.columnWidths = make([]bag.ScaledPoint, tbl.nCol)
 	tbl.rowHeights = make([]bag.ScaledPoint, tbl.nRow)
 	colspans := []span{}
-	if tbl.ColSpec == nil || len(tbl.ColSpec) == 0 {
+	if tbl.ColSpec == nil {
 		colmax := make([]bag.ScaledPoint, tbl.nCol)
 		colmin := make([]bag.ScaledPoint, tbl.nCol)
 		for _, r := range tbl.Rows {
@@ -677,9 +713,7 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 			}
 		} else if tbl.MaxWidth == sumCols {
 			// equal size
-			for i, colwd := range colmax {
-				tbl.columnWidths[i] = colwd
-			}
+			copy(tbl.columnWidths, colmax)
 		} else if tbl.MaxWidth > sumCols {
 			// stretch
 			r := tbl.MaxWidth.ToPT() / sumCols.ToPT()
@@ -724,4 +758,55 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	vl := node.Vpack(head)
 	vl.Attributes = node.H{"origin": "table"}
 	return []*node.VList{vl}, nil
+}
+
+// formatBoxElement formats a box element (like ul, ol, div) as a vertical list.
+// Box elements contain child elements that should be stacked vertically.
+func (fe *Document) formatBoxElement(te *Text, hsize bag.ScaledPoint) (*node.VList, error) {
+	var head node.Node
+	for _, itm := range te.Items {
+		switch t := itm.(type) {
+		case *Text:
+			// Recursively handle nested box elements or format as paragraph
+			if isBox, hasBox := t.Settings[SettingBox]; hasBox && isBox.(bool) {
+				childVL, err := fe.formatBoxElement(t, hsize)
+				if err != nil {
+					return nil, err
+				}
+				head = node.InsertAfter(head, node.Tail(head), childVL)
+			} else {
+				// Format as paragraph (this handles li content)
+				formatted, _, err := fe.FormatParagraph(t, hsize)
+				if err != nil {
+					return nil, err
+				}
+				head = node.InsertAfter(head, node.Tail(head), formatted)
+			}
+		case string:
+			// Format string content as a paragraph
+			if strings.TrimSpace(t) != "" {
+				textItem := &Text{
+					Items:    []any{t},
+					Settings: make(TypesettingSettings),
+				}
+				// Copy parent settings for font, etc.
+				for k, v := range te.Settings {
+					if k != SettingBox && k != SettingDebug {
+						textItem.Settings[k] = v
+					}
+				}
+				formatted, _, err := fe.FormatParagraph(textItem, hsize)
+				if err != nil {
+					return nil, err
+				}
+				head = node.InsertAfter(head, node.Tail(head), formatted)
+			}
+		}
+	}
+	if head == nil {
+		return node.NewVList(), nil
+	}
+	vl := node.Vpack(head)
+	vl.Attributes = node.H{"origin": "box element"}
+	return vl, nil
 }

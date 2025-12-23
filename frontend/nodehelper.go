@@ -6,17 +6,25 @@ import (
 )
 
 func maxWidthWithoutStretch(vl *node.VList) bag.ScaledPoint {
+	maxWd := bag.ScaledPoint(0)
 	for e := vl.List; e != nil; e = e.Next() {
 		switch t := e.(type) {
 		case *node.VList:
-			return maxWidthWithoutStretch(t)
+			if wd := maxWidthWithoutStretch(t); wd > maxWd {
+				maxWd = wd
+			}
 		case *node.HList:
-			return getMaxWidthHlistWithoutStretch(t)
+			if wd := getMaxWidthHlistWithoutStretch(t); wd > maxWd {
+				maxWd = wd
+			}
 		default:
 			// fmt.Printf("t %#T\n", t)
 		}
 	}
-	return vl.Width
+	if maxWd == 0 {
+		return vl.Width
+	}
+	return maxWd
 }
 
 func getMaxWidthHlistWithoutStretch(hl *node.HList) bag.ScaledPoint {

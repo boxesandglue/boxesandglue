@@ -591,7 +591,7 @@ type ParagraphInfo struct {
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph. It applies hyphenation to the node list.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
-	bag.Logger.Log(context.TODO(), -8, "FormatParagraph")
+	bag.Logger.Log(context.Background(), -8, "FormatParagraph")
 	if len(te.Items) == 0 {
 		g := node.NewGlue()
 		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
@@ -789,7 +789,7 @@ func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
 // BuildNodelistFromString returns a node list containing glyphs from the string
 // with the settings in ts.
 func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) (node.Node, error) {
-	bag.Logger.Log(nil, -8, "Document#BuildNodelistFromString")
+	bag.Logger.Log(context.Background(), -8, "Document#BuildNodelistFromString")
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
@@ -882,7 +882,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}
-	bag.Logger.Log(context.TODO(), -8, "GetFontSource", "fs", fs.Name)
+	bag.Logger.Log(context.Background(), -8, "GetFontSource", "fs", fs.Name)
 	// fs.SizeAdjust is CSS size-adjust normalized so that 0 = 100% and negative = shrinking.
 	if fs.SizeAdjust != 0 {
 		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
@@ -1067,7 +1067,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 // width. The returned head and the tail are the beginning and the end of the
 // node list.
 func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error) {
-	bag.Logger.Log(nil, -8, "Document#Mknodes")
+	bag.Logger.Log(context.Background(), -8, "Document#Mknodes")
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}
@@ -1078,6 +1078,16 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	}
 	var hyperlinkStartNode *node.StartStop
 	var hyperlinkDest string
+
+	// Prepend custom nodes (e.g., list markers) before processing items.
+	if prep, ok := ts.Settings[SettingPrepend]; ok {
+		if pn, ok := prep.(node.Node); ok {
+			cp := node.CopyList(pn)
+			head = node.InsertAfter(head, tail, cp)
+			tail = node.Tail(cp)
+		}
+	}
+
 	for _, itm := range ts.Items {
 		switch t := itm.(type) {
 		case string:
@@ -1135,8 +1145,9 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 					t.Settings[k] = v
 				}
 			}
-			// we don't want to inherit hyperlinks
+			// we don't want to inherit hyperlinks or prepend (list markers)
 			delete(t.Settings, SettingHyperlink)
+			delete(t.Settings, SettingPrepend)
 			nl, end, err = fe.Mknodes(t)
 			if err != nil {
 				return nil, nil, err
