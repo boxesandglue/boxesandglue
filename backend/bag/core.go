@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	unitRE = regexp.MustCompile("(.*?)\\s*(sp|mm|cm|in|pt|px|pc|m)")
+	unitRE = regexp.MustCompile(`(.*?)\s*(sp|mm|cm|in|pt|px|pc|m)`)
 	// ErrConversion signals an error in unit conversion
 	ErrConversion = errors.New("Conversion error")
 	// Logger is initialized to write to io.Discard and the default log level is

@@ -208,7 +208,7 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 		return FontWeight200
 	case "light":
 		return FontWeight300
-	case "normal":
+	case "normal", "regular":
 		return FontWeight400
 	case "medium":
 		return FontWeight500
@@ -229,10 +229,9 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 			return FontWeight900
 		}
 	}
-
 	i, err := strconv.Atoi(fw)
 	if err != nil {
-		bag.Logger.Error(fmt.Sprintf("resolve font size: cannot convert %s to int", fw))
+		bag.Logger.Error(fmt.Sprintf("resolve font size: cannot convert %q to int", fw))
 		return FontWeight400
 	}
 
