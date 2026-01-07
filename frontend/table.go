@@ -38,6 +38,7 @@ type TableRow struct {
 
 // TableCell represents a table cell
 type TableCell struct {
+	BackgroundColor             *color.Color
 	BorderTopWidth              bag.ScaledPoint
 	BorderBottomWidth           bag.ScaledPoint
 	BorderLeftWidth             bag.ScaledPoint
@@ -333,6 +334,16 @@ func (cell *TableCell) build() (*node.VList, error) {
 
 	vl = node.Vpack(head)
 	vl.Attributes = node.H{"origin": "td"}
+
+	// Draw background color if set
+	if cell.BackgroundColor != nil {
+		bgRule := node.NewRule()
+		bgRule.Hide = true
+		bgRule.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BackgroundColor).Rect(0, -vl.Height, vl.Width, vl.Height+vl.Depth).Fill().Restore().String()
+		bgRule.Attributes = node.H{"origin": "cell background"}
+		vl.List = node.InsertBefore(vl.List, vl.List, bgRule)
+	}
+
 	return vl, nil
 }
 

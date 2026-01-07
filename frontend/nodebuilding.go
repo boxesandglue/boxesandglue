@@ -165,6 +165,10 @@ const (
 	SettingBorderBottomRightRadius
 	// SettingColor sets a predefined color.
 	SettingColor
+	// SettingColumnWidth sets the width of a table column (for col elements).
+	SettingColumnWidth
+	// SettingColspan sets the number of columns a table cell spans.
+	SettingColspan
 	// SettingDebug can contain debugging information
 	SettingDebug
 	// SettingFontExpansion is the amount of expansion / shrinkage allowed. Value is a float between 0 (no expansion) and 1 (100% of the glyph width).
@@ -209,6 +213,8 @@ const (
 	SettingPrepend
 	// SettingPreserveWhitespace makes a monospace paragraph with newlines.
 	SettingPreserveWhitespace
+	// SettingRowspan sets the number of rows a table cell spans.
+	SettingRowspan
 	// SettingSize sets the font size.
 	SettingSize
 	// SettingStyle represents a font style such as italic or normal.
@@ -268,6 +274,10 @@ func (st SettingType) String() string {
 		settingName = "SettingBox"
 	case SettingColor:
 		settingName = "SettingColor"
+	case SettingColumnWidth:
+		settingName = "SettingColumnWidth"
+	case SettingColspan:
+		settingName = "SettingColspan"
 	case SettingDebug:
 		settingName = "SettingDebug"
 	case SettingFontExpansion:
@@ -312,6 +322,8 @@ func (st SettingType) String() string {
 		settingName = "SettingPrepend"
 	case SettingPreserveWhitespace:
 		settingName = "SettingPreserveWhitespace"
+	case SettingRowspan:
+		settingName = "SettingRowspan"
 	case SettingSize:
 		settingName = "SettingSize"
 	case SettingStyle:
