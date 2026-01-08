@@ -10,7 +10,6 @@ import (
 func dothings() error {
 	op := optionparser.NewOptionParser()
 	op.Command("genpatterns", "Create patterns")
-	op.Command("updatefonts", "Update font files")
 	err := op.Parse()
 	if err != nil {
 		return err
@@ -24,8 +23,6 @@ func dothings() error {
 	switch op.Extra[0] {
 	case "genpatterns":
 		return createPatterns()
-	case "updatefonts":
-		return updatefonts()
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package frontend
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -62,7 +63,82 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 		}
 	}
 
+	// Pass variation settings to the Face for PDF instancing
+	if fs.VariationSettings != nil {
+		f.VariationSettings = fs.VariationSettings
+	}
+
 	fs.face = f
+	return f, nil
+}
+
+// LoadFaceWithVariations loads a font face with specific variation settings.
+// If the variations differ from the FontSource defaults, a new face is created
+// and cached separately. This allows different text runs to use the same font
+// with different variation settings.
+func (fe *Document) LoadFaceWithVariations(fs *FontSource, variations map[string]float64) (*pdf.Face, error) {
+	// If no inline variations, use the standard LoadFace
+	if len(variations) == 0 {
+		return fe.LoadFace(fs)
+	}
+
+	// Check if variations match FontSource defaults - if so, use standard LoadFace
+	if len(variations) == len(fs.VariationSettings) {
+		allMatch := true
+		for k, v := range variations {
+			if fsv, ok := fs.VariationSettings[k]; !ok || fsv != v {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch {
+			return fe.LoadFace(fs)
+		}
+	}
+
+	// Create a cache key from FontSource location/name and variations
+	cacheKey := fs.Location
+	if cacheKey == "" {
+		cacheKey = fs.Name
+	}
+	cacheKey = fmt.Sprintf("%s:%d", cacheKey, fs.Index)
+	// Add sorted variation settings to key for consistency
+	keys := make([]string, 0, len(variations))
+	for k := range variations {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		cacheKey += fmt.Sprintf(":%s=%.2f", k, variations[k])
+	}
+
+	// Check cache
+	if face, ok := fe.variationFaces[cacheKey]; ok {
+		return face, nil
+	}
+
+	// Load a new face for this variation combination
+	// We bypass the document's LoadFace cache to create a separate face for each variation
+	var f *pdf.Face
+	var err error
+	if fs.Location == "" {
+		f, err = fe.Doc.PDFWriter.NewFaceFromData(fs.Data, fs.Index)
+	} else {
+		f, err = fe.Doc.PDFWriter.LoadFace(fs.Location, fs.Index)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Add to document's face list for PDF finalization
+	fe.Doc.Faces = append(fe.Doc.Faces, f)
+
+	// Set the specific variations
+	f.VariationSettings = variations
+
+	// Cache for future use
+	fe.variationFaces[cacheKey] = f
+
 	return f, nil
 }
 
@@ -78,11 +154,12 @@ func (fe *Document) AddDataToFontsource(fs *FontSource, fontname string) error {
 
 // FontSource defines a mapping of name to a font source including the font features.
 type FontSource struct {
-	Name         string
-	FontFeatures []string
-	Location     string
-	Data         []byte
-	SizeAdjust   float64 // 1 - SizeAdjust is the relative adjustment.
+	Name              string
+	FontFeatures      []string
+	VariationSettings map[string]float64 // axis tag -> value (e.g., "wght" -> 700)
+	Location          string
+	Data              []byte
+	SizeAdjust        float64 // 1 - SizeAdjust is the relative adjustment.
 	// The sub font index within the font file.
 	Index int
 	// Used to save a face once it is loaded.
@@ -94,7 +171,7 @@ func (fs *FontSource) String() string {
 	if name == "" {
 		name = "-"
 	}
-	return fmt.Sprintf("%s->%s:%d (feat: %s)", name, fs.Location, fs.Index, fs.FontFeatures)
+	return fmt.Sprintf("%s->%s:%d (feat: %s, var: %v)", name, fs.Location, fs.Index, fs.FontFeatures, fs.VariationSettings)
 }
 
 // FontFamily is a struct that keeps font with different weights and styles together.

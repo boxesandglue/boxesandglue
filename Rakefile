@@ -5,16 +5,10 @@ ENV['GOBIN'] = installdir.join("bin").to_s
 
 desc "Build helper program"
 task :helper do
-	sh "go install github.com/speedata/boxesandglue/helper"
+	sh "go install github.com/boxesandglue/boxesandglue/helper"
 end
 
 desc "Create pattern map"
 task :genpatterns => :helper do
 	sh "bin/helper "
-end
-
-
-desc "Update the font files in the code"
-task :updatefonts => :helper do
-	sh "bin/helper updatefonts"
 end

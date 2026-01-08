@@ -10,19 +10,20 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/document"
 	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/boxesandglue/textlayout/harfbuzz"
+	"github.com/boxesandglue/textshape/ot"
 )
 
 // Document holds convenience functions.
 type Document struct {
 	FontFamilies          map[string]*FontFamily
 	Doc                   *document.PDFDocument
-	DefaultFeatures       []harfbuzz.Feature
+	DefaultFeatures       []ot.Feature
 	fontlocal             map[string]*FontSource
 	suppressInfo          bool
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
 	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
+	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
 	dirstack              []string
 	postLinebreakCallback []PostLinebreakCallbackFunc
 }
@@ -32,6 +33,7 @@ func initDocument(w io.Writer) (*Document, error) {
 		usedSpotcolors: make(map[*color.Color]bool),
 		usedcolors:     make(map[string]*color.Color),
 		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
+		variationFaces: make(map[string]*pdf.Face),
 		FontFamilies:   make(map[string]*FontFamily),
 		fontlocal:      make(map[string]*FontSource),
 		Doc:            document.NewDocument(w),

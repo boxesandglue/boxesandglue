@@ -778,7 +778,7 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 	oc.writef("[<")
 	fnt := font.NewFont(f0, 4*bag.Factor)
 	cp := []int{}
-	for _, v := range fnt.Shape(text, nil) {
+	for _, v := range fnt.Shape(text, nil, nil) {
 		oc.writef("%04x", v.Codepoint)
 		cp = append(cp, v.Codepoint)
 	}

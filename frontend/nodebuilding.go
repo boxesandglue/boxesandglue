@@ -16,7 +16,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
-	"github.com/boxesandglue/textlayout/harfbuzz"
+	"github.com/boxesandglue/textshape/ot"
 )
 
 // FormatToVList is a function that gets collects typesetting material and gets
@@ -177,6 +177,8 @@ const (
 	SettingFontFamily
 	// SettingFontWeight represents a font weight setting.
 	SettingFontWeight
+	// SettingFontVariationSettings contains variable font axis values (e.g., "wght" -> 700).
+	SettingFontVariationSettings
 	// SettingHAlign sets the horizontal alignment of the paragraph.
 	SettingHAlign
 	// SettingHangingPunctuation sets the margin protrusion.
@@ -286,6 +288,8 @@ func (st SettingType) String() string {
 		settingName = "SettingFontFamily"
 	case SettingFontWeight:
 		settingName = "SettingFontWeight"
+	case SettingFontVariationSettings:
+		settingName = "SettingFontVariationSettings"
 	case SettingHAlign:
 		settingName = "SettingHAlign"
 	case SettingHangingPunctuation:
@@ -770,29 +774,22 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	return vlist, &pi, nil
 }
 
-func parseHarfbuzzFontFeatures(featurelist any) []harfbuzz.Feature {
-	fontfeatures := []harfbuzz.Feature{}
+func parseOpenTypeFeatures(featurelist any) []ot.Feature {
+	fontfeatures := []ot.Feature{}
 	switch t := featurelist.(type) {
 	case string:
 		for _, str := range strings.Split(t, ",") {
-			f, err := harfbuzz.ParseFeature(str)
-			if err != nil {
-				// FIXME: proper error handling
-				// logger.Error(fmt.Sprintf("Cannot parse OpenType feature tag %q.", str))
+			if f, ok := ot.FeatureFromString(str); ok {
+				fontfeatures = append(fontfeatures, f)
 			}
-			fontfeatures = append(fontfeatures, f)
 		}
 	case []string:
 		for _, single := range t {
 			for _, str := range strings.Split(single, ",") {
-				f, err := harfbuzz.ParseFeature(str)
-				if err != nil {
-					// FIXME: proper error handling
-					// logger.Error(fmt.Sprintf("Cannot parse OpenType feature tag %q.", str))
+				if f, ok := ot.FeatureFromString(str); ok {
+					fontfeatures = append(fontfeatures, f)
 				}
-				fontfeatures = append(fontfeatures, f)
 			}
-
 		}
 	}
 	return fontfeatures
@@ -810,13 +807,13 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var hyperlink document.Hyperlink
 	var hasHyperlink bool
 	var hasUnderline bool
-	fontfeatures := make([]harfbuzz.Feature, 0, len(fe.DefaultFeatures))
+	fontfeatures := make([]ot.Feature, 0, len(fe.DefaultFeatures))
 	for _, f := range fe.DefaultFeatures {
 		fontfeatures = append(fontfeatures, f)
 	}
 	preserveWhitespace := false
 	yoffset := bag.ScaledPoint(0)
-	var settingFontFeatures []harfbuzz.Feature
+	var settingFontFeatures []ot.Feature
 	for k, v := range ts {
 		switch k {
 		case SettingFontWeight:
@@ -861,7 +858,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingStyle:
 			fontstyle = v.(FontStyle)
 		case SettingOpenTypeFeature:
-			settingFontFeatures = parseHarfbuzzFontFeatures(v)
+			settingFontFeatures = parseOpenTypeFeatures(v)
+		case SettingFontVariationSettings:
+			// handled below when shaping
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft, SettingPaddingRight, SettingPaddingBottom, SettingPaddingTop, SettingPaddingLeft:
 			// ignore
 		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingTabSize, SettingTabSizeSpaces:
@@ -901,9 +900,30 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	// First the font source default features should get applied, then the
 	// features from the current settings.
-	fontfeatures = append(fontfeatures, parseHarfbuzzFontFeatures(fs.FontFeatures)...)
+	fontfeatures = append(fontfeatures, parseOpenTypeFeatures(fs.FontFeatures)...)
 	fontfeatures = append(fontfeatures, settingFontFeatures...)
-	if face, err = fe.LoadFace(fs); err != nil {
+
+	// Collect variation settings: start with FontSource defaults, override with settings
+	var variations map[string]float64
+	if fs.VariationSettings != nil {
+		variations = make(map[string]float64, len(fs.VariationSettings))
+		for k, v := range fs.VariationSettings {
+			variations[k] = v
+		}
+	}
+	if settingsVars, ok := ts[SettingFontVariationSettings]; ok {
+		if varMap, ok := settingsVars.(map[string]float64); ok {
+			if variations == nil {
+				variations = make(map[string]float64, len(varMap))
+			}
+			for k, v := range varMap {
+				variations[k] = v
+			}
+		}
+	}
+	// Use LoadFaceWithVariations to get a face with the correct variation settings
+	// This ensures each unique variation combination gets its own face for PDF subsetting
+	if face, err = fe.LoadFaceWithVariations(fs, variations); err != nil {
 		if fs.Name == "" {
 			bag.Logger.Error("Cannot load face", "location", fs.Location)
 		} else {
@@ -911,6 +931,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 		return nil, err
 	}
+
 	if fe.usedFonts[face] == nil {
 		fe.usedFonts = make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font)
 	}
@@ -959,7 +980,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	cur = head
 	var lastglue node.Node
-	atoms := fnt.Shape(str, fontfeatures)
+	atoms := fnt.Shape(str, fontfeatures, variations)
 	for _, r := range atoms {
 		if r.IsSpace {
 			if preserveWhitespace {

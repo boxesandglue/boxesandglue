@@ -5,7 +5,7 @@ import (
 
 	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
-	"github.com/boxesandglue/textlayout/harfbuzz"
+	"github.com/boxesandglue/textshape/ot"
 )
 
 // An Atom contains size information about the glyphs as a result of Shape
@@ -35,9 +35,11 @@ type Font struct {
 
 // NewFont creates a new font instance.
 func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
-	f := face.HarfbuzzFont.Face()
-	ascend := float64(f.AscenderPDF())
-	descend := float64(-1 * f.DescenderPDF())
+	f := face.OTFace()
+	// Scale raw metrics to PDF units (1000 units per em)
+	scale := 1000.0 / float64(f.Upem())
+	ascend := float64(f.Ascender()) * scale
+	descend := float64(-f.Descender()) * scale
 	factor := size.ToPT() / (ascend + descend)
 	fnt := &Font{
 		Space:        size * 333 / 1000,
@@ -48,11 +50,11 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Mag:          int(size) / int(face.UnitsPerEM),
 		Depth:        bag.ScaledPointFromFloat(factor * descend),
 	}
-	hyphenchar := fnt.Shape("-", []harfbuzz.Feature{})
+	hyphenchar := fnt.Shape("-", nil, nil)
 	if len(hyphenchar) == 1 {
 		fnt.Hyphenchar = hyphenchar[0]
 	}
-	spacechar := fnt.Shape(" ", []harfbuzz.Feature{})
+	spacechar := fnt.Shape(" ", nil, nil)
 	if len(spacechar) == 1 {
 		fnt.SpaceChar = spacechar[0]
 	}
@@ -60,7 +62,8 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 }
 
 // Shape transforms the text into a slice of code points.
-func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
+// The variations parameter maps axis tags (e.g., "wght") to values.
+func (f *Font) Shape(text string, features []ot.Feature, variations map[string]float64) []Atom {
 	// empty paragraphs have ZERO WIDTH SPACE as a marker
 	if text == "\u200B" {
 		return []Atom{
@@ -73,35 +76,43 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 		}
 	}
 	runes := []rune(text)
-	buf := harfbuzz.NewBuffer()
-	buf.AddRunes(runes, 0, -1)
-	buf.Flags = harfbuzz.RemoveDefaultIgnorables
-	ha := f.Face.HarfbuzzFont.Face().HorizontalAdvance
+	buf := ot.NewBuffer()
+	buf.AddString(text)
+	buf.Flags = ot.BufferFlagRemoveDefaultIgnorables
+	face := f.Face.OTFace()
+
+	// Apply variation settings to the shaper
+	if len(variations) > 0 {
+		bag.Logger.Debug("font.Shape applying variations", "variations", variations)
+	}
+	for tag, value := range variations {
+		f.Face.Shaper.SetVariation(ot.MakeTag(tag[0], tag[1], tag[2], tag[3]), float32(value))
+	}
 
 	buf.GuessSegmentProperties()
-	buf.Shape(f.Face.HarfbuzzFont, features)
+	f.Face.Shaper.Shape(buf, features)
 	glyphs := make([]Atom, 0, len(buf.Info))
 	space := f.Face.Codepoint(' ')
 	lenBufInfo := len(buf.Info)
 	for i, r := range buf.Info {
 		char := runes[r.Cluster]
 		adv := buf.Pos[i].XAdvance
-		advanceCalculated := adv * int32(f.Mag)
-		advanceWant := ha(r.Glyph) * float32(f.Mag)
+		advanceCalculated := int32(adv) * int32(f.Mag)
+		advanceWant := float32(face.HorizontalAdvance(r.GlyphID)) * float32(f.Mag)
 
 		if unicode.IsSpace(char) {
 			glyphs = append(glyphs, Atom{
 				IsSpace:    true,
 				Advance:    bag.ScaledPoint(advanceWant),
 				Components: string(char),
-				Codepoint:  int(r.Glyph),
+				Codepoint:  int(r.GlyphID),
 			})
 		} else {
 			var bdelta bag.ScaledPoint
 
 			// only add kern if the next item is not a space
 			if i < len(buf.Info)-1 {
-				if int(buf.Info[i+1].Glyph) != space {
+				if int(buf.Info[i+1].GlyphID) != space {
 					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
 				}
 			}
@@ -110,7 +121,7 @@ func (f *Font) Shape(text string, features []harfbuzz.Feature) []Atom {
 				Height:    f.Size - f.Depth,
 				Depth:     f.Depth,
 				Hyphenate: unicode.IsLetter(char),
-				Codepoint: int(r.Glyph),
+				Codepoint: int(r.GlyphID),
 				Kernafter: bdelta,
 			}
 			if i == lenBufInfo-1 {
