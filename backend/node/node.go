@@ -313,6 +313,9 @@ type Glyph struct {
 	// The Depth is the length below the base line. For example the letter g has
 	// a depth > 0.
 	Depth bag.ScaledPoint
+	// Horizontal displacement. Positive values move the glyph to the right.
+	// Used for GPOS mark positioning without affecting text flow.
+	XOffset bag.ScaledPoint
 	// Vertical displacement. Positive values move the glyph towards the top of
 	// the page.
 	YOffset bag.ScaledPoint

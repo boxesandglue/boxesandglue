@@ -302,8 +302,24 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.shiftX = 0
 			}
 			v.Font.Face.RegisterCodepoint(v.Codepoint)
+			// Handle GPOS XOffset for mark positioning (visual shift without affecting text flow)
+			var xOffsetMove int
+			if v.XOffset != 0 && oc.currentFont != nil && oc.currentFont.Size != 0 {
+				adv := v.XOffset.ToPT() / oc.currentFont.Size.ToPT()
+				scale := oc.currentFont.Face.Scale
+				xOffsetMove = int(-1 * 1000 / scale * adv)
+				if xOffsetMove != 0 {
+					oc.gotoTextMode(ScopeArray)
+					oc.writef(" %d ", xOffsetMove)
+				}
+			}
 			oc.gotoTextMode(ScopeGlyph)
 			oc.writef("%04x", v.Codepoint)
+			// Reverse XOffset adjustment to restore text position
+			if xOffsetMove != 0 {
+				oc.gotoTextMode(ScopeArray)
+				oc.writef(" %d ", -xOffsetMove)
+			}
 			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
 			var od *outputDebug
