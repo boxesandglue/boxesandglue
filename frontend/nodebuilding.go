@@ -1049,6 +1049,14 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				}
 			}
 		} else {
+			// Insert kern for GPOS horizontal offset (e.g., mark positioning)
+			if r.XOffset != 0 {
+				k := node.NewKern()
+				k.Kern = r.XOffset
+				head = node.InsertAfter(head, cur, k)
+				cur = k
+			}
+
 			n := node.NewGlyph()
 			n.Hyphenate = r.Hyphenate
 			n.Codepoint = r.Codepoint
@@ -1057,7 +1065,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			n.Width = r.Advance
 			n.Height = r.Height
 			n.Depth = r.Depth
-			n.YOffset = yoffset
+			// Combine settings-based offset with GPOS positioning offset
+			n.YOffset = yoffset + r.YOffset
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil

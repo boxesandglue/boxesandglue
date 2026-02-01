@@ -13,6 +13,8 @@ type Atom struct {
 	Advance    bag.ScaledPoint
 	Height     bag.ScaledPoint
 	Depth      bag.ScaledPoint
+	XOffset    bag.ScaledPoint // Horizontal offset from GPOS positioning
+	YOffset    bag.ScaledPoint // Vertical offset from GPOS positioning (e.g., mark attachment)
 	IsSpace    bool
 	Components string
 	Codepoint  int
@@ -116,10 +118,17 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
 				}
 			}
+
+			// Get GPOS positioning offsets and scale them
+			xOffset := bag.ScaledPoint(int32(buf.Pos[i].XOffset) * int32(f.Mag))
+			yOffset := bag.ScaledPoint(int32(buf.Pos[i].YOffset) * int32(f.Mag))
+
 			g := Atom{
 				Advance:   bag.ScaledPoint(advanceWant),
 				Height:    f.Size - f.Depth,
 				Depth:     f.Depth,
+				XOffset:   xOffset,
+				YOffset:   yOffset,
 				Hyphenate: unicode.IsLetter(char),
 				Codepoint: int(r.GlyphID),
 				Kernafter: bdelta,
