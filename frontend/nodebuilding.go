@@ -1086,7 +1086,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			n.Width = r.Advance
 			n.Height = r.Height
 			n.Depth = r.Depth
-			n.YOffset = yoffset
+			// Apply GPOS positioning offsets for mark attachment
+			n.XOffset = r.XOffset
+			n.YOffset = yoffset + r.YOffset
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil
