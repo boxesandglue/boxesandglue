@@ -445,7 +445,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				lb.mainLoop(t)
 			}
 		case *Disc:
-			prevItemBox = false
+			// NOTE: Do NOT reset prevItemBox here. A Disc is not a "box" in TeX terms.
+			// If we reset it, a Glue following a Disc won't be considered as a breakpoint,
+			// causing breaks at Disc (with hyphen) instead of at Glue (space).
 			lb.mainLoop(t)
 		case *Glyph:
 			prevItemBox = true
@@ -499,11 +501,26 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		// startPos.Prev() is nil at paragraph start
 		if startPos.Prev() != nil {
 			startPos = startPos.Next()
+			// If we broke at a Disc followed by a Glue (space), skip the Glue.
+			// Otherwise the space appears at the start of the next line.
+			if e.Position.Type() == TypeDisc {
+				if _, isGlue := startPos.(*Glue); isGlue {
+					startPos = startPos.Next()
+				}
+			}
 		}
 		if curPre != nil {
 			InsertAfter(startPos, endNode.Prev(), curPre)
 		}
+		// Set curPre for the next line, but NOT if we broke at a Disc
+		// that's followed by a Glue (space) - in that case we're breaking
+		// between words, not within a word, so no hyphen should appear.
 		curPre = e.Pre
+		if e.Position.Type() == TypeDisc {
+			if _, isGlue := e.Position.Next().(*Glue); isGlue {
+				curPre = nil // Don't insert hyphen when breaking at word boundary
+			}
+		}
 		if startPos != nil {
 			// if PDF/UA is written, the line end should have a space at the end.
 			lineEnd := settings.LineEndGlue.Copy().(*Glue)
