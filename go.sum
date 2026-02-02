@@ -1,11 +1,11 @@
 github.com/beevik/etree v1.5.0 h1:iaQZFSDS+3kYZiGoc9uKeOkUY3nYMXOKLl6KIJxiJWs=
 github.com/beevik/etree v1.5.0/go.mod h1:gPNJNaBGVZ9AwsidazFZyygnd+0pAU38N4D+WemwKNs=
-github.com/boxesandglue/baseline-pdf v1.1.1 h1:gxcEd2hO3FKX8WAyw3y+u8ao1GetK1GHEskVm1AeUPs=
-github.com/boxesandglue/baseline-pdf v1.1.1/go.mod h1:1XaCSHqVs2bW3oC7+2JyAOlAJK+3lbqC0OKQVa79PYs=
+github.com/boxesandglue/baseline-pdf v1.1.2 h1:SGsRw0JobFvsBravjrB8bi3urjtkVgOvb0+pVIsRcKM=
+github.com/boxesandglue/baseline-pdf v1.1.2/go.mod h1:ByozxpW/QxD8YlIvJsX6MEnldopIrvB3WRMogMhkZYA=
 github.com/boxesandglue/gofpdi v1.0.21 h1:3smZ4iP1LiegX/mvDDMoJMNbfrnR0DPyRpzygBQ5Ooo=
 github.com/boxesandglue/gofpdi v1.0.21/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
-github.com/boxesandglue/textshape v0.0.4 h1:kZje7TnZvWl11D41UfMwqQYUjO4DDrqwQmcst3mGo+U=
-github.com/boxesandglue/textshape v0.0.4/go.mod h1:742L5KOFG5k6Th0T4dm24TzSEpih2V4VQIgNiOF01vE=
+github.com/boxesandglue/textshape v0.0.5 h1:MO1OtYzD337uTtWvjjAxMkn6uLTmwwOl3kSYpD/KkaI=
+github.com/boxesandglue/textshape v0.0.5/go.mod h1:742L5KOFG5k6Th0T4dm24TzSEpih2V4VQIgNiOF01vE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
