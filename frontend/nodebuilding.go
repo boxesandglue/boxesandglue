@@ -544,10 +544,12 @@ type Options struct {
 	Fontfamily     *FontFamily
 	Fontsize       bag.ScaledPoint
 	hsize          bag.ScaledPoint
+	HyphenPenalty  int
 	IndentLeft     bag.ScaledPoint
 	IndentLeftRows int
 	Language       *lang.Lang
 	Leading        bag.ScaledPoint
+	Tolerance      float64
 }
 
 // TypesettingOption controls the formatting of the paragraph.
@@ -565,6 +567,27 @@ func Leading(leading bag.ScaledPoint) TypesettingOption {
 func Language(language *lang.Lang) TypesettingOption {
 	return func(p *Options) {
 		p.Language = language
+	}
+}
+
+// HyphenPenalty sets the penalty for hyphenating words. Higher values
+// discourage hyphenation, preferring to stretch/shrink spaces instead.
+// Default is 50. Values around 200-1000 reduce hyphenation noticeably.
+// A value of 10000 effectively disables hyphenation.
+func HyphenPenalty(penalty int) TypesettingOption {
+	return func(p *Options) {
+		p.HyphenPenalty = penalty
+	}
+}
+
+// Tolerance sets how much the line can deviate from the ideal spacing
+// before the algorithm considers it unacceptable. Default is 4.0.
+// Higher values allow looser/tighter lines, which may be needed for
+// narrow columns or text with few hyphenation opportunities.
+// TeX uses 200 for \sloppy and 10000 for \emergencystretch.
+func Tolerance(tolerance float64) TypesettingOption {
+	return func(p *Options) {
+		p.Tolerance = tolerance
 	}
 }
 
@@ -694,6 +717,12 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	ls.Indent = p.IndentLeft
 	ls.IndentRows = p.IndentLeftRows
 	ls.Tolerance = 4
+	if p.Tolerance != 0 {
+		ls.Tolerance = p.Tolerance
+	}
+	if p.HyphenPenalty != 0 {
+		ls.Hyphenpenalty = p.HyphenPenalty
+	}
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
