@@ -212,6 +212,11 @@ func (oc *objectContext) gotoTextMode(newMode TextScope) {
 				oc.writef("100 Tz ")
 				oc.currentExpand = 0
 			}
+			// Reset text rise (Ts) at start of each text object.
+			// PDF text state persists across BT...ET blocks, but objectContext
+			// is created fresh for each object with currentVShift=0. Without this
+			// reset, a non-zero Ts from a previous object would persist.
+			oc.writef("0 Ts ")
 			oc.textmode = ScopeText
 		}
 		if oc.textmode == ScopeText && newMode < oc.textmode {
