@@ -13,7 +13,7 @@ func TestUnits(t *testing.T) {
 			a := MustSP(fmt.Sprintf("%d%s", val, unit))
 			b, err := a.ToUnit(unit)
 			if err != nil {
-				t.Errorf(err.Error())
+				t.Error(err)
 			}
 			if float64(val) != b {
 				t.Errorf("%v a.ToUnit(%s) = %f, want %d", a, unit, b, val)

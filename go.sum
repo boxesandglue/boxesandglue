@@ -4,6 +4,8 @@ github.com/boxesandglue/baseline-pdf v1.1.4 h1:arG3MuFrMIFbtB9S81ZuKBzfqznn/XGU7
 github.com/boxesandglue/baseline-pdf v1.1.4/go.mod h1:KlpGT4wBe9RGHTXCFEnzHuafBuEJD9nUL9dRDXwZEFs=
 github.com/boxesandglue/gofpdi v1.0.21 h1:3smZ4iP1LiegX/mvDDMoJMNbfrnR0DPyRpzygBQ5Ooo=
 github.com/boxesandglue/gofpdi v1.0.21/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
+github.com/boxesandglue/svgreader v0.0.1 h1:dGkD7BfEGbyLke/d7R/jLy3VOUh1eFBiN2F6clXr1S0=
+github.com/boxesandglue/svgreader v0.0.1/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
 github.com/boxesandglue/textshape v0.0.7 h1:VKXMraJMMnaD9ybZN4ydnWutvyXDeBy1lX/rvGp4aWA=
 github.com/boxesandglue/textshape v0.0.7/go.mod h1:742L5KOFG5k6Th0T4dm24TzSEpih2V4VQIgNiOF01vE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

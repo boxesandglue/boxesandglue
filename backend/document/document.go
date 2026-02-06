@@ -16,6 +16,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
+	"github.com/boxesandglue/svgreader"
 )
 
 const (
@@ -382,6 +383,15 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if !v.Hide {
 				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, v.Height+v.Depth))
 			}
+			if v.Attributes != nil {
+				if faces, ok := v.Attributes["usedFaces"]; ok {
+					if faceList, ok := faces.([]*pdf.Face); ok {
+						for _, face := range faceList {
+							oc.usedFaces[face] = true
+						}
+					}
+				}
+			}
 			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
@@ -671,6 +681,15 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			if !v.Hide {
 				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 0 %s %s re f Q", v.Width, -1*(v.Height+v.Depth)))
+			}
+			if v.Attributes != nil {
+				if faces, ok := v.Attributes["usedFaces"]; ok {
+					if faceList, ok := faces.([]*pdf.Face); ok {
+						for _, face := range faceList {
+							oc.usedFaces[face] = true
+						}
+					}
+				}
 			}
 			if v.Post != "" {
 				pdfinstructions = append(pdfinstructions, v.Post)
@@ -1177,6 +1196,74 @@ func (d *PDFDocument) CreateImageNodeFromImagefile(imgfile *pdf.Imagefile, pagen
 	img.Height = ht
 	imgfile.PageNumber = pagenumber
 	return img
+}
+
+// CreateSVGNodeFromDocument renders a parsed SVG document into a Rule node
+// containing PDF drawing operators. If width or height is 0, it is derived from
+// the SVG's viewBox to preserve the aspect ratio. If both are 0, the SVG's
+// natural size is used (1 SVG user unit = 1 DTP point).
+// CreateSVGNodeFromDocument creates a Rule node from a parsed SVG document.
+// The width and height specify the desired output size. If one is 0, it is
+// calculated from the aspect ratio. If both are 0, the SVG's natural size is
+// used. An optional TextRenderer enables SVG <text> rendering; if nil, text
+// elements are skipped.
+func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, width bag.ScaledPoint, height bag.ScaledPoint, textRenderer ...svgreader.TextRenderer) *node.Rule {
+	naturalW := svgDoc.Width
+	naturalH := svgDoc.Height
+
+	wPt := width.ToPT()
+	hPt := height.ToPT()
+
+	switch {
+	case wPt == 0 && hPt == 0:
+		// Use natural SVG dimensions
+		wPt = naturalW
+		hPt = naturalH
+	case wPt == 0:
+		// Scale width to match height, preserving aspect ratio
+		if naturalH > 0 {
+			wPt = hPt * naturalW / naturalH
+		}
+	case hPt == 0:
+		// Scale height to match width, preserving aspect ratio
+		if naturalW > 0 {
+			hPt = wPt * naturalH / naturalW
+		}
+	}
+
+	width = bag.ScaledPointFromFloat(wPt)
+	height = bag.ScaledPointFromFloat(hPt)
+
+	opts := svgreader.RenderOptions{
+		Width:  wPt,
+		Height: hPt,
+	}
+	if len(textRenderer) > 0 && textRenderer[0] != nil {
+		opts.TextRenderer = textRenderer[0]
+	}
+
+	stream := svgDoc.RenderPDF(opts)
+
+	rule := node.NewRule()
+	rule.Width = width
+	rule.Height = height
+	rule.Hide = true
+	rule.Pre = stream
+
+	// If the TextRenderer tracks used faces, store them as attributes
+	// so the page renderer can register them as PDF resources.
+	if opts.TextRenderer != nil {
+		type faceProvider interface {
+			UsedFaces() []*pdf.Face
+		}
+		if fp, ok := opts.TextRenderer.(faceProvider); ok {
+			if faces := fp.UsedFaces(); len(faces) > 0 {
+				rule.Attributes = node.H{"usedFaces": faces}
+			}
+		}
+	}
+
+	return rule
 }
 
 // NewPage creates a new Page object and adds it to the page list in the

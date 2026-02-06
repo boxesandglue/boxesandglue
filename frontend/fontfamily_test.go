@@ -11,11 +11,11 @@ func Test(t *testing.T) {
 	ff.doc, _ = initDocument(io.Discard)
 	err := ff.AddMember(f, FontWeight400, FontStyleNormal)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 	nf, err := ff.GetFontSource(FontWeight400, FontStyleNormal)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Error(err)
 	}
 	if want, got := f, nf; want != got {
 		t.Errorf("ff.GetFace() = %s, want %s", got, want)
