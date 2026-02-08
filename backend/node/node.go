@@ -162,6 +162,9 @@ func String(n Node) string {
 	switch t := n.(type) {
 	case *Glue:
 		extrainfo = fmt.Sprintf(": %spt plus %s", t.Width, t.Stretch)
+		if t.Leader != nil {
+			extrainfo += " (leader)"
+		}
 	case *Glyph:
 		var fontname string
 		if t.Font != nil && t.Font.Face != nil {
@@ -418,6 +421,19 @@ const (
 	GlueLineEnd
 )
 
+// LeaderType determines how leader patterns are aligned.
+type LeaderType int
+
+const (
+	// LeaderAligned repeats the pattern on a global grid so that
+	// patterns in different lines align vertically (TeX's \leaders).
+	LeaderAligned LeaderType = iota
+	// LeaderCentered centers copies; excess space is split at both ends (TeX's \cleaders).
+	LeaderCentered
+	// LeaderExpanded distributes excess space equally between copies (TeX's \xleaders).
+	LeaderExpanded
+)
+
 // A Glue node has the value of a shrinking and stretching space
 type Glue struct {
 	basenode
@@ -427,6 +443,8 @@ type Glue struct {
 	Shrink       bag.ScaledPoint // The shrinkability of the glue, where width minus shrink = minimum width.
 	StretchOrder GlueOrder       // The order of infinity of stretching.
 	ShrinkOrder  GlueOrder       // The order of infinity of shrinking.
+	Leader       *HList          // Pattern to repeat; nil means normal glue.
+	LeaderType   LeaderType      // Alignment mode for the repeated pattern.
 }
 
 func (g *Glue) String() string {

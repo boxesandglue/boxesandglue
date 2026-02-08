@@ -341,20 +341,40 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			if oc.textmode < ScopeText {
-				if curFont := oc.currentFont; curFont != nil {
-					if oc.currentFont.Size != 0 {
-						adv := v.Width.ToPT() / oc.currentFont.Size.ToPT()
-						scale := curFont.Face.Scale
-						move := int(-1 * 1000 / scale * adv)
-						if move != 0 {
-							oc.gotoTextMode(ScopeArray)
-							oc.writef(" %d ", move)
+			if v.Leader != nil && v.Leader.Width > 0 && v.Width > 0 {
+				oc.gotoTextMode(ScopePage)
+				absX := x + sumX
+				endX := absX + v.Width
+				pw := v.Leader.Width
+
+				// Global grid: first full copy starts at the next
+				// multiple of pw at or after absX.
+				firstStart := (absX / pw) * pw
+				if firstStart < absX {
+					firstStart += pw
+				}
+
+				for copyX := firstStart; copyX+pw <= endX; copyX += pw {
+					oc.outputHorizontalItems(copyX, y, v.Leader)
+					oc.gotoTextMode(ScopePage)
+				}
+				sumX += v.Width
+			} else {
+				if oc.textmode < ScopeText {
+					if curFont := oc.currentFont; curFont != nil {
+						if oc.currentFont.Size != 0 {
+							adv := v.Width.ToPT() / oc.currentFont.Size.ToPT()
+							scale := curFont.Face.Scale
+							move := int(-1 * 1000 / scale * adv)
+							if move != 0 {
+								oc.gotoTextMode(ScopeArray)
+								oc.writef(" %d ", move)
+							}
 						}
 					}
 				}
+				sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 			}
-			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Rule:
 			if oc.p.document.DumpOutput {
 				od = &outputDebug{

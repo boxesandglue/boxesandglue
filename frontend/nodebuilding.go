@@ -191,6 +191,8 @@ const (
 	SettingIndentLeft
 	// SettingIndentLeftRows determines the number of rows to be indented (positive value), or the number of rows not indented (negative values). 0 means all rows.
 	SettingIndentLeftRows
+	// SettingLeader contains the leader pattern string (e.g. ".") for TeX-style leaders.
+	SettingLeader
 	// SettingLeading determines the distance between two base lines (line height).
 	SettingLeading
 	// SettingMarginBottom sets the bottom margin.
@@ -203,6 +205,10 @@ const (
 	SettingMarginTop
 	// SettingOpenTypeFeature allows the user to (de)select OpenType features such as ligatures.
 	SettingOpenTypeFeature
+	// SettingPageBreakAfter controls page breaking after this element ("auto", "always", "avoid").
+	SettingPageBreakAfter
+	// SettingPageBreakBefore controls page breaking before this element ("auto", "always", "avoid").
+	SettingPageBreakBefore
 	// SettingPaddingBottom is the bottom padding.
 	SettingPaddingBottom
 	// SettingPaddingLeft is the left hand padding.
@@ -302,6 +308,8 @@ func (st SettingType) String() string {
 		settingName = "SettingIndentLeft"
 	case SettingIndentLeftRows:
 		settingName = "SettingIndentLeftRows"
+	case SettingLeader:
+		settingName = "SettingLeader"
 	case SettingLeading:
 		settingName = "SettingLeading"
 	case SettingMarginBottom:
@@ -314,6 +322,10 @@ func (st SettingType) String() string {
 		settingName = "SettingMarginTop"
 	case SettingOpenTypeFeature:
 		settingName = "SettingOpenTypeFeature"
+	case SettingPageBreakAfter:
+		settingName = "SettingPageBreakAfter"
+	case SettingPageBreakBefore:
+		settingName = "SettingPageBreakBefore"
 	case SettingPaddingBottom:
 		settingName = "SettingPaddingBottom"
 	case SettingPaddingLeft:
@@ -748,7 +760,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		lg := node.NewGlue()
 		lg.Attributes = node.H{"origin": "glue line end"}
 		lg.Stretch = bag.Factor
-		lg.StretchOrder = 3
+		lg.StretchOrder = node.StretchFill
 		lg.Subtype = node.GlueLineEnd
 		ls.LineEndGlue = lg
 	}
@@ -756,7 +768,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		lg := node.NewGlue()
 		lg.Attributes = node.H{"origin": "glue line start"}
 		lg.Stretch = bag.Factor
-		lg.StretchOrder = 3
+		lg.StretchOrder = node.StretchFill
 		lg.Subtype = node.GlueLineStart
 		ls.LineStartGlue = lg
 	}
@@ -773,7 +785,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			moreHeight := ht - vlist.Height - vlist.Depth
 			topGlue := node.NewGlue()
 			bottomGlue := node.NewGlue()
-			var valign = VAlignMiddle
+			valign := VAlignMiddle
 			if vat, ok := te.Settings[SettingVAlign]; ok {
 				if va, ok := vat.(VerticalAlignment); ok {
 					valign = va
@@ -904,7 +916,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
 			// ignore
-		case SettingWidth, SettingBox:
+		case SettingWidth, SettingBox, SettingPageBreakAfter, SettingPageBreakBefore:
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)
@@ -1135,7 +1147,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}
-	var newSettings = make(TypesettingSettings)
+	newSettings := make(TypesettingSettings)
 	var nl, end node.Node
 	for k, v := range ts.Settings {
 		newSettings[k] = v
@@ -1183,6 +1195,30 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				tail = node.Tail(nl)
 			}
 		case *Text:
+			// Leader: create pattern HList + leader Glue instead of recursing.
+			if leaderStr, ok := t.Settings[SettingLeader]; ok {
+				for k, v := range newSettings {
+					if _, found := t.Settings[k]; !found {
+						t.Settings[k] = v
+					}
+				}
+				delete(t.Settings, SettingLeader)
+				nl, err = fe.BuildNodelistFromString(t.Settings, leaderStr.(string))
+				if err != nil {
+					return nil, nil, err
+				}
+				if nl != nil {
+					pattern := node.Hpack(nl)
+					g := node.NewGlue()
+					g.Stretch = bag.Factor
+					g.StretchOrder = node.StretchFilll
+					g.Leader = pattern
+					g.LeaderType = node.LeaderAligned
+					head = node.InsertAfter(head, tail, g)
+					tail = g
+				}
+				continue
+			}
 			if hyperlinkStartNode == nil {
 				// we are within a hyperlink, so lets remove all startstop
 				if hlSetting, ok := t.Settings[SettingHyperlink]; ok {

@@ -52,10 +52,11 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		desc.CreateElement("xmpMM:RenditionClass").SetText("default")
 		desc.CreateElement("xmpMM:VersionID").SetText("1")
 		desc.CreateElement("pdf:Trapped").SetText("False")
-		if d.Format == FormatPDFX3 {
+		switch d.Format {
+		case FormatPDFX3:
 			desc.CreateAttr("xmlns:pdfx", "http://ns.adobe.com/pdfx/1.3/")
 			desc.CreateElement("pdfx:GTS_PDFXVersion").SetText("PDF/X-3:2002")
-		} else if d.Format == FormatPDFX4 {
+		case FormatPDFX4:
 			desc.CreateAttr("xmlns:pdfxid", "http://www.npes.org/pdfx/ns/id/")
 			desc.CreateElement("pdfxid:GTS_PDFXVersion").SetText("PDF/X-4")
 		}
@@ -81,7 +82,6 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		if d.Format == FormatPDFA3b {
 			desc.CreateElement("dc:creator").CreateElement("rdf:Seq").CreateElement("rdf:li").SetText(a)
 		} else {
-
 			desc.CreateElement("dc:creator").SetText(a)
 		}
 	}
