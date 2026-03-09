@@ -994,6 +994,11 @@ func (d *StartStop) Type() Type {
 // Copy creates a deep copy of the node.
 func (d *StartStop) Copy() Node {
 	n := NewStartStop()
+	n.Action = d.Action
+	n.StartNode = d.StartNode
+	n.Position = d.Position
+	n.ShipoutCallback = d.ShipoutCallback
+	n.Value = d.Value
 	return n
 }
 

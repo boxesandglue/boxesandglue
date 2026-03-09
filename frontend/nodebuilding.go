@@ -195,6 +195,8 @@ const (
 	SettingLeader
 	// SettingLeading determines the distance between two base lines (line height).
 	SettingLeading
+	// SettingLetterSpacing adds extra space between glyphs (CSS letter-spacing).
+	SettingLetterSpacing
 	// SettingMarginBottom sets the bottom margin.
 	SettingMarginBottom
 	// SettingMarginLeft sets the left margin.
@@ -217,6 +219,8 @@ const (
 	SettingPaddingRight
 	// SettingPaddingTop is the top padding.
 	SettingPaddingTop
+	// SettingPrerenderedVListID references a pre-rendered VList stored in CSSBuilder.PendingVLists.
+	SettingPrerenderedVListID
 	// SettingPrepend contains a node list which should be prepended to the list.
 	SettingPrepend
 	// SettingPreserveWhitespace makes a monospace paragraph with newlines.
@@ -312,6 +316,8 @@ func (st SettingType) String() string {
 		settingName = "SettingLeader"
 	case SettingLeading:
 		settingName = "SettingLeading"
+	case SettingLetterSpacing:
+		settingName = "SettingLetterSpacing"
 	case SettingMarginBottom:
 		settingName = "SettingMarginBottom"
 	case SettingMarginLeft:
@@ -334,6 +340,8 @@ func (st SettingType) String() string {
 		settingName = "SettingPaddingRight"
 	case SettingPaddingTop:
 		settingName = "SettingPaddingTop"
+	case SettingPrerenderedVListID:
+		settingName = "SettingPrerenderedVListID"
 	case SettingPrepend:
 		settingName = "SettingPrepend"
 	case SettingPreserveWhitespace:
@@ -639,6 +647,56 @@ type ParagraphInfo struct {
 	Widths []bag.ScaledPoint
 }
 
+// stripLeadingTrailingGlue removes collapsible whitespace (Glue and Kern
+// nodes) from the start and end of a node list. This implements CSS
+// white-space collapsing. Non-breaking spaces (Penalty 10000 + Glue) are
+// preserved. StartStop nodes (colors, hyperlinks) are preserved.
+func stripLeadingTrailingGlue(head, tail node.Node) (node.Node, node.Node) {
+	// Strip leading Glue/Kern, but stop at a Penalty (protects NBSP).
+	for head != nil {
+		switch head.(type) {
+		case *node.Glue, *node.Kern:
+			next := head.Next()
+			head = node.DeleteFromList(head, head)
+			if next != nil {
+				next.SetPrev(nil)
+			}
+			head = next
+			continue
+		}
+		break
+	}
+	// Strip trailing Glue/Kern. If a Glue is preceded by a Penalty(10000),
+	// it is a non-breaking space — stop and keep both.
+	for tail != nil && tail != head {
+		switch tail.(type) {
+		case *node.Glue:
+			if p, ok := tail.Prev().(*node.Penalty); ok && p.Penalty >= 10000 {
+				// NBSP: Penalty + Glue pair, keep it
+				return head, tail
+			}
+			prev := tail.Prev()
+			head = node.DeleteFromList(head, tail)
+			tail = prev
+			continue
+		case *node.Kern:
+			prev := tail.Prev()
+			head = node.DeleteFromList(head, tail)
+			tail = prev
+			continue
+		}
+		break
+	}
+	// Edge case: head == tail and it's collapsible
+	if head != nil {
+		switch head.(type) {
+		case *node.Glue, *node.Kern:
+			return nil, nil
+		}
+	}
+	return head, tail
+}
+
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph. It applies hyphenation to the node list.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
@@ -719,6 +777,13 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	// A single start stop node (like a PDF dest)
 	if _, ok := hlist.(*node.StartStop); ok && hlist.Next() == nil {
 		return node.Vpack(hlist), nil, nil
+	}
+
+	// Strip leading and trailing whitespace (Glue/Kern) for CSS-conformant
+	// behavior: spaces at the start/end of a paragraph should not appear.
+	hlist, tail = stripLeadingTrailingGlue(hlist, tail)
+	if hlist == nil {
+		return node.NewVList(), nil, nil
 	}
 
 	Hyphenate(hlist, p.Language)
@@ -853,6 +918,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		fontfeatures = append(fontfeatures, f)
 	}
 	preserveWhitespace := false
+	letterSpacing := bag.ScaledPoint(0)
 	yoffset := bag.ScaledPoint(0)
 	var settingFontFeatures []ot.Feature
 	for k, v := range ts {
@@ -904,6 +970,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// handled below when shaping
 		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft, SettingPaddingRight, SettingPaddingBottom, SettingPaddingTop, SettingPaddingLeft:
 			// ignore
+		case SettingLetterSpacing:
+			letterSpacing = v.(bag.ScaledPoint)
 		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingTabSize, SettingTabSizeSpaces:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
@@ -1026,7 +1094,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		if r.IsSpace {
 			if preserveWhitespace {
 				switch r.Components {
-				case " ":
+				case " ", "\u00A0":
 					g := node.NewRule()
 					g.Width = fnt.Space
 					head = node.InsertAfter(head, cur, g)
@@ -1079,6 +1147,13 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				}
 
 				if lastglue == nil {
+					if r.NoBreak {
+						// NBSP: insert Penalty(10000) to prevent line break
+						p := node.NewPenalty()
+						p.Penalty = 10000
+						head = node.InsertAfter(head, cur, p)
+						cur = p
+					}
 					g := node.NewGlue()
 					g.Attributes = node.H{"origin": "lastglue=nil"}
 					g.Width = fnt.Space
@@ -1108,6 +1183,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if r.Kernafter != 0 {
 				k := node.NewKern()
 				k.Kern = r.Kernafter
+				head = node.InsertAfter(head, cur, k)
+				cur = k
+			}
+			if letterSpacing != 0 {
+				k := node.NewKern()
+				k.Kern = letterSpacing
 				head = node.InsertAfter(head, cur, k)
 				cur = k
 			}

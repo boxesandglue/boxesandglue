@@ -16,6 +16,7 @@ type Atom struct {
 	XOffset    bag.ScaledPoint // Horizontal offset from GPOS positioning
 	YOffset    bag.ScaledPoint // Vertical offset from GPOS positioning (e.g., mark attachment)
 	IsSpace    bool
+	NoBreak    bool // Space that must not be a breakpoint (e.g. NBSP U+00A0)
 	Components string
 	Codepoint  int
 	Hyphenate  bool
@@ -105,6 +106,7 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 		if unicode.IsSpace(char) {
 			glyphs = append(glyphs, Atom{
 				IsSpace:    true,
+				NoBreak:    char == '\u00A0',
 				Advance:    bag.ScaledPoint(advanceWant),
 				Components: string(char),
 				Codepoint:  int(r.GlyphID),

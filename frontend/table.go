@@ -157,9 +157,11 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 				if err != nil {
 					return 0, err
 				}
-				for _, wd := range info.Widths {
-					if wd > maxwd {
-						maxwd = wd
+				if info != nil {
+					for _, wd := range info.Widths {
+						if wd > maxwd {
+							maxwd = wd
+						}
 					}
 				}
 			}
@@ -271,8 +273,12 @@ func (cell *TableCell) build() (*node.VList, error) {
 		r := node.NewRule()
 		r.Height = cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth
 		r.Width = cell.calculatedBorderLeftWidth
-		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderLeftColor).String()
-		r.Post = pdfdraw.New().Restore().String()
+		if cell.BorderLeftColor.Space == color.ColorNone {
+			r.Hide = true
+		} else {
+			r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderLeftColor).String()
+			r.Post = pdfdraw.New().Restore().String()
+		}
 		r.Attributes = node.H{"origin": "left rule"}
 		head = r
 	}
@@ -298,12 +304,16 @@ func (cell *TableCell) build() (*node.VList, error) {
 		r := node.NewRule()
 		r.Height = cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth
 		r.Width = cell.calculatedBorderRightWidth
-		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderRightColor).String()
-		r.Post = pdfdraw.New().Restore().String()
+		if cell.BorderRightColor.Space == color.ColorNone {
+			r.Hide = true
+		} else {
+			r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderRightColor).String()
+			r.Post = pdfdraw.New().Restore().String()
+		}
 		r.Attributes = node.H{"origin": "right rule"}
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
-	hl := node.Hpack(head)
+	hl := node.HpackTo(head, cell.CalculatedWidth)
 	hl.Attributes = node.H{"origin": "hpack cell (2)"}
 	head = hl
 
@@ -314,8 +324,12 @@ func (cell *TableCell) build() (*node.VList, error) {
 		r := node.NewRule()
 		r.Width = hl.Width
 		r.Height = cell.calculatedBorderTopWidth
-		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderTopColor).String()
-		r.Post = pdfdraw.New().Restore().String()
+		if cell.BorderTopColor.Space == color.ColorNone {
+			r.Hide = true
+		} else {
+			r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderTopColor).String()
+			r.Post = pdfdraw.New().Restore().String()
+		}
 		r.Attributes = node.H{"origin": "top rule"}
 		head = node.InsertBefore(head, head, r)
 	}
@@ -326,8 +340,12 @@ func (cell *TableCell) build() (*node.VList, error) {
 		r := node.NewRule()
 		r.Width = hl.Width
 		r.Height = cell.calculatedBorderBottomWidth
-		r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderBottomColor).String()
-		r.Post = pdfdraw.New().Restore().String()
+		if cell.BorderBottomColor.Space == color.ColorNone {
+			r.Hide = true
+		} else {
+			r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderBottomColor).String()
+			r.Post = pdfdraw.New().Restore().String()
+		}
 		r.Attributes = node.H{"origin": "bottom rule"}
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
@@ -407,6 +425,9 @@ func (row *TableRow) build() (*node.HList, error) {
 	var tail node.Node
 	for x := 0; x < row.table.nCol; x++ {
 		cellptr := row.table.cellMatrix[x][row.row]
+		if cellptr.cell == nil {
+			continue
+		}
 		if cellptr.cell.rowStart == row.row {
 			vl, err := cellptr.cell.build()
 			if err != nil {
@@ -529,6 +550,9 @@ func (tbl *Table) analyzeTable() {
 		for x := 0; x < len(row.Cells); x++ {
 			cell := row.Cells[x]
 			cell.row = row
+			if cell.ExtraColspan+x+1 > tbl.nCol {
+				cell.ExtraColspan = tbl.nCol - x - 1
+			}
 			for tbl.cellMatrix[x+extraCol][y].cell != nil {
 				extraCol++
 			}
@@ -553,21 +577,26 @@ func (tbl *Table) analyzeTable() {
 	for row := 0; row < tbl.nRow; row++ {
 		for col := 0; col < tbl.nCol; col++ {
 			cellp := tbl.cellMatrix[col][row]
+			if cellp.cell == nil {
+				continue
+			}
 			for r := 0; r < cellp.rowspan+1; r++ {
 				cellp = tbl.cellMatrix[col][row+r]
 				col += cellp.colspan
 				if col < tbl.nCol-1 {
 					nc := tbl.cellMatrix[col+1][row+r].cell
-					// only append the next cell value if we have not appended it yet
-					found := false
-					for _, c := range cellp.cell.nextCell {
-						if nc == c {
-							found = true
-							break
+					if nc != nil {
+						// only append the next cell value if we have not appended it yet
+						found := false
+						for _, c := range cellp.cell.nextCell {
+							if nc == c {
+								found = true
+								break
+							}
 						}
-					}
-					if !found {
-						cellp.cell.nextCell = append(cellp.cell.nextCell, nc)
+						if !found {
+							cellp.cell.nextCell = append(cellp.cell.nextCell, nc)
+						}
 					}
 				}
 			}
@@ -578,21 +607,26 @@ func (tbl *Table) analyzeTable() {
 	for col := 0; col < tbl.nCol; col++ {
 		for row := 0; row < tbl.nRow; row++ {
 			cellp := tbl.cellMatrix[col][row]
+			if cellp.cell == nil {
+				continue
+			}
 			for c := 0; c < cellp.colspan+1; c++ {
 				cellp = tbl.cellMatrix[col+c][row]
 				row += cellp.rowspan
 				if row < tbl.nRow-1 {
 					nr := tbl.cellMatrix[col+c][row+1].cell
-					// only append the next cell value if we have not appended it yet
-					found := false
-					for _, r := range cellp.cell.nextRow {
-						if nr == r {
-							found = true
-							break
+					if nr != nil {
+						// only append the next cell value if we have not appended it yet
+						found := false
+						for _, r := range cellp.cell.nextRow {
+							if nr == r {
+								found = true
+								break
+							}
 						}
-					}
-					if !found {
-						cellp.cell.nextRow = append(cellp.cell.nextRow, nr)
+						if !found {
+							cellp.cell.nextRow = append(cellp.cell.nextRow, nr)
+						}
 					}
 				}
 			}

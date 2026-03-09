@@ -5,6 +5,7 @@ import "github.com/boxesandglue/boxesandglue/backend/color"
 var (
 	csscolors = map[string]*color.Color{
 		"-":                       {Space: color.ColorNone},
+		"transparent":             {Space: color.ColorNone},
 		"magenta":                 {Space: color.ColorCMYK, M: 1},
 		"cyan":                    {Space: color.ColorCMYK, C: 1},
 		"yellow":                  {Space: color.ColorCMYK, Y: 1},
