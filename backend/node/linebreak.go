@@ -4,21 +4,17 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
 var (
-	positiveInf   = math.Inf(1.0)
-	negativeInf   = math.Inf(-1.0)
-	breakpointIDs chan int
+	positiveInf      = math.Inf(1.0)
+	negativeInf      = math.Inf(-1.0)
+	breakpointNextID atomic.Int64
 )
-
-func init() {
-	breakpointIDs = make(chan int)
-	go genIntegerSequence(breakpointIDs)
-}
 
 // The data structure here used to store the breakpoints is a two way linked
 // list where the "next" pointer builds the chain of active nodes (all nodes to
@@ -29,11 +25,11 @@ func init() {
 
 // Breakpoint is a feasible break point.
 type Breakpoint struct {
-	id                                    int
-	from                                  *Breakpoint
-	next                                  *Breakpoint
 	Position                              Node
 	Pre                                   Node
+	from                                  *Breakpoint
+	next                                  *Breakpoint
+	id                                    int
 	Line                                  int
 	Fitness                               int
 	Width                                 bag.ScaledPoint
@@ -59,12 +55,12 @@ type linebreaker struct {
 	activeNodesA     *Breakpoint
 	inactiveNodesP   *Breakpoint
 	preva            *Breakpoint
+	settings         *LinebreakSettings
 	sumW, sumY, sumZ bag.ScaledPoint
 	sumExpand        bag.ScaledPoint
 	stretchFil       bag.ScaledPoint
 	stretchFill      bag.ScaledPoint
 	stretchFilll     bag.ScaledPoint
-	settings         *LinebreakSettings
 }
 
 func newLinebreaker(settings *LinebreakSettings) *linebreaker {
@@ -164,7 +160,6 @@ func (lb *linebreaker) removeActiveNode(active *Breakpoint) {
 	}
 	active.next = lb.inactiveNodesP
 	lb.inactiveNodesP = active
-
 }
 
 func calculateFitnessClass(r float64) int {
@@ -195,12 +190,12 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 		curpenalty = lb.settings.Hyphenpenalty + t.Penalty
 		curflagged = true
 	}
-
-	if curpenalty >= 0 {
+	switch {
+	case curpenalty >= 0:
 		demerits = onePlusBadnessSquared + curpenalty*curpenalty
-	} else if curpenalty > -10000 && curpenalty < 0 {
+	case curpenalty > -10000 && curpenalty < 0:
 		demerits = onePlusBadnessSquared - curpenalty*curpenalty
-	} else {
+	default:
 		demerits = onePlusBadnessSquared
 	}
 
@@ -332,7 +327,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 			}
 
 			bp := &Breakpoint{
-				id:               <-breakpointIDs,
+				id:               int(breakpointNextID.Add(1)),
 				Position:         n,
 				Pre:              pre,
 				Line:             lastInactive.Line + 1,
@@ -372,7 +367,7 @@ func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*
 	for c := 0; c < 4; c++ {
 		if dc[c] <= dmin+lb.settings.DemeritsFitness {
 			bp := &Breakpoint{
-				id:               <-breakpointIDs,
+				id:               int(breakpointNextID.Add(1)),
 				Position:         n,
 				Pre:              pre,
 				Line:             ac[c].Line + 1,
@@ -413,7 +408,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	}
 	var prevItemBox bool
 	lb := newLinebreaker(settings)
-	lb.activeNodesA = &Breakpoint{id: <-breakpointIDs, Fitness: 1, Position: n}
+	lb.activeNodesA = &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
 	var endNode Node
 
 	for e := n; e != nil; e = e.Next() {

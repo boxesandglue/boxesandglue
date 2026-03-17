@@ -154,16 +154,16 @@ func (fe *Document) AddDataToFontsource(fs *FontSource, fontname string) error {
 
 // FontSource defines a mapping of name to a font source including the font features.
 type FontSource struct {
-	Name              string
-	FontFeatures      []string
 	VariationSettings map[string]float64 // axis tag -> value (e.g., "wght" -> 700)
-	Location          string
-	Data              []byte
-	SizeAdjust        float64 // 1 - SizeAdjust is the relative adjustment.
+	// Used to save a face once it is loaded.
+	face         *pdf.Face
+	Name         string
+	Location     string
+	FontFeatures []string
+	Data         []byte
+	SizeAdjust   float64 // 1 - SizeAdjust is the relative adjustment.
 	// The sub font index within the font file.
 	Index int
-	// Used to save a face once it is loaded.
-	face *pdf.Face
 }
 
 func (fs *FontSource) String() string {
@@ -176,10 +176,10 @@ func (fs *FontSource) String() string {
 
 // FontFamily is a struct that keeps font with different weights and styles together.
 type FontFamily struct {
-	ID           int
-	Name         string
 	doc          *Document
 	familyMember map[FontWeight]map[FontStyle]*FontSource
+	Name         string
+	ID           int
 }
 
 // AddMember adds a member to the font family.
@@ -210,7 +210,8 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 		return nil, ErrEmptyFF
 	}
 	if ff.familyMember[weight] == nil {
-		if weight >= 400 && weight <= 500 {
+		switch {
+		case weight >= 400 && weight <= 500:
 			for i := weight; i <= 500; i++ {
 				if ff.familyMember[i] != nil {
 					weight = i
@@ -229,7 +230,7 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 					goto found
 				}
 			}
-		} else if weight < 400 {
+		case weight < 400:
 			for i := weight; i > 0; i-- {
 				if ff.familyMember[i] != nil {
 					weight = i
@@ -242,7 +243,7 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 					goto found
 				}
 			}
-		} else {
+		default:
 			for i := weight; i < 1000; i++ {
 				if ff.familyMember[i] != nil {
 					weight = i
@@ -298,11 +299,12 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 	case "black", "heavy":
 		return FontWeight900
 	case "bolder":
-		if inheritedValue < 400 {
+		switch {
+		case inheritedValue < 400:
 			return FontWeight400
-		} else if inheritedValue < 600 {
+		case inheritedValue < 600:
 			return FontWeight700
-		} else {
+		default:
 			return FontWeight900
 		}
 	}

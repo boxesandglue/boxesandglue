@@ -171,6 +171,8 @@ const (
 	SettingColspan
 	// SettingDebug can contain debugging information
 	SettingDebug
+	// SettingDest defines a named PDF destination (anchor) for internal links.
+	SettingDest
 	// SettingFontExpansion is the amount of expansion / shrinkage allowed. Value is a float between 0 (no expansion) and 1 (100% of the glyph width).
 	SettingFontExpansion
 	// SettingFontFamily selects a font family.
@@ -292,6 +294,8 @@ func (st SettingType) String() string {
 		settingName = "SettingColspan"
 	case SettingDebug:
 		settingName = "SettingDebug"
+	case SettingDest:
+		settingName = "SettingDest"
 	case SettingFontExpansion:
 		settingName = "SettingFontExpansion"
 	case SettingFontFamily:
@@ -367,7 +371,7 @@ func (st SettingType) String() string {
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
-	return fmt.Sprintf("%s", settingName)
+	return settingName
 }
 
 // TypesettingSettings is a set of settings for text rendering.
@@ -384,8 +388,8 @@ type Text struct {
 // NewText returns an initialized text element.
 func NewText() *Text {
 	te := Text{}
-	te.Settings = make(TypesettingSettings)
-	te.Items = make([]any, 0)
+	te.Settings = make(TypesettingSettings, 32)
+	te.Items = make([]any, 0, 4)
 	return &te
 }
 
@@ -560,14 +564,14 @@ func (ts *Text) String() string {
 
 // Options collects the TypesettingOption for FormatParagraph.
 type Options struct {
-	Alignment      HorizontalAlignment
 	Fontfamily     *FontFamily
+	Language       *lang.Lang
+	Alignment      HorizontalAlignment
 	Fontsize       bag.ScaledPoint
 	hsize          bag.ScaledPoint
 	HyphenPenalty  int
 	IndentLeft     bag.ScaledPoint
 	IndentLeftRows int
-	Language       *lang.Lang
 	Leading        bag.ScaledPoint
 	Tolerance      float64
 }
@@ -642,9 +646,9 @@ func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
 
 // ParagraphInfo contains information about the whole paragraph and each line.
 type ParagraphInfo struct {
+	Widths []bag.ScaledPoint
 	Height bag.ScaledPoint
 	Depth  bag.ScaledPoint
-	Widths []bag.ScaledPoint
 }
 
 // stripLeadingTrailingGlue removes collapsible whitespace (Glue and Kern
@@ -956,6 +960,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingHyperlink:
 			hyperlink = v.(document.Hyperlink)
 			hasHyperlink = true
+		case SettingDest:
+			// handled after node list is built
 		case SettingTextDecorationLine:
 			if underlineType, ok := v.(TextDecorationLine); ok && underlineType == TextDecorationUnderline {
 				hasUnderline = true
@@ -1055,12 +1061,23 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 
 	var head, cur node.Node
+	// Insert a destination anchor if SettingDest is set.
+	if destName, ok := ts[SettingDest]; ok {
+		destStart := node.NewStartStop()
+		destStart.Action = node.ActionDest
+		destStart.Value = destName
+		head = destStart
+	}
 	var hyperlinkStart, hyperlinkStop *node.StartStop
 	if hasHyperlink {
 		hyperlinkStart = node.NewStartStop()
 		hyperlinkStart.Action = node.ActionHyperlink
 		hyperlinkStart.Value = &hyperlink
-		head = hyperlinkStart
+		if head != nil {
+			node.InsertAfter(head, head, hyperlinkStart)
+		} else {
+			head = hyperlinkStart
+		}
 	}
 	var underlineStart *node.StartStop
 	if hasUnderline {
@@ -1236,6 +1253,16 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	var hyperlinkStartNode *node.StartStop
 	var hyperlinkDest string
 
+	// Insert a destination anchor if SettingDest is set on this text block.
+	if destName, ok := ts.Settings[SettingDest]; ok {
+		destStart := node.NewStartStop()
+		destStart.Action = node.ActionDest
+		destStart.Value = destName
+		head = node.InsertAfter(head, tail, destStart)
+		tail = destStart
+		delete(newSettings, SettingDest)
+	}
+
 	// Prepend custom nodes (e.g., list markers) before processing items.
 	if prep, ok := ts.Settings[SettingPrepend]; ok {
 		if pn, ok := prep.(node.Node); ok {
@@ -1326,9 +1353,10 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 					t.Settings[k] = v
 				}
 			}
-			// we don't want to inherit hyperlinks or prepend (list markers)
+			// we don't want to inherit hyperlinks, prepend (list markers), or destinations
 			delete(t.Settings, SettingHyperlink)
 			delete(t.Settings, SettingPrepend)
+			delete(t.Settings, SettingDest)
 			nl, end, err = fe.Mknodes(t)
 			if err != nil {
 				return nil, nil, err

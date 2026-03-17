@@ -58,7 +58,7 @@ func TestHyphenate(t *testing.T) {
 
 	var dummy bytes.Buffer
 	doc := document.NewDocument(&dummy)
-	l, err := doc.LoadPatternFile(filepath.Join("testdata/hyph-en-us.pat.txt"), "dummylang")
+	l, err := doc.LoadPatternFile(filepath.Join("testdata", "hyph-en-us.pat.txt"), "dummylang")
 	if err != nil {
 		t.Errorf("unexpected error %v", err)
 	}

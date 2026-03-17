@@ -12,46 +12,51 @@ import (
 
 // Table represents tabular material to be typeset.
 type Table struct {
-	MaxWidth     bag.ScaledPoint
-	Stretch      bool
 	FontFamily   *FontFamily
-	FontSize     bag.ScaledPoint
-	Leading      bag.ScaledPoint
+	doc          *Document
 	Rows         TableRows
 	ColSpec      []ColSpec
-	doc          *Document
 	columnWidths []bag.ScaledPoint
 	rowHeights   []bag.ScaledPoint
+	cellMatrix   matrix
+	MaxWidth     bag.ScaledPoint
+	FontSize     bag.ScaledPoint
+	Leading      bag.ScaledPoint
 	nCol         int
 	nRow         int
-	cellMatrix   matrix
+	Stretch      bool
+	HeaderRows   int // number of initial rows that are header rows (from <thead>)
 }
 
 // TableRow represents a row in a table.
 type TableRow struct {
+	table            *Table
 	Cells            []*TableCell
 	CalculatedHeight bag.ScaledPoint
 	VAlign           VerticalAlignment
-	table            *Table
 	row              int
 }
 
 // TableCell represents a table cell
 type TableCell struct {
 	BackgroundColor             *color.Color
-	BorderTopWidth              bag.ScaledPoint
-	BorderBottomWidth           bag.ScaledPoint
-	BorderLeftWidth             bag.ScaledPoint
-	BorderRightWidth            bag.ScaledPoint
 	BorderTopColor              *color.Color
 	BorderBottomColor           *color.Color
 	BorderLeftColor             *color.Color
 	BorderRightColor            *color.Color
+	row                         *TableRow
+	vlist                       *node.VList
+	Contents                    []any
+	nextCell                    []*TableCell
+	nextRow                     []*TableCell
+	BorderTopWidth              bag.ScaledPoint
+	BorderBottomWidth           bag.ScaledPoint
+	BorderLeftWidth             bag.ScaledPoint
+	BorderRightWidth            bag.ScaledPoint
 	CalculatedWidth             bag.ScaledPoint
 	CalculatedHeight            bag.ScaledPoint
 	HAlign                      HorizontalAlignment
 	VAlign                      VerticalAlignment
-	Contents                    []any
 	ExtraColspan                int
 	ExtraRowspan                int
 	PaddingTop                  bag.ScaledPoint
@@ -62,12 +67,9 @@ type TableCell struct {
 	calculatedBorderRightWidth  bag.ScaledPoint
 	calculatedBorderTopWidth    bag.ScaledPoint
 	calculatedBorderBottomWidth bag.ScaledPoint
-	row                         *TableRow
-	rowStart                    int // top left corner
-	colStart                    int // top left corner
-	nextCell                    []*TableCell
-	nextRow                     []*TableCell
-	vlist                       *node.VList
+	rowStart                    int  // top left corner
+	colStart                    int  // top left corner
+	IsHeader                    bool // true for <th> cells
 }
 
 // ColSpec represents common traits for a column such as width.
@@ -718,7 +720,7 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 			if cs.size > sumWd {
 				stretch := (cs.size - sumWd) / bag.ScaledPoint(cs.end-cs.start+1)
 				for r := cs.start; r <= cs.end; r++ {
-					colmax[r] = colmax[r] + stretch
+					colmax[r] += stretch
 				}
 			}
 		}

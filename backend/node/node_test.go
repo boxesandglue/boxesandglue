@@ -151,7 +151,8 @@ favor|ite play|thing.`
 
 	var prevGlyph rune
 	for _, r := range str {
-		if r == 32 || r == 10 || r == 9 {
+		switch r {
+		case 32, 10, 9:
 			g := NewGlue()
 			switch prevGlyph {
 			case ',':
@@ -174,16 +175,16 @@ favor|ite play|thing.`
 			head = InsertAfter(head, cur, g)
 			cur = g
 			sumwd += g.Width
-		} else if r == '|' {
+		case '|':
 			p := NewDisc()
 			p.Pre = hyphenchar.Copy()
 			InsertAfter(head, cur, p)
 			cur = p
-		} else if r == '*' {
+		case '*':
 			p := NewDisc()
 			InsertAfter(head, cur, p)
 			cur = p
-		} else {
+		default:
 			g := NewGlyph()
 			g.Width = bag.ScaledPoint(widths[r]) * bag.Factor
 			head = InsertAfter(head, cur, g)
@@ -244,9 +245,7 @@ func TestLinebreakOneWord(t *testing.T) {
 	_, bps := Linebreak(head, settings)
 	if len(bps) != 1 {
 		t.Errorf("want 1 breakpoint, got %d", len(bps))
-	} else {
-		if bps[0].R != 0 {
-			t.Errorf("breakpoint 0.R = %f, want 0", bps[0].R)
-		}
+	} else if bps[0].R != 0 {
+		t.Errorf("breakpoint 0.R = %f, want 0", bps[0].R)
 	}
 }

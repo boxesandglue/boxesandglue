@@ -8,8 +8,8 @@ import (
 // Color holds color values for the document. All intensities are from 0 to 1.
 // Basecolor is a spot color name such as Pantone 119 for example.
 type Color struct {
-	Space       Space
 	Basecolor   string
+	Space       Space
 	SpotcolorID int
 	C           float64
 	M           float64

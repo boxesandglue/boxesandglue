@@ -41,7 +41,7 @@ func (tr *SVGTextRenderer) UsedFaces() []*pdf.Face {
 
 // RenderText implements svgreader.TextRenderer. It shapes the text using
 // HarfBuzz (via textshape) and returns PDF text operators.
-func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontFamily, fontWeight, fontStyle string, fill svgreader.Color) string {
+func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontFamily, fontWeight, fontStyle, textAnchor string, fill svgreader.Color) string {
 	ff := tr.resolveFamily(fontFamily)
 	if ff == nil {
 		return ""
@@ -69,6 +69,19 @@ func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontF
 
 	fnt := font.NewFont(face, bag.ScaledPointFromFloat(fontSize))
 	atoms := fnt.Shape(text, features, nil)
+
+	// Calculate total text width for text-anchor adjustment
+	if textAnchor == "middle" || textAnchor == "end" {
+		var totalWidth float64
+		for _, atom := range atoms {
+			totalWidth += atom.Advance.ToPT() + atom.Kernafter.ToPT()
+		}
+		if textAnchor == "middle" {
+			x -= totalWidth / 2
+		} else {
+			x -= totalWidth
+		}
+	}
 
 	var buf strings.Builder
 

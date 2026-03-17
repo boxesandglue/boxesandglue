@@ -9,10 +9,10 @@ import (
 
 // Lang represents a language for for hyphenation
 type Lang struct {
+	lang           *hyphenation.Lang
+	Name           string
 	Lefthyphenmin  int
 	Righthyphenmin int
-	Name           string
-	lang           *hyphenation.Lang
 }
 
 // LoadPatternFile loads the hyphenation patterns with the given file name
@@ -58,7 +58,7 @@ func (l *Lang) Hyphenate(word string) []int {
 	// so we change the slice
 	if len(hyphenpoints) > 0 {
 		for i := len(hyphenpoints) - 1; i > 0; i-- {
-			hyphenpoints[i] = hyphenpoints[i] - hyphenpoints[i-1]
+			hyphenpoints[i] -= hyphenpoints[i-1]
 		}
 	}
 	return hyphenpoints

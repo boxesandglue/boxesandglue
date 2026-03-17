@@ -12,8 +12,8 @@ type ColorProfile struct {
 	Registry   string
 	Info       string
 	Condition  string
-	Colors     int
 	data       []byte
+	Colors     int
 }
 
 func (cp *ColorProfile) String() string {

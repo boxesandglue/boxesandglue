@@ -10,6 +10,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/document"
 	"github.com/boxesandglue/boxesandglue/backend/font"
+	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/textshape/ot"
 )
 
@@ -17,15 +18,15 @@ import (
 type Document struct {
 	FontFamilies          map[string]*FontFamily
 	Doc                   *document.PDFDocument
-	DefaultFeatures       []ot.Feature
 	fontlocal             map[string]*FontSource
-	suppressInfo          bool
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
 	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
 	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
+	DefaultFeatures       []ot.Feature
 	dirstack              []string
 	postLinebreakCallback []PostLinebreakCallbackFunc
+	suppressInfo          bool
 }
 
 func initDocument(w io.Writer) (*Document, error) {
@@ -156,3 +157,29 @@ const (
 	// VAlignBottom aligns the contents at the bottom of the surrounding box.
 	VAlignBottom
 )
+
+// NewStructureElement creates a new structure element with the given role.
+func (d *Document) NewStructureElement(role string) *document.StructureElement {
+	return &document.StructureElement{Role: role}
+}
+
+// SetRootStructureElement sets the root structure element for the document.
+func (d *Document) SetRootStructureElement(se *document.StructureElement) {
+	d.Doc.RootStructureElement = se
+}
+
+// TagVList associates a VList with a structure element for PDF tagging.
+func (d *Document) TagVList(vl *node.VList, se *document.StructureElement) {
+	if vl.Attributes == nil {
+		vl.Attributes = node.H{}
+	}
+	vl.Attributes["tag"] = se
+}
+
+// MarkAsArtifact marks a VList as a PDF artifact (decorative content).
+func (d *Document) MarkAsArtifact(vl *node.VList, artifactType document.ArtifactType) {
+	if vl.Attributes == nil {
+		vl.Attributes = node.H{}
+	}
+	vl.Attributes["artifact"] = artifactType
+}

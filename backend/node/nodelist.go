@@ -20,20 +20,20 @@ const (
 
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
-	SqueezeOverfullBoxes  bool
+	LineEndGlue           *Glue
+	LineStartGlue         *Glue
 	DemeritsFitness       int
 	DoublehyphenDemerits  int
-	HangingPunctuationEnd bool
 	FontExpansion         float64
 	HSize                 bag.ScaledPoint
 	Hyphenpenalty         int
 	Indent                bag.ScaledPoint
 	IndentRows            int
-	LineEndGlue           *Glue
 	LineHeight            bag.ScaledPoint
-	LineStartGlue         *Glue
-	OmitLastLeading       bool
 	Tolerance             float64
+	SqueezeOverfullBoxes  bool
+	HangingPunctuationEnd bool
+	OmitLastLeading       bool
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.
@@ -200,7 +200,7 @@ func Hpack(firstNode Node) *HList {
 		case *Disc:
 			// Discretionary nodes do not contribute to box dimensions
 		case *Glyph:
-			sumwd = sumwd + v.Width
+			sumwd += v.Width
 			if v.Height > maxht {
 				maxht = v.Height
 			}
@@ -208,9 +208,9 @@ func Hpack(firstNode Node) *HList {
 				maxdp = v.Depth
 			}
 		case *Glue:
-			sumwd = sumwd + v.Width
+			sumwd += v.Width
 		case *HList:
-			sumwd = sumwd + v.Width
+			sumwd += v.Width
 			if v.Height > maxht {
 				maxht = v.Height
 			}
@@ -351,12 +351,13 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		}
 	}
 	var r float64
-	if width == sumwd {
+	switch {
+	case width == sumwd:
 		r = 1
-	} else if sumwd < width {
+	case sumwd < width:
 		// a short line
 		r = float64(width-sumwd) / float64(stretchability)
-	} else {
+	default:
 		// a long line
 		r = float64(width-sumwd) / float64(shrinkability)
 	}
@@ -378,11 +379,12 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		}
 	}
 	for _, g := range glues {
-		if r >= 0 && highestOrderStretch == g.StretchOrder {
+		switch {
+		case r >= 0 && highestOrderStretch == g.StretchOrder:
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
-		} else if r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder {
+		case r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder:
 			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
-		} else if r < -1 && highestOrderShrink == g.ShrinkOrder {
+		case r < -1 && highestOrderShrink == g.ShrinkOrder:
 			if hs.squeezeOverfullBoxes {
 				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 			}

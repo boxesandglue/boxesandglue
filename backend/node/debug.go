@@ -44,8 +44,8 @@ func DebugToFile(n Node, fn string) error {
 }
 
 type kv struct {
-	key   string
 	value any
+	key   string
 }
 
 func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv, extraAttributes H) error {
@@ -63,7 +63,7 @@ func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv
 	for _, k := range keys {
 		start.Attr = append(start.Attr, xml.Attr{
 			Name:  xml.Name{Local: k},
-			Value: fmt.Sprint(fmt.Sprintf("%v", extraAttributes[k])),
+			Value: fmt.Sprintf("%v", extraAttributes[k]),
 		})
 	}
 	return enc.EncodeToken(*start)
@@ -77,24 +77,24 @@ func debugNode(n Node, enc *xml.Encoder) {
 		switch v := e.(type) {
 		case *VList:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"wd", v.Width},
-				{"ht", v.Height},
-				{"dp", v.Depth},
+				{key: "id", value: v.ID},
+				{key: "wd", value: v.Width},
+				{key: "ht", value: v.Height},
+				{key: "dp", value: v.Depth},
 			}, v.Attributes)
 			debugNode(v.List, enc)
 		case *HList:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"wd", v.Width},
-				{"ht", v.Height},
-				{"dp", v.Depth},
-				{"r", v.GlueSet},
+				{key: "id", value: v.ID},
+				{key: "wd", value: v.Width},
+				{key: "ht", value: v.Height},
+				{key: "dp", value: v.Depth},
+				{key: "r", value: v.GlueSet},
 			}, v.Attributes)
 			debugNode(v.List, enc)
 		case *Disc:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
+				{key: "id", value: v.ID},
 			}, v.Attributes)
 		case *Glyph:
 			var fontid int
@@ -102,23 +102,23 @@ func debugNode(n Node, enc *xml.Encoder) {
 				fontid = fnt.Face.FaceID
 			}
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"components", v.Components},
-				{"wd", v.Width},
-				{"ht", v.Height},
-				{"dp", v.Depth},
-				{"codepoint", v.Codepoint},
-				{"face", fontid},
+				{key: "id", value: v.ID},
+				{key: "components", value: v.Components},
+				{key: "wd", value: v.Width},
+				{key: "ht", value: v.Height},
+				{key: "dp", value: v.Depth},
+				{key: "codepoint", value: v.Codepoint},
+				{key: "face", value: fontid},
 			}, v.Attributes)
 		case *Glue:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"wd", v.Width},
-				{"stretch", v.Stretch},
-				{"stretchorder", v.StretchOrder},
-				{"shrink", v.Shrink},
-				{"shrinkorder", v.ShrinkOrder},
-				{"subtype", v.Subtype},
+				{key: "id", value: v.ID},
+				{key: "wd", value: v.Width},
+				{key: "stretch", value: v.Stretch},
+				{key: "stretchorder", value: v.StretchOrder},
+				{key: "shrink", value: v.Shrink},
+				{key: "shrinkorder", value: v.ShrinkOrder},
+				{key: "subtype", value: v.Subtype},
 			}, v.Attributes)
 		case *Image:
 			var filename string
@@ -128,15 +128,15 @@ func debugNode(n Node, enc *xml.Encoder) {
 				filename = "(image object not set)"
 			}
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"filename", filename},
-				{"wd", v.Width},
-				{"ht", v.Height},
+				{key: "id", value: v.ID},
+				{key: "filename", value: filename},
+				{key: "wd", value: v.Width},
+				{key: "ht", value: v.Height},
 			}, v.Attributes)
 		case *Kern:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"kern", v.Kern},
+				{key: "id", value: v.ID},
+				{key: "kern", value: v.Kern},
 			}, v.Attributes)
 		case *Lang:
 			var langname string
@@ -146,21 +146,21 @@ func debugNode(n Node, enc *xml.Encoder) {
 				langname = "-"
 			}
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"lang", langname},
+				{key: "id", value: v.ID},
+				{key: "lang", value: langname},
 			}, v.Attributes)
 		case *Penalty:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"penalty", v.Penalty},
-				{"width", v.Width},
+				{key: "id", value: v.ID},
+				{key: "penalty", value: v.Penalty},
+				{key: "width", value: v.Width},
 			}, v.Attributes)
 		case *Rule:
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"wd", v.Width},
-				{"ht", v.Height},
-				{"dp", v.Depth},
+				{key: "id", value: v.ID},
+				{key: "wd", value: v.Width},
+				{key: "ht", value: v.Height},
+				{key: "dp", value: v.Depth},
 			}, v.Attributes)
 		case *StartStop:
 			startNode := "-"
@@ -168,9 +168,9 @@ func debugNode(n Node, enc *xml.Encoder) {
 				startNode = fmt.Sprintf("%d", v.StartNode.ID)
 			}
 			err = encodeAttributes(enc, &start, []kv{
-				{"id", v.ID},
-				{"action", v.Action},
-				{"start", startNode},
+				{key: "id", value: v.ID},
+				{key: "action", value: v.Action},
+				{key: "start", value: startNode},
 			}, v.Attributes)
 		default:
 			err = enc.EncodeToken(start)

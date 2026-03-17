@@ -60,6 +60,8 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 			desc.CreateAttr("xmlns:pdfxid", "http://www.npes.org/pdfx/ns/id/")
 			desc.CreateElement("pdfxid:GTS_PDFXVersion").SetText("PDF/X-4")
 		}
+	case FormatPDFUA:
+		desc.CreateElement("pdfuaid:part").SetText("1")
 	}
 
 	desc.CreateElement("xmpMM:DocumentID").SetText("uuid:" + docID)
@@ -70,11 +72,12 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 	desc.CreateElement("xmp:CreatorTool").SetText(d.Creator)
 	desc.CreateElement("pdf:Producer").SetText(d.producer)
 	if t := d.Title; t != "" {
-		if d.Format == FormatPDFA3b {
+		switch d.Format {
+		case FormatPDFA3b, FormatPDFUA:
 			li := desc.CreateElement("dc:title").CreateElement("rdf:Alt").CreateElement("rdf:li")
 			li.CreateAttr("xml:lang", "x-default")
 			li.SetText(t)
-		} else {
+		default:
 			desc.CreateElement("dc:title").SetText(t)
 		}
 	}

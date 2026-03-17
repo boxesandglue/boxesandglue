@@ -1,6 +1,7 @@
 package font
 
 import (
+	"sync"
 	"unicode"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
@@ -8,31 +9,35 @@ import (
 	"github.com/boxesandglue/textshape/ot"
 )
 
+var bufPool = sync.Pool{
+	New: func() any { return ot.NewBuffer() },
+}
+
 // An Atom contains size information about the glyphs as a result of Shape
 type Atom struct {
+	Components string
 	Advance    bag.ScaledPoint
 	Height     bag.ScaledPoint
 	Depth      bag.ScaledPoint
 	XOffset    bag.ScaledPoint // Horizontal offset from GPOS positioning
 	YOffset    bag.ScaledPoint // Vertical offset from GPOS positioning (e.g., mark attachment)
+	Codepoint  int
+	Kernafter  bag.ScaledPoint
 	IsSpace    bool
 	NoBreak    bool // Space that must not be a breakpoint (e.g. NBSP U+00A0)
-	Components string
-	Codepoint  int
 	Hyphenate  bool
-	Kernafter  bag.ScaledPoint
 }
 
 // Font is the main structure of a font instance
 type Font struct {
+	Face         *pdf.Face
+	Hyphenchar   Atom
+	SpaceChar    Atom
 	Space        bag.ScaledPoint
 	SpaceStretch bag.ScaledPoint
 	SpaceShrink  bag.ScaledPoint
 	Size         bag.ScaledPoint
 	Depth        bag.ScaledPoint
-	Face         *pdf.Face
-	Hyphenchar   Atom
-	SpaceChar    Atom
 	Mag          int
 }
 
@@ -79,7 +84,8 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 		}
 	}
 	runes := []rune(text)
-	buf := ot.NewBuffer()
+	buf := bufPool.Get().(*ot.Buffer)
+	buf.Reset()
 	buf.AddString(text)
 	buf.Flags = ot.BufferFlagRemoveDefaultIgnorables
 	face := f.Face.OTFace()
@@ -144,5 +150,6 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 			glyphs = append(glyphs, g)
 		}
 	}
+	bufPool.Put(buf)
 	return glyphs
 }

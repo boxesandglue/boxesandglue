@@ -24,15 +24,13 @@ const (
 	OneCM bag.ScaledPoint = 1857685
 )
 
-var (
-	cutmarkLength bag.ScaledPoint = OneCM
-)
+var cutmarkLength bag.ScaledPoint = OneCM
 
 // Object contains a vertical list and coordinates to be placed on a page.
 type Object struct {
+	Vlist *node.VList
 	X     bag.ScaledPoint
 	Y     bag.ScaledPoint
-	Vlist *node.VList
 }
 
 // A Hyperlink represents a clickable thing in the PDF.
@@ -46,18 +44,20 @@ type Hyperlink struct {
 // A Page struct represents a page in a PDF file.
 type Page struct {
 	document          *PDFDocument
-	Height            bag.ScaledPoint
-	Width             bag.ScaledPoint
-	ExtraOffset       bag.ScaledPoint
+	Userdata          map[any]any
+	outputDebug       *outputDebug
 	Background        []Object
 	Objects           []Object
-	Userdata          map[any]any
-	Finished          bool
 	StructureElements []*StructureElement
 	Annotations       []pdf.Annotation
 	Spotcolors        []*color.Color
+	Height            bag.ScaledPoint
+	Width             bag.ScaledPoint
+	ExtraOffset       bag.ScaledPoint
 	Objectnumber      pdf.Objectnumber
-	outputDebug       *outputDebug
+	nextMCID          int
+	pageIndex         int // index of this page in PDFDocument.Pages
+	Finished          bool
 }
 
 // Format returns the PDF flavor
@@ -94,20 +94,29 @@ const (
 // objectContext contains information about the current position of the cursor
 // and about the images and faces used in the object.
 type objectContext struct {
+	s                io.Writer
 	p                *Page
-	pageObjectnumber pdf.Objectnumber
 	currentFont      *font.Font
-	currentExpand    int
-	currentVShift    bag.ScaledPoint
-	textmode         TextScope
 	usedFaces        map[*pdf.Face]bool
 	usedImages       map[*pdf.Imagefile]bool
 	tag              *StructureElement
-	s                io.Writer
-	shiftX           bag.ScaledPoint
+	artifactType     ArtifactType
 	outputDebug      *outputDebug
 	curOutputDebug   *outputDebug
+	pageObjectnumber pdf.Objectnumber
+	currentExpand    int
+	currentVShift    bag.ScaledPoint
+	shiftX           bag.ScaledPoint
+	textmode         TextScope
 	hasNewline       bool
+	inArtifact       bool
+}
+
+// emitBDC writes a BDC operator with MCID. ActualText is placed on the
+// structure element object only (Table 355), not in the BDC properties
+// dictionary (see pdf-association/pdf-issues#60).
+func (oc *objectContext) emitBDC(se *StructureElement, mcid int) {
+	oc.writef("/%s <</MCID %d>> BDC\n", se.Role, mcid)
 }
 
 // writef writes a formatted string to the object stream
@@ -160,7 +169,6 @@ func (od outputDebug) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	for _, key := range keys {
 		startElt.Attr = append(startElt.Attr,
 			xml.Attr{Name: xml.Name{Local: key}, Value: fmt.Sprint(od.Attributes[key])})
-
 	}
 	e.EncodeToken(startElt)
 	for _, itm := range od.Items {
@@ -194,20 +202,12 @@ func (oc *objectContext) gotoTextMode(newMode TextScope) {
 			oc.newline()
 			oc.writef("ET")
 			oc.newline()
-			if oc.tag != nil {
-				oc.writef("EMC")
-				oc.tag = nil
-			}
-			oc.newline()
 			oc.textmode = ScopePage
 		}
 		return
 	}
 	if newMode < oc.textmode {
 		if oc.textmode == ScopePage {
-			if oc.tag != nil {
-				oc.writef("/%s<</MCID %d>>BDC ", oc.tag.Role, oc.tag.ID)
-			}
 			oc.writef("BT ")
 			if oc.currentExpand != 0 {
 				oc.writef("100 Tz ")
@@ -266,7 +266,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						"fontsize":   v.Font.Size,
 						"faceid":     v.Font.Face.FaceID,
 						"components": v.Components,
-					}}
+					},
+				}
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			if v.Font != oc.currentFont {
@@ -326,7 +327,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.gotoTextMode(ScopeArray)
 				oc.writef(" %d ", -xOffsetMove)
 			}
-			sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+			sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
 			var od *outputDebug
 			if oc.p.document.DumpOutput {
@@ -334,7 +335,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					Name: "glue",
 					Attributes: map[string]any{
 						"width": v.Width,
-					}}
+					},
+				}
 
 				if origin, ok := v.Attributes["origin"]; ok {
 					od.Attributes["origin"] = origin
@@ -363,9 +365,22 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				if oc.textmode < ScopeText {
 					if curFont := oc.currentFont; curFont != nil {
 						if oc.currentFont.Size != 0 {
+							// Emit a space glyph so that PDF readers can
+							// extract proper word boundaries.
+							spaceGID := curFont.Face.Codepoint(' ')
+							if spaceGID != 0 {
+								curFont.Face.RegisterCodepoint(spaceGID)
+								oc.gotoTextMode(ScopeGlyph)
+								oc.writef("%04x", spaceGID)
+							}
 							adv := v.Width.ToPT() / oc.currentFont.Size.ToPT()
 							scale := curFont.Face.Scale
-							move := int(-1 * 1000 / scale * adv)
+							// Subtract space glyph advance from the move
+							var spaceAdv float64
+							if spaceGID != 0 {
+								spaceAdv = curFont.Face.AdvanceWidth(spaceGID)
+							}
+							move := int(-1 * 1000 / scale * (adv - spaceAdv))
 							if move != 0 {
 								oc.gotoTextMode(ScopeArray)
 								oc.writef(" %d ", move)
@@ -373,7 +388,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						}
 					}
 				}
-				sumX = sumX + bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 			}
 		case *node.Rule:
 			if oc.p.document.DumpOutput {
@@ -383,13 +398,19 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						"width":  v.Width,
 						"height": v.Height,
 						"depth":  v.Depth,
-					}}
+					},
+				}
 				if origin, ok := v.Attributes["origin"]; ok {
 					od.Attributes["origin"] = origin
 				}
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			oc.gotoTextMode(ScopePage)
+			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
+			hRuleNeedsArtifact := oc.p.document.Format == FormatPDFUA && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
+			if hRuleNeedsArtifact {
+				oc.writef("/Artifact BMC\n")
+			}
 			posX := x + sumX
 			posY := y
 			if hlist.VAlign == node.VAlignTop {
@@ -416,6 +437,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			sumX += v.Width
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
 			oc.write(strings.Join(pdfinstructions, " "))
+			if hRuleNeedsArtifact {
+				oc.writef("EMC\n")
+			}
 		case *node.Image:
 			oc.gotoTextMode(ScopePage)
 			if v.Used {
@@ -447,8 +471,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			} else {
 				startNode = v
 			}
-
-			if action == node.ActionHyperlink {
+			switch action {
+			case node.ActionHyperlink:
 				hyperlink := startNode.Value.(*Hyperlink)
 				if isStartNode {
 					hyperlink.startposX = posX
@@ -471,9 +495,37 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					}
 
 					if hyperlink.Local != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(hyperlink.Local))
+						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(hyperlink.Local)))
 					} else if hyperlink.URI != "" {
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
+					}
+					// PDF/UA: link annotations need Contents and StructParent
+					if oc.p.document.Format == FormatPDFUA {
+						contents := hyperlink.URI
+						if contents == "" {
+							contents = hyperlink.Local
+						}
+						a.Dictionary["Contents"] = pdf.Serialize(pdf.String(contents))
+						// Reserve an object number for the annotation
+						a.Objectnumber = oc.p.document.PDFWriter.NextObject()
+						// Create a Link SE and register the OBJR
+						linkSE := &StructureElement{Role: "Link"}
+						if oc.tag != nil {
+							oc.tag.AddChild(linkSE)
+						} else if oc.p.document.RootStructureElement != nil {
+							oc.p.document.RootStructureElement.AddChild(linkSE)
+						}
+						sp := oc.p.document.newPDFStructureObject()
+						sp.pageObjnum = oc.pageObjectnumber
+						sp.pageIndex = oc.p.pageIndex
+						sp.annotSE = linkSE
+						oc.p.document.pdfStructureObjects = append(oc.p.document.pdfStructureObjects, sp)
+						a.Dictionary["StructParent"] = fmt.Sprintf("%d", sp.id)
+						linkSE.objRefs = append(linkSE.objRefs, objRefEntry{
+							pageIndex:    oc.p.pageIndex,
+							annotObjNum:  a.Objectnumber,
+							structParent: sp.id,
+						})
 					}
 
 					oc.p.Annotations = append(oc.p.Annotations, a)
@@ -482,7 +534,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 					}
 				}
-			} else if action == node.ActionDest {
+			case node.ActionDest:
 				// dest should be in the top left corner of the current position
 				y := posY + hlist.Height + hlist.Depth
 				var destname string
@@ -496,6 +548,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					}
 					destname = t
 					oc.p.document.PDFWriter.NameDestinations[d.Name] = d
+				case int:
+					if oc.p.document.numDestinations == nil {
+						oc.p.document.numDestinations = make(map[int]NumDest)
+					}
+					oc.p.document.numDestinations[t] = NumDest{
+						PageObjectnumber: oc.pageObjectnumber,
+						Num:              t,
+						X:                posX.ToPT(),
+						Y:                y.ToPT(),
+					}
+					destname = fmt.Sprintf("numdest-%d", t)
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
@@ -507,11 +570,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.writef(" 1 0 0 1 %s %s cm ", -posX, -y)
 					oc.debugAt(posX, y, destname)
 				}
-			} else if action == node.ActionNone || action == node.ActionUserSetting {
+			case node.ActionNone, node.ActionUserSetting:
 				// ignore
-			} else {
+			default:
 				bag.Logger.Warn("start/stop node: unhandled action", "action", action)
 			}
+
 			switch v.Position {
 			case node.PDFOutputPage:
 				oc.gotoTextMode(ScopePage)
@@ -526,8 +590,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if v.ShipoutCallback != nil {
 				oc.write(v.ShipoutCallback(v))
 			}
-			switch v.Position {
-			case node.PDFOutputHere:
+			if v.Position == node.PDFOutputHere {
 				oc.moveto(-posX, -posY)
 			}
 		case *node.Kern:
@@ -536,7 +599,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					Name: "kern",
 					Attributes: map[string]any{
 						"kern": v.Kern,
-					}}
+					},
+				}
 				if origin, ok := v.Attributes["origin"]; ok {
 					od.Attributes["origin"] = origin
 				}
@@ -562,7 +626,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		case *node.HList:
 			moveY := y
 			if hlist.VAlign == node.VAlignTop {
-				moveY = moveY - v.Height
+				moveY -= v.Height
 			}
 			oc.outputHorizontalItems(x+sumX, moveY, v)
 			sumX += v.Width
@@ -575,7 +639,69 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				moveY = y
 			}
 			x += sumX
+
+			// PDF/UA: check for tag/artifact on child VLists
+			var childTag *StructureElement
+			var childArtifact bool
+			var childArtifactType ArtifactType
+			if v.Attributes != nil {
+				if r, ok := v.Attributes["tag"]; ok {
+					childTag = r.(*StructureElement)
+				}
+				if a, ok := v.Attributes["artifact"]; ok {
+					childArtifactType = a.(ArtifactType)
+					childArtifact = true
+				}
+			}
+			if oc.p.document.Format == FormatPDFUA && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+				if !vlistHasTaggedDescendant(v) {
+					childArtifact = true
+				}
+			}
+
+			if childArtifact {
+				if childArtifactType != "" {
+					oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
+				} else {
+					oc.writef("/Artifact BMC\n")
+				}
+			} else if childTag != nil {
+				mcid := oc.p.nextMCID
+				oc.p.nextMCID++
+				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
+				childTag.ID = mcid
+				oc.p.StructureElements = append(oc.p.StructureElements, childTag)
+				oc.emitBDC(childTag, mcid)
+				// Set BBox for Figure elements (PDF/UA requirement)
+				if childTag.Role == "Figure" {
+					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+					llx := (x + v.ShiftX).ToPT()
+					lly := pageHeightPT - moveY.ToPT()
+					urx := llx + v.Width.ToPT()
+					ury := lly + (v.Height + v.Depth).ToPT()
+					childTag.BBox = [4]float64{llx, lly, urx, ury}
+					childTag.HasBBox = true
+				}
+			}
+
+			savedTag := oc.tag
+			savedInArtifact := oc.inArtifact
+			if childTag != nil {
+				oc.tag = childTag
+			}
+			if childArtifact {
+				oc.inArtifact = true
+			}
+
 			oc.outputVerticalItems(x+v.ShiftX, moveY, v)
+
+			if childTag != nil || childArtifact {
+				oc.gotoTextMode(ScopePage)
+				oc.writef("EMC\n")
+			}
+			oc.tag = savedTag
+			oc.inArtifact = savedInArtifact
+
 			sumX += v.Width
 			x = saveX
 			y = saveY
@@ -607,6 +733,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 		oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 		oc.curOutputDebug = od
 	}
+	// PDF/UA: track whether we're inside an untagged container
+	// (no tag, no artifact set). Content in such containers that
+	// is not a tagged child VList must be wrapped as Artifact.
+	untaggedContainer := oc.p.document.Format == FormatPDFUA && oc.tag == nil && !oc.inArtifact
+
 	sumY := bag.ScaledPoint(0)
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
 		switch v := vItem.(type) {
@@ -622,7 +753,18 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				r.Pre = p.String()
 				v.List = node.InsertBefore(v.List, v.List, r)
 			}
+			// PDF/UA: HList inside untagged container needs Artifact wrapping
+			// (unless it contains tagged descendants)
+			needsArtifact := untaggedContainer && !hlistHasTaggedDescendant(v)
+			if needsArtifact {
+				oc.gotoTextMode(ScopePage)
+				oc.writef("/Artifact BMC\n")
+			}
 			oc.outputHorizontalItems(x, shiftDown, v)
+			if needsArtifact {
+				oc.gotoTextMode(ScopePage)
+				oc.writef("EMC\n")
+			}
 			sumY += v.Height
 			sumY += v.Depth
 			if oc.textmode < ScopeText {
@@ -657,7 +799,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							"width":   v.Width,
 							"stretch": v.Stretch,
 							"shrink":  v.Shrink,
-						}}
+						},
+					}
 					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 				}
 			}
@@ -671,7 +814,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						Name: "kern",
 						Attributes: map[string]any{
 							"kern": v.Kern,
-						}}
+						},
+					}
 					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 				}
 			}
@@ -685,7 +829,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							"width":  v.Width,
 							"height": v.Height,
 							"depth":  v.Depth,
-						}}
+						},
+					}
 					if origin, ok := v.Attributes["origin"]; ok {
 						od.Attributes["origin"] = origin
 					}
@@ -695,6 +840,12 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			posX := x
 			posY := y - sumY
 			sumY += v.Height + v.Depth
+			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
+			ruleNeedsArtifact := untaggedContainer && hasVisibleOutput
+			if ruleNeedsArtifact {
+				oc.gotoTextMode(ScopePage)
+				oc.writef("/Artifact BMC\n")
+			}
 			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
 			if v.Pre != "" {
 				pdfinstructions = append(pdfinstructions, v.Pre)
@@ -716,6 +867,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
 			oc.write(strings.Join(pdfinstructions, " "))
+			if ruleNeedsArtifact {
+				oc.writef("EMC\n")
+			}
 		case *node.StartStop:
 			posX := x
 			posY := y
@@ -733,7 +887,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				startNode = v
 			}
 
-			if action == node.ActionHyperlink {
+			switch action {
+			case node.ActionHyperlink:
 				hyperlink := startNode.Value.(*Hyperlink)
 				if isStartNode {
 					hyperlink.startposX = posX
@@ -756,9 +911,37 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					}
 
 					if hyperlink.Local != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(hyperlink.Local))
+						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(hyperlink.Local)))
 					} else if hyperlink.URI != "" {
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
+					}
+					// PDF/UA: link annotations need Contents and StructParent
+					if oc.p.document.Format == FormatPDFUA {
+						contents := hyperlink.URI
+						if contents == "" {
+							contents = hyperlink.Local
+						}
+						a.Dictionary["Contents"] = pdf.Serialize(pdf.String(contents))
+						// Reserve an object number for the annotation
+						a.Objectnumber = oc.p.document.PDFWriter.NextObject()
+						// Create a Link SE and register the OBJR
+						linkSE := &StructureElement{Role: "Link"}
+						if oc.tag != nil {
+							oc.tag.AddChild(linkSE)
+						} else if oc.p.document.RootStructureElement != nil {
+							oc.p.document.RootStructureElement.AddChild(linkSE)
+						}
+						sp := oc.p.document.newPDFStructureObject()
+						sp.pageObjnum = oc.pageObjectnumber
+						sp.pageIndex = oc.p.pageIndex
+						sp.annotSE = linkSE
+						oc.p.document.pdfStructureObjects = append(oc.p.document.pdfStructureObjects, sp)
+						a.Dictionary["StructParent"] = fmt.Sprintf("%d", sp.id)
+						linkSE.objRefs = append(linkSE.objRefs, objRefEntry{
+							pageIndex:    oc.p.pageIndex,
+							annotObjNum:  a.Objectnumber,
+							structParent: sp.id,
+						})
 					}
 
 					oc.p.Annotations = append(oc.p.Annotations, a)
@@ -767,7 +950,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
 					}
 				}
-			} else if action == node.ActionDest {
+			case node.ActionDest:
 				// dest should be in the top left corner of the current position
 				y := posY + vlist.Height + vlist.Depth
 				var destname string // for debugging only
@@ -781,6 +964,17 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					}
 					destname = t
 					oc.p.document.PDFWriter.NameDestinations[d.Name] = d
+				case int:
+					if oc.p.document.numDestinations == nil {
+						oc.p.document.numDestinations = make(map[int]NumDest)
+					}
+					oc.p.document.numDestinations[t] = NumDest{
+						PageObjectnumber: oc.pageObjectnumber,
+						Num:              t,
+						X:                posX.ToPT(),
+						Y:                y.ToPT(),
+					}
+					destname = fmt.Sprintf("numdest-%d", t)
 				}
 
 				if oc.p.document.IsTrace(VTraceDest) {
@@ -792,9 +986,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					oc.writef(" 1 0 0 1 %s %s cm ", -posX, -y)
 					oc.debugAt(posX, y, destname)
 				}
-			} else if action == node.ActionNone {
+			case node.ActionNone:
 				// ignore
-			} else {
+			default:
 				bag.Logger.Warn("start/stop node: unhandled action", "action", action)
 			}
 			switch v.Position {
@@ -811,12 +1005,83 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if v.ShipoutCallback != nil {
 				oc.write(v.ShipoutCallback(v))
 			}
-			switch v.Position {
-			case node.PDFOutputHere:
+			if v.Position == node.PDFOutputHere {
 				oc.moveto(-posX, -posY)
 			}
 		case *node.VList:
+			// PDF/UA: check for tag/artifact on child VLists
+			var childTag *StructureElement
+			var childArtifact bool
+			var childArtifactType ArtifactType
+			if v.Attributes != nil {
+				if r, ok := v.Attributes["tag"]; ok {
+					childTag = r.(*StructureElement)
+				}
+				if a, ok := v.Attributes["artifact"]; ok {
+					childArtifactType = a.(ArtifactType)
+					childArtifact = true
+				}
+			}
+			// If this child VList has no tag and no artifact and
+			// parent also has no tag (i.e. we're in an untagged
+			// container), mark as artifact in PDF/UA mode — but only
+			// if there are no tagged descendants (otherwise let them
+			// emit their own BDC/EMC).
+			if oc.p.document.Format == FormatPDFUA && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+				if !vlistHasTaggedDescendant(v) {
+					childArtifact = true
+				}
+			}
+
+			if childArtifact {
+				oc.gotoTextMode(ScopePage)
+				if childArtifactType != "" {
+					oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
+				} else {
+					oc.writef("/Artifact BMC\n")
+				}
+			} else if childTag != nil {
+				oc.gotoTextMode(ScopePage)
+				// Save and swap the current tag
+				mcid := oc.p.nextMCID
+				oc.p.nextMCID++
+				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
+				childTag.ID = mcid
+				oc.p.StructureElements = append(oc.p.StructureElements, childTag)
+				oc.emitBDC(childTag, mcid)
+				// Set BBox for Figure elements (PDF/UA requirement)
+				if childTag.Role == "Figure" {
+					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+					posX := (x + v.ShiftX).ToPT()
+					posY := (y - sumY).ToPT()
+					childTag.BBox = [4]float64{
+						posX,
+						pageHeightPT - posY,
+						posX + v.Width.ToPT(),
+						pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
+					}
+					childTag.HasBBox = true
+				}
+			}
+
+			savedTag := oc.tag
+			savedInArtifact := oc.inArtifact
+			if childTag != nil {
+				oc.tag = childTag
+			}
+			if childArtifact {
+				oc.inArtifact = true
+			}
+
 			oc.outputVerticalItems(x+v.ShiftX, y-sumY, v)
+
+			if childTag != nil || childArtifact {
+				oc.gotoTextMode(ScopePage)
+				oc.writef("EMC\n")
+			}
+			oc.tag = savedTag
+			oc.inArtifact = savedInArtifact
+
 			sumY += v.Height + v.Depth
 		default:
 			bag.Logger.Error(fmt.Sprintf("Shipout: unknown node %T in vertical mode", v))
@@ -849,7 +1114,7 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 
 // OutputAt places the nodelist at the position.
 func (p *Page) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VList) {
-	p.Objects = append(p.Objects, Object{x, y, vlist})
+	p.Objects = append(p.Objects, Object{X: x, Y: y, Vlist: vlist})
 }
 
 // Shipout places all objects on a page and finishes this page.
@@ -861,6 +1126,7 @@ func (p *Page) Shipout() {
 	p.Finished = true
 
 	pageObjectNumber := p.document.PDFWriter.NextObject()
+	p.Objectnumber = pageObjectNumber
 	var s strings.Builder
 	for _, cb := range p.document.preShipoutCallback {
 		cb(p)
@@ -901,9 +1167,23 @@ func (p *Page) Shipout() {
 		rule.Pre = s.String()
 		rule.Hide = true
 		vl := node.Vpack(rule)
-		p.Background = append(p.Background, Object{-offsetX, -offsetY, vl})
+		p.Background = append(p.Background, Object{X: -offsetX, Y: -offsetY, Vlist: vl})
 	}
 
+	// In PDF/UA mode, mark background objects as artifacts automatically.
+	if p.document.Format == FormatPDFUA {
+		for i := range p.Background {
+			vl := p.Background[i].Vlist
+			if vl.Attributes == nil {
+				vl.Attributes = node.H{}
+			}
+			if _, hasTag := vl.Attributes["tag"]; !hasTag {
+				if _, hasArt := vl.Attributes["artifact"]; !hasArt {
+					vl.Attributes["artifact"] = ArtifactBackground
+				}
+			}
+		}
+	}
 	objs := make([]Object, 0, len(p.Background)+len(p.Objects))
 	objs = append(objs, p.Background...)
 	objs = append(objs, p.Objects...)
@@ -935,13 +1215,52 @@ func (p *Page) Shipout() {
 		if vlist.Attributes != nil {
 			if r, ok := vlist.Attributes["tag"]; ok {
 				oc.tag = r.(*StructureElement)
-				oc.tag.ID = len(p.StructureElements)
-				p.StructureElements = append(p.StructureElements, oc.tag)
+			}
+			if a, ok := vlist.Attributes["artifact"]; ok {
+				oc.artifactType = a.(ArtifactType)
+				oc.inArtifact = true
+			}
+		}
+		// PDF/UA: untagged top-level VLists without tagged descendants
+		// default to Artifact. VLists with tagged descendants are left
+		// untagged so children can emit their own BDC/EMC.
+		if p.document.Format == FormatPDFUA && oc.tag == nil && !oc.inArtifact {
+			if !vlistHasTaggedDescendant(vlist) {
+				oc.inArtifact = true
 			}
 		}
 
 		x := obj.X + offsetX
 		y := obj.Y + offsetY
+
+		// For top-level objects with a direct tag or artifact, wrap
+		// the entire output in a single BDC/EMC.
+		// For container VLists without a tag (e.g. from htmlbag),
+		// let outputVerticalItems handle per-child tagging.
+		if oc.inArtifact {
+			if oc.artifactType != "" {
+				oc.writef("/Artifact <</Type /%s>> BDC\n", oc.artifactType)
+			} else {
+				oc.writef("/Artifact BMC\n")
+			}
+		} else if oc.tag != nil {
+			mcid := oc.p.nextMCID
+			oc.p.nextMCID++
+			oc.tag.mcids = append(oc.tag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
+			oc.tag.ID = mcid
+			oc.p.StructureElements = append(oc.p.StructureElements, oc.tag)
+			oc.emitBDC(oc.tag, mcid)
+			// Set BBox for Figure elements (PDF/UA requirement)
+			if oc.tag.Role == "Figure" {
+				pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+				llx := x.ToPT()
+				lly := pageHeightPT - y.ToPT()
+				urx := llx + vlist.Width.ToPT()
+				ury := lly + (vlist.Height + vlist.Depth).ToPT()
+				oc.tag.BBox = [4]float64{llx, lly, urx, ury}
+				oc.tag.HasBBox = true
+			}
+		}
 
 		oc.outputVerticalItems(x, y, vlist)
 		for k := range oc.usedFaces {
@@ -951,6 +1270,12 @@ func (p *Page) Shipout() {
 			usedImages[k] = true
 		}
 		oc.gotoTextMode(ScopePage)
+
+		// Close the object-level BDC
+		if oc.tag != nil || oc.inArtifact {
+			oc.newline()
+			oc.writef("EMC\n")
+		}
 		if oc.p.document.DumpOutput {
 			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
 		}
@@ -972,53 +1297,115 @@ func (p *Page) Shipout() {
 		page.Images = append(page.Images, i)
 	}
 
-	var structureElementObjectIDs []string
 	// annotations are hyperlinks and structure elements
 	page.Annotations = p.Annotations
 
-	if p.document.RootStructureElement != nil {
+	// PDF/UA: pages with annotations must have /Tabs /S
+	if p.document.Format == FormatPDFUA && len(p.Annotations) > 0 {
+		page.Dict["Tabs"] = "/S"
+	}
 
-		for _, se := range p.StructureElements {
-			parent := se.Parent
-			if parent.Obj == nil {
-				parent.Obj = p.document.PDFWriter.NewObject()
-			}
-			se.Obj = p.document.PDFWriter.NewObject()
-			se.Obj.Dictionary = pdf.Dict{
-				"Type": "/StructElem",
-				"S":    "/" + se.Role,
-				"K":    fmt.Sprintf("%d", se.ID),
-				"Pg":   page.Objnum.Ref(),
-				"P":    parent.Obj.ObjectNumber.Ref(),
-			}
-			if se.ActualText != "" {
-				se.Obj.Dictionary["ActualText"] = pdf.Serialize(se.ActualText)
-			}
-			se.Obj.Save()
-			structureElementObjectIDs = append(structureElementObjectIDs, se.Obj.ObjectNumber.Ref())
-		}
+	if p.document.RootStructureElement != nil && len(p.StructureElements) > 0 {
+		// Record StructParents index for this page. The actual SE objects
+		// are serialized later in Finish() via serializeStructureElement.
 		po := p.document.newPDFStructureObject()
-		po.refs = strings.Join(structureElementObjectIDs, " ")
+		po.pageObjnum = page.Objnum
+		po.pageIndex = p.pageIndex
 		page.Dict["StructParents"] = fmt.Sprintf("%d", po.id)
 		p.document.pdfStructureObjects = append(p.document.pdfStructureObjects, po)
 	}
 	for _, s := range p.document.Spotcolors {
 		p.Spotcolors = append(p.Spotcolors, s)
 	}
-
 }
 
 // CallbackShipout gets called before the shipout process starts.
 type CallbackShipout func(page *Page)
 
+// vlistHasTaggedDescendant checks if a VList or any of its child VLists
+// have a "tag" attribute. Used to decide whether an untagged top-level
+// container should be auto-marked as Artifact or left untagged for its
+// children to emit their own BDC/EMC.
+func vlistHasTaggedDescendant(vl *node.VList) bool {
+	for cur := vl.List; cur != nil; cur = cur.Next() {
+		switch n := cur.(type) {
+		case *node.VList:
+			if n.Attributes != nil {
+				if _, ok := n.Attributes["tag"]; ok {
+					return true
+				}
+			}
+			if vlistHasTaggedDescendant(n) {
+				return true
+			}
+		case *node.HList:
+			if hlistHasTaggedDescendant(n) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hlistHasTaggedDescendant(hl *node.HList) bool {
+	for cur := hl.List; cur != nil; cur = cur.Next() {
+		switch n := cur.(type) {
+		case *node.VList:
+			if n.Attributes != nil {
+				if _, ok := n.Attributes["tag"]; ok {
+					return true
+				}
+			}
+			if vlistHasTaggedDescendant(n) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ArtifactType represents the type of a PDF artifact.
+type ArtifactType string
+
+const (
+	// ArtifactPagination marks page numbers, headers, footers.
+	ArtifactPagination ArtifactType = "Pagination"
+	// ArtifactLayout marks layout aids such as rules and backgrounds.
+	ArtifactLayout ArtifactType = "Layout"
+	// ArtifactPage marks page-level decorations.
+	ArtifactPage ArtifactType = "Page"
+	// ArtifactBackground marks background content.
+	ArtifactBackground ArtifactType = "Background"
+)
+
+// mcidEntry records a marked-content identifier on a specific page.
+type mcidEntry struct {
+	pageIndex int
+	mcid      int
+}
+
+// objRefEntry records an object reference (OBJR) for annotations.
+type objRefEntry struct {
+	pageIndex    int
+	annotObjNum  pdf.Objectnumber
+	structParent int // StructParents index for the annotation
+}
+
 // StructureElement represents a tagged PDF element such as H1 or P.
 type StructureElement struct {
-	ID         int
-	Role       string
-	ActualText string
-	children   []*StructureElement
 	Parent     *StructureElement
 	Obj        *pdf.Object
+	Role       string
+	ActualText string
+	Alt        string     // alternative text (for Figure, Formula etc.)
+	Lang       string     // BCP 47 language tag for this element
+	Scope      string     // for TH: "Row", "Column", "Both"
+	BBox       [4]float64 // bounding box [x, y, width, height] in PDF points; set during shipout
+	HasBBox    bool
+	children   []*StructureElement
+	mcids      []mcidEntry
+	objRefs    []objRefEntry
+	ID         int
 }
 
 // AddChild adds a child element (such as a span in a paragraph) to the element
@@ -1031,8 +1418,10 @@ func (se *StructureElement) AddChild(cld *StructureElement) {
 // pdfStructureObject holds information about the PDF/UA structures for each
 // page, annotation and XObject.
 type pdfStructureObject struct {
-	id   int
-	refs string
+	pageObjnum pdf.Objectnumber
+	annotSE    *StructureElement // non-nil for annotation StructParent entries
+	id         int
+	pageIndex  int
 }
 
 func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
@@ -1041,44 +1430,110 @@ func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
 	return po
 }
 
+// serializeStructureElement recursively creates PDF objects for the structure
+// tree. parentObjnum is the object number of the parent (either StructTreeRoot
+// or a parent StructElem). pageObjnums maps page indices to page object numbers.
+func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjnum pdf.Objectnumber, pageObjnums map[int]pdf.Objectnumber) {
+	if se.Obj == nil {
+		se.Obj = d.PDFWriter.NewObject()
+	}
+	se.Obj.Dictionary = pdf.Dict{
+		"Type": "/StructElem",
+		"S":    "/" + se.Role,
+		"P":    parentObjnum.Ref(),
+	}
+	if se.ActualText != "" {
+		se.Obj.Dictionary["ActualText"] = pdf.Serialize(pdf.String(se.ActualText))
+	}
+	if se.Alt != "" {
+		se.Obj.Dictionary["Alt"] = pdf.Serialize(pdf.String(se.Alt))
+	}
+	if se.Lang != "" {
+		se.Obj.Dictionary["Lang"] = fmt.Sprintf("(%s)", se.Lang)
+	}
+	if se.Scope != "" {
+		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Table /Scope /%s >>", se.Scope)
+	}
+	if se.HasBBox {
+		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Layout /BBox [ %s %s %s %s ] >>",
+			pdf.FloatToPoint(se.BBox[0]), pdf.FloatToPoint(se.BBox[1]),
+			pdf.FloatToPoint(se.BBox[2]), pdf.FloatToPoint(se.BBox[3]))
+	}
+
+	// Build /K array: MCR dicts for marked content, OBJR dicts for
+	// annotations, and child SE refs
+	var kItems []string
+
+	// Add marked content references
+	for _, m := range se.mcids {
+		pgRef := pageObjnums[m.pageIndex].Ref()
+		kItems = append(kItems, fmt.Sprintf("<< /Type /MCR /Pg %s /MCID %d >>", pgRef, m.mcid))
+	}
+
+	// Add object references (for link annotations etc.)
+	for _, o := range se.objRefs {
+		pgRef := pageObjnums[o.pageIndex].Ref()
+		kItems = append(kItems, fmt.Sprintf("<< /Type /OBJR /Obj %s /Pg %s >>", o.annotObjNum.Ref(), pgRef))
+	}
+
+	// Recursively serialize children
+	for _, child := range se.children {
+		d.serializeStructureElement(child, se.Obj.ObjectNumber, pageObjnums)
+		kItems = append(kItems, child.Obj.ObjectNumber.Ref())
+	}
+
+	switch len(kItems) {
+	case 0:
+		// no /K entry needed
+	case 1:
+		se.Obj.Dictionary["K"] = kItems[0]
+	default:
+		se.Obj.Dictionary["K"] = fmt.Sprintf("[ %s ]", strings.Join(kItems, " "))
+	}
+
+	se.Obj.Save()
+}
+
 // PDFDocument contains all references to a document
 type PDFDocument struct {
-	AdditionalXMLMetadata string // Extra XML metadata to be added to the PDF. Must be a correctly formatted XML fragment (multiple elements are not allowed).
-	Author                string
-	Attachments           []Attachment
-	Bleed                 bag.ScaledPoint
-	ColorProfile          *ColorProfile
-	CompressLevel         uint
-	Creator               string
 	CreationDate          time.Time
+	ColorProfile          *ColorProfile
 	CurrentPage           *Page
 	DefaultLanguage       *lang.Lang
-	DefaultPageHeight     bag.ScaledPoint
-	DefaultPageWidth      bag.ScaledPoint
-	DumpOutput            bool
-	Faces                 []*pdf.Face
-	Filename              string
-	Format                Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
-	Keywords              string
 	Languages             map[string]*lang.Lang
-	Pages                 []*Page
 	PDFWriter             *pdf.PDF
+	RoleMap               map[string]string // maps custom roles to standard PDF roles
 	RootStructureElement  *StructureElement
-	ShowCutmarks          bool
-	ShowHyperlinks        bool
-	Spotcolors            []*color.Color
-	Subject               string
-	SuppressInfo          bool
-	Title                 string
 	ViewerPreferences     map[string]string
-	producer              string
-	tracing               VTrace
 	outputDebug           *outputDebug
 	curOutputDebug        *outputDebug
-	pdfStructureObjects   []*pdfStructureObject
-	preShipoutCallback    []CallbackShipout
 	usedPDFImages         map[string]*pdf.Imagefile
 	numDestinations       map[int]NumDest
+	AdditionalXMLMetadata string // Extra XML metadata to be added to the PDF. Must be a correctly formatted XML fragment (multiple elements are not allowed).
+	DefaultLanguageTag    string // BCP 47 language tag for the document catalog (e.g. "de", "en-US")
+	Author                string
+	Creator               string
+	Filename              string
+	Keywords              string
+	Subject               string
+	Title                 string
+	producer              string
+	Attachments           []Attachment
+	Faces                 []*pdf.Face
+	Pages                 []*Page
+	Spotcolors            []*color.Color
+	pdfStructureObjects   []*pdfStructureObject
+	preShipoutCallback    []CallbackShipout
+	Bleed                 bag.ScaledPoint
+	CompressLevel         uint
+	DefaultPageHeight     bag.ScaledPoint
+	DefaultPageWidth      bag.ScaledPoint
+	Format                Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
+	tracing               VTrace
+	DumpOutput            bool
+	ShowCutmarks          bool
+	ShowHyperlinks        bool
+	SuppressInfo          bool
 }
 
 // NewDocument creates an empty document.
@@ -1290,9 +1745,10 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 // document. The CurrentPage field of the document is set to the page.
 func (d *PDFDocument) NewPage() *Page {
 	d.CurrentPage = &Page{
-		document: d,
-		Width:    d.DefaultPageWidth,
-		Height:   d.DefaultPageHeight,
+		document:  d,
+		Width:     d.DefaultPageWidth,
+		Height:    d.DefaultPageHeight,
+		pageIndex: len(d.Pages),
 	}
 	if d.ShowCutmarks {
 		d.CurrentPage.ExtraOffset = cutmarkLength
@@ -1327,6 +1783,11 @@ func formatDate(t time.Time) string {
 func (d *PDFDocument) Finish() error {
 	var err error
 	d.PDFWriter.Catalog = pdf.Dict{}
+
+	// Automatically create root structure element for PDF/UA if not set
+	if d.Format == FormatPDFUA && d.RootStructureElement == nil {
+		d.RootStructureElement = &StructureElement{Role: "Document"}
+	}
 
 	switch d.Format {
 	case FormatPDFA3b, FormatPDFX3, FormatPDFX4:
@@ -1400,39 +1861,62 @@ func (d *PDFDocument) Finish() error {
 	}
 
 	if se := d.RootStructureElement; se != nil {
-		if se.Obj == nil {
-			se.Obj = d.PDFWriter.NewObject()
+		// Collect page object numbers for each page index
+		pageObjnums := make(map[int]pdf.Objectnumber)
+		for _, pg := range d.Pages {
+			pageObjnums[pg.pageIndex] = pg.Objectnumber
 		}
-		var poStr strings.Builder
 
-		// structure objects are a used to lookup structure elements for a page
-		for _, po := range d.pdfStructureObjects {
-			poStr.WriteString(fmt.Sprintf("%d [%s]", po.id, po.refs))
-		}
-		childObjectNumbers := []string{}
-		for _, childSe := range se.children {
-			childObjectNumbers = append(childObjectNumbers, childSe.Obj.ObjectNumber.Ref())
-		}
 		structRoot := d.PDFWriter.NewObject()
+
+		// Recursively serialize all structure elements
+		d.serializeStructureElement(se, structRoot.ObjectNumber, pageObjnums)
+
+		// Build ParentTree: maps (StructParents index, MCID) → leaf SE object
+		var poStr strings.Builder
+		for _, po := range d.pdfStructureObjects {
+			if po.annotSE != nil {
+				// Annotation StructParent: maps directly to the Link SE object
+				if po.annotSE.Obj != nil {
+					fmt.Fprintf(&poStr, "%d %s ", po.id, po.annotSE.Obj.ObjectNumber.Ref())
+				}
+			} else {
+				// Page StructParent: maps MCID array to leaf SE objects
+				pg := d.Pages[po.pageIndex]
+				var refs []string
+				for _, pse := range pg.StructureElements {
+					if pse.Obj != nil {
+						refs = append(refs, pse.Obj.ObjectNumber.Ref())
+					}
+				}
+				fmt.Fprintf(&poStr, "%d [%s] ", po.id, strings.Join(refs, " "))
+			}
+		}
+
 		structRoot.Dictionary = pdf.Dict{
 			"Type":       "/StructTreeRoot",
-			"ParentTree": fmt.Sprintf("<< /Nums [ %s ] >>", poStr.String()),
+			"ParentTree": fmt.Sprintf("<< /Nums [ %s] >>", poStr.String()),
 			"K":          se.Obj.ObjectNumber.Ref(),
 		}
-		structRoot.Save()
-		se.Obj.Dictionary = pdf.Dict{
-			"S":    "/" + se.Role,
-			"K":    fmt.Sprintf("%s", childObjectNumbers),
-			"P":    structRoot.ObjectNumber.Ref(),
-			"Type": "/StructElem",
-			"T":    pdf.Serialize(d.Title),
+		if len(d.RoleMap) > 0 {
+			rm := pdf.Dict{}
+			for custom, standard := range d.RoleMap {
+				rm[pdf.Name(custom)] = "/" + standard
+			}
+			structRoot.Dictionary["RoleMap"] = rm
 		}
-		se.Obj.Save()
+		structRoot.Save()
 
 		d.PDFWriter.Catalog["StructTreeRoot"] = structRoot.ObjectNumber.Ref()
-		d.ViewerPreferences["ViewerPreferences"] = "<< /DisplayDocTitle true >>"
-		d.PDFWriter.Catalog["Lang"] = "(en)"
-		d.PDFWriter.Catalog["MarkInfo"] = `<< /Marked true /Suspects false  >>`
+		d.ViewerPreferences["DisplayDocTitle"] = "true"
+		langStr := "en"
+		if d.DefaultLanguageTag != "" {
+			langStr = d.DefaultLanguageTag
+		} else if d.DefaultLanguage != nil && d.DefaultLanguage.Name != "" {
+			langStr = d.DefaultLanguage.Name
+		}
+		d.PDFWriter.Catalog["Lang"] = fmt.Sprintf("(%s)", langStr)
+		d.PDFWriter.Catalog["MarkInfo"] = `<< /Marked true /Suspects false >>`
 
 	}
 
@@ -1546,8 +2030,7 @@ const (
 
 // RegisterCallback registers the callback in fn.
 func (d *PDFDocument) RegisterCallback(cb Callback, fn any) {
-	switch cb {
-	case CallbackPreShipout:
+	if cb == CallbackPreShipout {
 		d.preShipoutCallback = append(d.preShipoutCallback, fn.(func(page *Page)))
 	}
 }

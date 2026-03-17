@@ -3,6 +3,7 @@ package node
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -10,9 +11,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 )
 
-var (
-	ids chan int
-)
+var nextID atomic.Int64
 
 // Type is the type of node.
 type Type int
@@ -194,21 +193,12 @@ func StringValue(n Node) string {
 type basenode struct {
 	next       Node
 	prev       Node
-	ID         int
 	Attributes H
+	ID         int
 }
 
-func genIntegerSequence(ids chan int) {
-	i := int(0)
-	for {
-		ids <- i
-		i++
-	}
-}
-
-func init() {
-	ids = make(chan int)
-	go genIntegerSequence(ids)
+func newID() int {
+	return int(nextID.Add(1))
 }
 
 // IsNode returns true if the argument is a Node.
@@ -236,8 +226,8 @@ func (d *Disc) String() string {
 
 // NewDisc creates an initialized Disc node
 func NewDisc() *Disc {
-	n := &Disc{}
-	n.ID = <-ids
+	n := discSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -287,8 +277,10 @@ func (d *Disc) Copy() Node {
 }
 
 // NewDiscWithContents creates an initialized Disc node with the given contents
-func NewDiscWithContents(n *Disc) *Disc {
-	n.ID = <-ids
+func NewDiscWithContents(d *Disc) *Disc {
+	n := discSlab.alloc()
+	*n = *d
+	n.ID = newID()
 	return n
 }
 
@@ -304,11 +296,11 @@ func IsDisc(elt Node) (*Disc, bool) {
 type Glyph struct {
 	basenode
 	Font *font.Font
-	// The font specific glyph id
-	Codepoint int
 	// A codepoint can contain more than one rune, for example a fi ligature
 	// contains f + i. Filling the components string is optional.
 	Components string
+	// The font specific glyph id
+	Codepoint int
 	// The advance width of the box.
 	Width bag.ScaledPoint
 	// The height is the length above the base line.
@@ -382,8 +374,8 @@ func (g *Glyph) Copy() Node {
 
 // NewGlyph returns an initialized Glyph
 func NewGlyph() *Glyph {
-	n := &Glyph{}
-	n.ID = <-ids
+	n := glyphSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -437,13 +429,13 @@ const (
 // A Glue node has the value of a shrinking and stretching space
 type Glue struct {
 	basenode
+	Leader       *HList // Pattern to repeat; nil means normal glue.
 	Subtype      GlueSubtype
 	Width        bag.ScaledPoint // The natural width of the glue.
 	Stretch      bag.ScaledPoint // The stretchability of the glue, where width plus stretch = maximum width.
 	Shrink       bag.ScaledPoint // The shrinkability of the glue, where width minus shrink = minimum width.
 	StretchOrder GlueOrder       // The order of infinity of stretching.
 	ShrinkOrder  GlueOrder       // The order of infinity of shrinking.
-	Leader       *HList          // Pattern to repeat; nil means normal glue.
 	LeaderType   LeaderType      // Alignment mode for the repeated pattern.
 }
 
@@ -499,8 +491,8 @@ func (g *Glue) Copy() Node {
 
 // NewGlue creates an initialized Glue node
 func NewGlue() *Glue {
-	n := &Glue{}
-	n.ID = <-ids
+	n := glueSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -516,17 +508,17 @@ func IsGlue(elt Node) (*Glue, bool) {
 // The width, height, depth, badness and the glue settings are calculated when
 // using node.HPack.
 type HList struct {
+	basenode
+	List      Node // The list itself.
 	Width     bag.ScaledPoint
 	Height    bag.ScaledPoint
 	Depth     bag.ScaledPoint
 	Badness   int
 	GlueSet   float64         // The ratio of the glue. Positive means stretching, negative shrinking.
-	GlueSign  uint8           // 0 = normal, 1 = stretching, 2 = shrinking
 	GlueOrder GlueOrder       // The level of infinity
 	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
-	List      Node            // The list itself.
 	VAlign    VerticalAlignment
-	basenode
+	GlueSign  uint8 // 0 = normal, 1 = stretching, 2 = shrinking
 }
 
 func (h *HList) String() string {
@@ -583,8 +575,8 @@ func (h *HList) Copy() Node {
 
 // NewHList creates an initialized HList node
 func NewHList() *HList {
-	n := &HList{}
-	n.ID = <-ids
+	n := hlistSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -597,9 +589,9 @@ func IsHList(elt Node) (*HList, bool) {
 
 // A Kern is a small space between glyphs.
 type Kern struct {
+	basenode
 	// The displacement in progression direction.
 	Kern bag.ScaledPoint
-	basenode
 }
 
 func (k *Kern) String() string {
@@ -650,8 +642,8 @@ func (k *Kern) Copy() Node {
 
 // NewKern creates an initialized Kern node
 func NewKern() *Kern {
-	n := &Kern{}
-	n.ID = <-ids
+	n := kernSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -711,14 +703,16 @@ func (l *Lang) Copy() Node {
 
 // NewLang creates an initialized Lang node
 func NewLang() *Lang {
-	n := &Lang{}
-	n.ID = <-ids
+	n := langSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
 // NewLangWithContents creates an initialized Lang node with the given contents
-func NewLangWithContents(n *Lang) *Lang {
-	n.ID = <-ids
+func NewLangWithContents(l *Lang) *Lang {
+	n := langSlab.alloc()
+	*n = *l
+	n.ID = newID()
 	return n
 }
 
@@ -793,8 +787,8 @@ func (p *Penalty) Copy() Node {
 
 // NewPenalty creates an initialized Penalty node
 func NewPenalty() *Penalty {
-	n := &Penalty{}
-	n.ID = <-ids
+	n := penaltySlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -870,8 +864,8 @@ func (r *Rule) Copy() Node {
 
 // NewRule creates an initialized Rule node
 func NewRule() *Rule {
-	n := &Rule{}
-	n.ID = <-ids
+	n := ruleSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -937,12 +931,12 @@ type StartStopFunc func(thisnode Node) string
 // such.
 type StartStop struct {
 	basenode
-	Action          ActionType
-	StartNode       *StartStop
-	Position        PDFDataOutput
-	ShipoutCallback StartStopFunc
 	// Value contains action specific contents
-	Value any
+	Value           any
+	StartNode       *StartStop
+	ShipoutCallback StartStopFunc
+	Action          ActionType
+	Position        PDFDataOutput
 }
 
 func (d *StartStop) String() string {
@@ -951,8 +945,8 @@ func (d *StartStop) String() string {
 
 // NewStartStop creates an initialized Start node
 func NewStartStop() *StartStop {
-	n := &StartStop{}
-	n.ID = <-ids
+	n := startStopSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -1005,13 +999,13 @@ func (d *StartStop) Copy() Node {
 // A VList is a vertical list.
 type VList struct {
 	basenode
+	List     Node
 	Width    bag.ScaledPoint
 	Height   bag.ScaledPoint
 	Depth    bag.ScaledPoint
 	GlueSet  float64
-	GlueSign uint8
 	ShiftX   bag.ScaledPoint
-	List     Node
+	GlueSign uint8
 }
 
 func (v *VList) String() string {
@@ -1068,8 +1062,8 @@ func (v *VList) Copy() Node {
 
 // NewVList creates an initialized VList node
 func NewVList() *VList {
-	n := &VList{}
-	n.ID = <-ids
+	n := vlistSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
@@ -1082,10 +1076,10 @@ func IsVList(elt Node) (*VList, bool) {
 // An Image contains a reference to the image object.
 type Image struct {
 	basenode
+	ImageFile  *pdf.Imagefile
 	Width      bag.ScaledPoint
 	Height     bag.ScaledPoint
 	PageNumber int // Requested page number
-	ImageFile  *pdf.Imagefile
 	Used       bool
 }
 
@@ -1141,8 +1135,8 @@ func (img *Image) Copy() Node {
 
 // NewImage creates an initialized Image node
 func NewImage() *Image {
-	n := &Image{}
-	n.ID = <-ids
+	n := imageSlab.alloc()
+	n.ID = newID()
 	return n
 }
 
