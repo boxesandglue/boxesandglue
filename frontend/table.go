@@ -790,20 +790,51 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		return nil, err
 	}
 
-	for i, row := range tbl.Rows {
-		hl, err := row.build()
+	// Build a single row HList with the correct height.
+	buildRow := func(i int) (*node.HList, error) {
+		hl, err := tbl.Rows[i].build()
 		if err != nil {
 			return nil, err
 		}
-		// rows with rowspan might have a different height than requested by the
-		// calculated row height, so we need to adjust
 		hl.Height = tbl.rowHeights[i]
 		hl.Depth = 0
+		return hl, nil
+	}
+
+	// Pack all rows into a single VList.
+	for i := range tbl.Rows {
+		hl, err := buildRow(i)
+		if err != nil {
+			return nil, err
+		}
 		head = node.InsertAfter(head, tail, hl)
 		tail = hl
 	}
 	vl := node.Vpack(head)
 	vl.Attributes = node.H{"origin": "table"}
+
+	// Store header information so the page breaker can repeat headers
+	// when splitting the table across pages.
+	if tbl.HeaderRows > 0 {
+		headerHeight := bag.ScaledPoint(0)
+		for i := 0; i < tbl.HeaderRows; i++ {
+			headerHeight += tbl.rowHeights[i]
+		}
+		vl.Attributes["_headerCount"] = tbl.HeaderRows
+		vl.Attributes["_headerHeight"] = headerHeight
+		vl.Attributes["_buildHeaders"] = func() ([]*node.HList, error) {
+			var headers []*node.HList
+			for i := 0; i < tbl.HeaderRows; i++ {
+				hl, err := buildRow(i)
+				if err != nil {
+					return nil, err
+				}
+				headers = append(headers, hl)
+			}
+			return headers, nil
+		}
+	}
+
 	return []*node.VList{vl}, nil
 }
 

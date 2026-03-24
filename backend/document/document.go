@@ -842,8 +842,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			sumY += v.Height + v.Depth
 			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
 			ruleNeedsArtifact := untaggedContainer && hasVisibleOutput
+			oc.gotoTextMode(ScopePage)
 			if ruleNeedsArtifact {
-				oc.gotoTextMode(ScopePage)
 				oc.writef("/Artifact BMC\n")
 			}
 			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
@@ -1496,44 +1496,44 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 
 // PDFDocument contains all references to a document
 type PDFDocument struct {
-	CreationDate          time.Time
-	ColorProfile          *ColorProfile
-	CurrentPage           *Page
-	DefaultLanguage       *lang.Lang
-	Languages             map[string]*lang.Lang
-	PDFWriter             *pdf.PDF
-	RoleMap               map[string]string // maps custom roles to standard PDF roles
-	RootStructureElement  *StructureElement
-	ViewerPreferences     map[string]string
-	outputDebug           *outputDebug
-	curOutputDebug        *outputDebug
-	usedPDFImages         map[string]*pdf.Imagefile
-	numDestinations       map[int]NumDest
-	AdditionalXMLMetadata string // Extra XML metadata to be added to the PDF. Must be a correctly formatted XML fragment (multiple elements are not allowed).
-	DefaultLanguageTag    string // BCP 47 language tag for the document catalog (e.g. "de", "en-US")
-	Author                string
-	Creator               string
-	Filename              string
-	Keywords              string
-	Subject               string
-	Title                 string
-	producer              string
-	Attachments           []Attachment
-	Faces                 []*pdf.Face
-	Pages                 []*Page
-	Spotcolors            []*color.Color
-	pdfStructureObjects   []*pdfStructureObject
-	preShipoutCallback    []CallbackShipout
-	Bleed                 bag.ScaledPoint
-	CompressLevel         uint
-	DefaultPageHeight     bag.ScaledPoint
-	DefaultPageWidth      bag.ScaledPoint
-	Format                Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
-	tracing               VTrace
-	DumpOutput            bool
-	ShowCutmarks          bool
-	ShowHyperlinks        bool
-	SuppressInfo          bool
+	CreationDate         time.Time
+	ColorProfile         *ColorProfile
+	CurrentPage          *Page
+	DefaultLanguage      *lang.Lang
+	Languages            map[string]*lang.Lang
+	PDFWriter            *pdf.PDF
+	RoleMap              map[string]string // maps custom roles to standard PDF roles
+	RootStructureElement *StructureElement
+	ViewerPreferences    map[string]string
+	outputDebug          *outputDebug
+	curOutputDebug       *outputDebug
+	usedPDFImages        map[string]*pdf.Imagefile
+	numDestinations      map[int]NumDest
+	DefaultLanguageTag   string // BCP 47 language tag for the document catalog (e.g. "de", "en-US")
+	Author               string
+	Creator              string
+	Filename             string
+	Keywords             string
+	Subject              string
+	Title                string
+	producer             string
+	Attachments          []Attachment
+	Faces                []*pdf.Face
+	Pages                []*Page
+	Spotcolors           []*color.Color
+	pdfStructureObjects  []*pdfStructureObject
+	preShipoutCallback   []CallbackShipout
+	Bleed                bag.ScaledPoint
+	CompressLevel        uint
+	DefaultPageHeight    bag.ScaledPoint
+	DefaultPageWidth     bag.ScaledPoint
+	Format               Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
+	tracing              VTrace
+	DumpOutput           bool
+	ShowCutmarks         bool
+	ShowHyperlinks       bool
+	SuppressInfo         bool
+	xmpExtensions        []XMPExtension
 }
 
 // NewDocument creates an empty document.
