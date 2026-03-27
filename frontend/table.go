@@ -184,6 +184,13 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 func (cell *TableCell) build() (*node.VList, error) {
 	fe := cell.row.table.doc
 	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
+
+	// Apply cell's HAlign to paragraphs unless the Text already sets its own.
+	var cellAlignOpt []TypesettingOption
+	if cell.HAlign != HAlignDefault {
+		cellAlignOpt = append(cellAlignOpt, HorizontalAlign(cell.HAlign))
+	}
+
 	var head node.Node
 	var vl, formatted *node.VList
 	var err error
@@ -199,7 +206,12 @@ func (cell *TableCell) build() (*node.VList, error) {
 				}
 				head = node.InsertAfter(head, node.Tail(head), boxVL)
 			} else {
-				formatted, _, err = fe.FormatParagraph(t, paraWidth)
+				opts := cellAlignOpt
+				// Text-level SettingHAlign takes precedence over cell HAlign.
+				if _, hasOwn := t.Settings[SettingHAlign]; hasOwn {
+					opts = nil
+				}
+				formatted, _, err = fe.FormatParagraph(t, paraWidth, opts...)
 				if err != nil {
 					return nil, err
 				}
