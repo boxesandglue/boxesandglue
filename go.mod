@@ -3,7 +3,7 @@ module github.com/boxesandglue/boxesandglue
 go 1.24.0
 
 require (
-	github.com/boxesandglue/baseline-pdf v1.1.7
+	github.com/boxesandglue/baseline-pdf v1.1.8
 	github.com/boxesandglue/svgreader v0.0.2
 	github.com/boxesandglue/textshape v0.0.9
 	github.com/google/uuid v1.6.0

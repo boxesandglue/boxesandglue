@@ -1,5 +1,5 @@
-github.com/boxesandglue/baseline-pdf v1.1.7 h1:1csmLsIm6sKGjyX7E+elE+LNqziJ9Zqg8IzF6X08UpY=
-github.com/boxesandglue/baseline-pdf v1.1.7/go.mod h1:doaxNvl5Fw+xQxFAwmdJuDvgmqxdFwMI5zO8O0Dlk/Y=
+github.com/boxesandglue/baseline-pdf v1.1.8 h1:uIdOFzPR49GizCRljK/tH7tHx5o3b8Ns6I3lGSmErw0=
+github.com/boxesandglue/baseline-pdf v1.1.8/go.mod h1:doaxNvl5Fw+xQxFAwmdJuDvgmqxdFwMI5zO8O0Dlk/Y=
 github.com/boxesandglue/gofpdi v1.0.22 h1:38quiYbMn/xBPK6K0D1aTCzDcVUAKoBHyu+PVvb8lWs=
 github.com/boxesandglue/gofpdi v1.0.22/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
 github.com/boxesandglue/svgreader v0.0.2 h1:wigrSNAXDCeW/fy2eDvGrPUjc/GtM6zjPIvxCI/J1kg=

@@ -1637,6 +1637,13 @@ func (d *PDFDocument) LoadImageFileWithBox(filename string, box string, pagenumb
 	return imgf, nil
 }
 
+// LoadImageFromReader loads an image from the given reader. Images that should
+// be placed in the PDF file must be derived from the reader. No caching is
+// performed since there is no filename to use as a cache key.
+func (d *PDFDocument) LoadImageFromReader(r io.ReadSeeker, box string, pagenumber int) (*pdf.Imagefile, error) {
+	return d.PDFWriter.LoadImageFromReader(r, box, pagenumber)
+}
+
 func GetDimensions(imgf *pdf.Imagefile, pagenumber int, box string) (width bag.ScaledPoint, height bag.ScaledPoint, err error) {
 	switch imgf.Format {
 	case "pdf":
