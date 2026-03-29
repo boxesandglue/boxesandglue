@@ -872,7 +872,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 		case *node.StartStop:
 			posX := x
-			posY := y
+			posY := y - sumY
 
 			isStartNode := true
 			action := v.Action
@@ -952,7 +952,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				}
 			case node.ActionDest:
 				// dest should be in the top left corner of the current position
-				y := posY + vlist.Height + vlist.Depth
+				y := posY
 				var destname string // for debugging only
 				switch t := v.Value.(type) {
 				case string:
@@ -1931,11 +1931,13 @@ func (d *PDFDocument) Finish() error {
 		return err
 	}
 	d.PDFWriter.Catalog["Metadata"] = rdf.ObjectNumber.Ref()
-	vp := make(pdf.Dict, len(d.ViewerPreferences))
-	for k, v := range d.ViewerPreferences {
-		vp[pdf.Name(k)] = v
+	if len(d.ViewerPreferences) > 0 {
+		vp := make(pdf.Dict, len(d.ViewerPreferences))
+		for k, v := range d.ViewerPreferences {
+			vp[pdf.Name(k)] = v
+		}
+		d.PDFWriter.Catalog["ViewerPreferences"] = vp
 	}
-	d.PDFWriter.Catalog["ViewerPreferences"] = vp
 
 	d.PDFWriter.DefaultPageWidth = d.DefaultPageWidth.ToPT()
 	d.PDFWriter.DefaultPageHeight = d.DefaultPageHeight.ToPT()
