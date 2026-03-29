@@ -24,6 +24,7 @@ type Document struct {
 	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
 	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
 	DefaultFeatures       []ot.Feature
+	MissingGlyphFunc      font.MissingGlyphFunc // Called when a character is not found in the font during shaping. If nil, missing glyphs are silently rendered as .notdef.
 	dirstack              []string
 	postLinebreakCallback []PostLinebreakCallbackFunc
 	suppressInfo          bool

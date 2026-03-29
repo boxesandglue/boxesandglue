@@ -366,10 +366,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		// Badness 1000000 for overfull boxes
 		badness = 1000000
 	} else if r >= -1 {
-		badness = int(math.Round(math.Pow(math.Abs(r), 3) * 100.0))
-		if badness > 10000 {
-			badness = 10000
-		}
+		badness = min(int(math.Round(math.Pow(math.Abs(r), 3)*100.0)), 10000)
 	}
 	useExpand := false
 	if hs.fontexpansion != 0 {

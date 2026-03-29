@@ -28,17 +28,22 @@ type Atom struct {
 	Hyphenate  bool
 }
 
+// MissingGlyphFunc is called when a character cannot be found in the font.
+// The arguments are the font face and the rune that is missing.
+type MissingGlyphFunc func(face *pdf.Face, r rune)
+
 // Font is the main structure of a font instance
 type Font struct {
-	Face         *pdf.Face
-	Hyphenchar   Atom
-	SpaceChar    Atom
-	Space        bag.ScaledPoint
-	SpaceStretch bag.ScaledPoint
-	SpaceShrink  bag.ScaledPoint
-	Size         bag.ScaledPoint
-	Depth        bag.ScaledPoint
-	Mag          int
+	Face             *pdf.Face
+	Hyphenchar       Atom
+	SpaceChar        Atom
+	Space            bag.ScaledPoint
+	SpaceStretch     bag.ScaledPoint
+	SpaceShrink      bag.ScaledPoint
+	Size             bag.ScaledPoint
+	Depth            bag.ScaledPoint
+	Mag              int
+	MissingGlyphFunc MissingGlyphFunc
 }
 
 // NewFont creates a new font instance.
@@ -108,6 +113,10 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 		adv := buf.Pos[i].XAdvance
 		advanceCalculated := int32(adv) * int32(f.Mag)
 		advanceWant := float32(face.HorizontalAdvance(r.GlyphID)) * float32(f.Mag)
+
+		if r.GlyphID == 0 && !unicode.IsSpace(char) && f.MissingGlyphFunc != nil {
+			f.MissingGlyphFunc(f.Face, char)
+		}
 
 		if unicode.IsSpace(char) {
 			glyphs = append(glyphs, Atom{

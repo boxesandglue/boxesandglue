@@ -122,7 +122,7 @@ func (tr *SVGTextRenderer) resolveFamily(name string) *FontFamily {
 		return ff
 	}
 	// SVG font-family can be a comma-separated list of fallbacks
-	for _, candidate := range strings.Split(name, ",") {
+	for candidate := range strings.SplitSeq(name, ",") {
 		candidate = strings.TrimSpace(strings.Trim(candidate, "'\""))
 		if ff, ok := tr.doc.FontFamilies[candidate]; ok {
 			return ff

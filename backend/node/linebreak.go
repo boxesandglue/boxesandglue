@@ -12,7 +12,6 @@ import (
 
 var (
 	positiveInf      = math.Inf(1.0)
-	negativeInf      = math.Inf(-1.0)
 	breakpointNextID atomic.Int64
 )
 
@@ -364,7 +363,7 @@ func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*
 		pre = v.Pre
 	}
 
-	for c := 0; c < 4; c++ {
+	for c := range 4 {
 		if dc[c] <= dmin+lb.settings.DemeritsFitness {
 			bp := &Breakpoint{
 				id:               int(breakpointNextID.Add(1)),

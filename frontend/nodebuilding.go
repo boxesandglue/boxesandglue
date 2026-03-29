@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -888,14 +889,14 @@ func parseOpenTypeFeatures(featurelist any) []ot.Feature {
 	fontfeatures := []ot.Feature{}
 	switch t := featurelist.(type) {
 	case string:
-		for _, str := range strings.Split(t, ",") {
+		for str := range strings.SplitSeq(t, ",") {
 			if f, ok := ot.FeatureFromString(str); ok {
 				fontfeatures = append(fontfeatures, f)
 			}
 		}
 	case []string:
 		for _, single := range t {
-			for _, str := range strings.Split(single, ",") {
+			for str := range strings.SplitSeq(single, ",") {
 				if f, ok := ot.FeatureFromString(str); ok {
 					fontfeatures = append(fontfeatures, f)
 				}
@@ -1022,18 +1023,14 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var variations map[string]float64
 	if fs.VariationSettings != nil {
 		variations = make(map[string]float64, len(fs.VariationSettings))
-		for k, v := range fs.VariationSettings {
-			variations[k] = v
-		}
+		maps.Copy(variations, fs.VariationSettings)
 	}
 	if settingsVars, ok := ts[SettingFontVariationSettings]; ok {
 		if varMap, ok := settingsVars.(map[string]float64); ok {
 			if variations == nil {
 				variations = make(map[string]float64, len(varMap))
 			}
-			for k, v := range varMap {
-				variations[k] = v
-			}
+			maps.Copy(variations, varMap)
 		}
 	}
 	// Use LoadFaceWithVariations to get a face with the correct variation settings
@@ -1057,6 +1054,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var found bool
 	if fnt, found = fe.usedFonts[face][fontsize]; !found {
 		fnt = font.NewFont(face, fontsize)
+		fnt.MissingGlyphFunc = fe.MissingGlyphFunc
 		fe.usedFonts[face][fontsize] = fnt
 	}
 
@@ -1247,9 +1245,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	}
 	newSettings := make(TypesettingSettings)
 	var nl, end node.Node
-	for k, v := range ts.Settings {
-		newSettings[k] = v
-	}
+	maps.Copy(newSettings, ts.Settings)
 	var hyperlinkStartNode *node.StartStop
 	var hyperlinkDest string
 

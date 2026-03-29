@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -252,12 +253,13 @@ func (cell *TableCell) build() (*node.VList, error) {
 	glueTopWidth := cell.PaddingTop
 	glueBottomWidth := cell.PaddingBottom
 
-	if valign == VAlignDefault || valign == VAlignMiddle {
+	switch valign {
+	case VAlignDefault, VAlignMiddle:
 		glueTopWidth += glueHeight / 2
 		glueBottomWidth += glueHeight / 2
-	} else if valign == VAlignTop {
+	case VAlignTop:
 		glueBottomWidth += glueHeight
-	} else if valign == VAlignBottom {
+	case VAlignBottom:
 		glueTopWidth += glueHeight
 	}
 
@@ -377,10 +379,6 @@ func (cell *TableCell) build() (*node.VList, error) {
 	}
 
 	return vl, nil
-}
-
-func (row *TableRow) getNumberOfColumns() int {
-	return len(row.Cells)
 }
 
 func (row *TableRow) setHeight() ([]span, error) {
@@ -522,14 +520,14 @@ func (m matrix) String() string {
 	var b strings.Builder
 	nRows := len(m[0])
 	nCols := len(m)
-	for y := 0; y < nRows; y++ {
+	for y := range nRows {
 		fmt.Fprintln(&b, strings.Repeat("---------------------+-", nCols))
-		for x := 0; x < nCols; x++ {
+		for x := range nCols {
 			nextCells := fmt.Sprint(m[x][y].cell.nextCell)
 			fmt.Fprintf(&b, "%5s [-> %9s] | ", m[x][y].cell, nextCells)
 		}
 		fmt.Fprintln(&b)
-		for x := 0; x < nCols; x++ {
+		for x := range nCols {
 			nextRows := fmt.Sprint(m[x][y].cell.nextRow)
 			fmt.Fprintf(&b, "%5s [-> %9s] | ", "", nextRows)
 		}
@@ -601,13 +599,7 @@ func (tbl *Table) analyzeTable() {
 					nc := tbl.cellMatrix[col+1][row+r].cell
 					if nc != nil {
 						// only append the next cell value if we have not appended it yet
-						found := false
-						for _, c := range cellp.cell.nextCell {
-							if nc == c {
-								found = true
-								break
-							}
-						}
+						found := slices.Contains(cellp.cell.nextCell, nc)
 						if !found {
 							cellp.cell.nextCell = append(cellp.cell.nextCell, nc)
 						}
@@ -631,13 +623,7 @@ func (tbl *Table) analyzeTable() {
 					nr := tbl.cellMatrix[col+c][row+1].cell
 					if nr != nil {
 						// only append the next cell value if we have not appended it yet
-						found := false
-						for _, r := range cellp.cell.nextRow {
-							if nr == r {
-								found = true
-								break
-							}
-						}
+						found := slices.Contains(cellp.cell.nextRow, nr)
 						if !found {
 							cellp.cell.nextRow = append(cellp.cell.nextRow, nr)
 						}
