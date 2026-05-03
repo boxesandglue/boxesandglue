@@ -76,7 +76,16 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 
 // Shape transforms the text into a slice of code points.
 // The variations parameter maps axis tags (e.g., "wght") to values.
+// Direction is guessed from the script.
 func (f *Font) Shape(text string, features []ot.Feature, variations map[string]float64) []Atom {
+	return f.ShapeDir(text, features, variations, ot.DirectionInvalid)
+}
+
+// ShapeDir is like Shape but takes an explicit text direction.
+// Pass ot.DirectionInvalid to fall back to script-based guessing.
+// For RTL scripts (Hebrew, Arabic) shaped with DirectionRTL, the returned
+// atoms are in visual order (i.e. ready for left-to-right placement).
+func (f *Font) ShapeDir(text string, features []ot.Feature, variations map[string]float64, dir ot.Direction) []Atom {
 	// empty paragraphs have ZERO WIDTH SPACE as a marker
 	if text == "\u200B" {
 		return []Atom{
@@ -103,11 +112,18 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 		f.Face.Shaper.SetVariation(ot.MakeTag(tag[0], tag[1], tag[2], tag[3]), float32(value))
 	}
 
+	if dir != ot.DirectionInvalid {
+		buf.SetDirection(dir)
+	}
 	buf.GuessSegmentProperties()
 	f.Face.Shaper.Shape(buf, features)
 	glyphs := make([]Atom, 0, len(buf.Info))
 	space := f.Face.Codepoint(' ')
 	lenBufInfo := len(buf.Info)
+	// HarfBuzz returns RTL output in reverse-logical (visual) order, so the
+	// "next cluster" used to delimit a glyph's source text comes from the
+	// previous buffer entry, not the next one.
+	rtl := buf.Direction == ot.DirectionRTL
 	for i, r := range buf.Info {
 		char := runes[r.Cluster]
 		adv := buf.Pos[i].XAdvance
@@ -150,12 +166,27 @@ func (f *Font) Shape(text string, features []ot.Feature, variations map[string]f
 				Codepoint: int(r.GlyphID),
 				Kernafter: bdelta,
 			}
-			if i == lenBufInfo-1 {
-				// last element
-				g.Components = string(runes[r.Cluster:])
+			endCluster := len(runes)
+			if rtl {
+				if i > 0 {
+					endCluster = int(buf.Info[i-1].Cluster)
+				}
 			} else {
-				g.Components = string(runes[r.Cluster:buf.Info[i+1].Cluster])
+				if i < lenBufInfo-1 {
+					endCluster = int(buf.Info[i+1].Cluster)
+				}
 			}
+			// Defensive: if the shaper produced non-monotonic clusters
+			// (e.g. caller-set Direction conflicts with the script's natural
+			// direction), fall back to a single-rune source range instead of
+			// panicking on an inverted slice.
+			if endCluster <= int(r.Cluster) {
+				endCluster = int(r.Cluster) + 1
+				if endCluster > len(runes) {
+					endCluster = len(runes)
+				}
+			}
+			g.Components = string(runes[r.Cluster:endCluster])
 			glyphs = append(glyphs, g)
 		}
 	}

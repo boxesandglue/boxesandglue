@@ -17,6 +17,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
+	"github.com/boxesandglue/boxesandglue/backend/text/bidi"
 	"github.com/boxesandglue/textshape/ot"
 )
 
@@ -246,7 +247,32 @@ const (
 	SettingVAlign
 	// SettingYOffset shifts the glyph.
 	SettingYOffset
+	// SettingDirection sets the writing direction of a paragraph (DirectionLTR
+	// or DirectionRTL). If unset, the direction is auto-detected from the
+	// paragraph content using the Unicode Bidi algorithm (UAX#9).
+	SettingDirection
 )
+
+// Direction describes the writing direction of a paragraph.
+type Direction int
+
+const (
+	// DirectionLTR is left-to-right writing direction.
+	DirectionLTR Direction = iota
+	// DirectionRTL is right-to-left writing direction (Hebrew, Arabic, ...).
+	DirectionRTL
+)
+
+func (d Direction) String() string {
+	switch d {
+	case DirectionLTR:
+		return "ltr"
+	case DirectionRTL:
+		return "rtl"
+	default:
+		return fmt.Sprintf("Direction(%d)", int(d))
+	}
+}
 
 func (st SettingType) String() string {
 	var settingName string
@@ -369,6 +395,8 @@ func (st SettingType) String() string {
 		settingName = "SettingWidth"
 	case SettingYOffset:
 		settingName = "SettingYOffset"
+	case SettingDirection:
+		settingName = "SettingDirection"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -722,6 +750,23 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			p.Alignment = HAlignDefault
 		}
 	}
+	// Resolve paragraph direction. An explicit SettingDirection wins; otherwise
+	// auto-detect from the paragraph text using UAX#9. The resolved direction
+	// is propagated to all child Text nodes via Mknodes.
+	if _, ok := te.Settings[SettingDirection]; !ok {
+		if d := detectParagraphDirection(te); d == DirectionRTL {
+			te.Settings[SettingDirection] = DirectionRTL
+		}
+	}
+	// For RTL paragraphs without an explicit alignment, default to right
+	// alignment so text reads from the right edge of the line.
+	if dir, ok := te.Settings[SettingDirection]; ok {
+		if d, ok := dir.(Direction); ok && d == DirectionRTL {
+			if _, hasAlign := te.Settings[SettingHAlign]; !hasAlign {
+				p.Alignment = HAlignRight
+			}
+		}
+	}
 	// Apply indent/margin settings from Text settings
 	if il, ok := te.Settings[SettingIndentLeft]; ok {
 		p.IndentLeft = il.(bag.ScaledPoint)
@@ -846,6 +891,15 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	for _, inf := range info {
 		pi.Widths = append(pi.Widths, inf.Width)
 	}
+	// UAX#9 L1 (trailing-whitespace reset) and L2-L4 (visual reorder) per
+	// line. Pure-LTR paragraphs are handled by the helper as a fast no-op.
+	var paragraphLevel uint8
+	if dir, ok := te.Settings[SettingDirection]; ok {
+		if d, ok := dir.(Direction); ok && d == DirectionRTL {
+			paragraphLevel = 1
+		}
+	}
+	bidiReorderVList(vlist, paragraphLevel)
 
 	for _, cb := range fe.postLinebreakCallback {
 		vlist = cb(vlist)
@@ -883,6 +937,306 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		}
 	}
 	return vlist, &pi, nil
+}
+
+// collectParagraphText recursively concatenates the string content of a Text
+// element into b for bidi auto-detection. Non-string items (images, tables,
+// VLists) contribute nothing — they are direction-neutral.
+func collectParagraphText(te *Text, b *bytes.Buffer) {
+	for _, itm := range te.Items {
+		switch t := itm.(type) {
+		case string:
+			b.WriteString(t)
+		case *Text:
+			collectParagraphText(t, b)
+		}
+	}
+}
+
+// propagateBidiLevels fills in BidiLevel for nodes that don't naturally
+// carry one. Hyphenate inserts Disc nodes after Mknodes has run, so the
+// shape-time level tagging never reaches them and they default to 0.
+// A Disc sitting inside a level-2 LTR-in-RTL word would then split the
+// level-2 run during the L2-L4 reorder, scattering the word visually.
+// We adopt the level of the most recent preceding content node, which
+// matches the semantic intent: a hyphenation point belongs to the word
+// it breaks.
+func propagateBidiLevels(line *node.HList) {
+	if line == nil || line.List == nil {
+		return
+	}
+	var prevLevel uint8
+	for n := line.List; n != nil; n = n.Next() {
+		switch n.(type) {
+		case *node.Disc:
+			if n.BidiLevel() == 0 {
+				n.SetBidiLevel(prevLevel)
+			}
+		case *node.Glyph, *node.Glue, *node.Kern:
+			prevLevel = n.BidiLevel()
+		}
+	}
+}
+
+// applyL1 implements UAX#9 rule L1: trailing whitespace at the end of a
+// line is reset to the paragraph embedding level. Without this, a line
+// that ends in a Glue belonging to an embedded run (e.g. an LTR-run-final
+// space inside an RTL paragraph) would carry the run's elevated level
+// into the L2-L4 reorder and end up mis-positioned, typically as a double
+// space at one end of the visual line.
+//
+// We collect the line nodes into a slice, walk them backward, skip the
+// linebreak's own end-of-line artefacts (Penalty, zero-width Glue/Kern),
+// and reset the BidiLevel of the contiguous trailing whitespace to
+// paragraphLevel. Walking stops at the first non-whitespace, non-Penalty
+// node — that is the last *content* glyph and everything beyond it is
+// real text whose level must be preserved.
+func applyL1(line *node.HList, paragraphLevel uint8) {
+	if line == nil || line.List == nil {
+		return
+	}
+	var nodes []node.Node
+	for n := line.List; n != nil; n = n.Next() {
+		nodes = append(nodes, n)
+	}
+	for i := len(nodes) - 1; i >= 0; i-- {
+		switch nodes[i].(type) {
+		case *node.Glue, *node.Kern:
+			nodes[i].SetBidiLevel(paragraphLevel)
+		case *node.Penalty:
+			// Linebreak inserts penalties around its end-of-line glue;
+			// they carry no visible width and shouldn't gate the reset.
+			continue
+		default:
+			// Glyph, Disc, Image, etc. — content boundary reached.
+			return
+		}
+	}
+}
+
+// bidiReorderVList walks every HList line in vl and applies UAX#9 L1 and
+// L2-L4 per line. paragraphLevel is the embedding level of the paragraph
+// base direction (0 for LTR, 1 for RTL); it is the value to which trailing
+// whitespace gets reset by L1.
+func bidiReorderVList(vl *node.VList, paragraphLevel uint8) {
+	if vl == nil {
+		return
+	}
+	for n := vl.List; n != nil; n = n.Next() {
+		if hl, ok := n.(*node.HList); ok {
+			bidiReorderLine(hl, paragraphLevel)
+		}
+	}
+}
+
+// bidiReorderLine reorders the contents of a single line per UAX#9 L1
+// (trailing-whitespace level reset) followed by L2-L4 (visual reorder).
+// Operates at the *glyph* level: every node carries its own embedding
+// level (assigned at shape time) and the algorithm reverses maximal
+// contiguous sequences of nodes at level >= current, walking from the
+// highest level down to 1. Nodes arrive in logical order (RTL run shaper
+// output is reversed beforehand in shapeWithBidi) and leave in visual
+// order. paragraphLevel is the paragraph base embedding level used by L1.
+func bidiReorderLine(line *node.HList, paragraphLevel uint8) {
+	if line == nil || line.List == nil {
+		return
+	}
+	propagateBidiLevels(line)
+	applyL1(line, paragraphLevel)
+	var nodes []node.Node
+	var levels []uint8
+	var maxLevel uint8
+	for n := line.List; n != nil; n = n.Next() {
+		nodes = append(nodes, n)
+		l := n.BidiLevel()
+		levels = append(levels, l)
+		if l > maxLevel {
+			maxLevel = l
+		}
+	}
+	if maxLevel == 0 || len(nodes) <= 1 {
+		return
+	}
+	// L2-L4: reverse maximal sequences at level >= current, from the
+	// highest level down through 1. Reversing the level array alongside
+	// the node array keeps subsequent passes consistent.
+	for level := maxLevel; level >= 1; level-- {
+		i := 0
+		for i < len(nodes) {
+			if levels[i] >= level {
+				j := i
+				for j < len(nodes) && levels[j] >= level {
+					j++
+				}
+				for a, b := i, j-1; a < b; a, b = a+1, b-1 {
+					nodes[a], nodes[b] = nodes[b], nodes[a]
+					levels[a], levels[b] = levels[b], levels[a]
+				}
+				i = j
+			} else {
+				i++
+			}
+		}
+	}
+	// Rewire the linked list in the new visual order.
+	var first, last node.Node
+	for _, n := range nodes {
+		n.SetPrev(nil)
+		n.SetNext(nil)
+		if first == nil {
+			first = n
+			last = n
+		} else {
+			last.SetNext(n)
+			n.SetPrev(last)
+			last = n
+		}
+	}
+	line.List = first
+}
+
+// shapeWithBidi runs UAX#9 over str using paragraphDir as the embedding
+// base, splits the input into directional runs, shapes each run with its
+// own direction, and returns the concatenated atoms in logical run order
+// alongside a parallel slice of bidi levels (0 = LTR, 1 = RTL). The post-
+// linebreak reorder consults these levels to flip RTL runs into visual
+// position on each line.
+func shapeWithBidi(fnt *font.Font, str string, features []ot.Feature, variations map[string]float64, paragraphDir Direction) ([]font.Atom, []uint8) {
+	if str == "" {
+		return nil, nil
+	}
+	defaultDir := bidi.LeftToRight
+	if paragraphDir == DirectionRTL {
+		defaultDir = bidi.RightToLeft
+	}
+	p := bidi.Paragraph{}
+	if _, err := p.SetString(str, bidi.DefaultDirection(defaultDir)); err != nil {
+		return shapeFallback(fnt, str, features, variations, paragraphDir)
+	}
+	o, err := p.Order()
+	if err != nil || o.NumRuns() == 0 {
+		return shapeFallback(fnt, str, features, variations, paragraphDir)
+	}
+	// Order() returns runs in visual order; we need logical order to build
+	// the node list (linebreak walks logical order). Sort run indices by
+	// their startpos.
+	type runRef struct {
+		idx, start int
+	}
+	refs := make([]runRef, o.NumRuns())
+	for i := 0; i < o.NumRuns(); i++ {
+		r := o.Run(i)
+		s, _ := r.Pos()
+		refs[i] = runRef{idx: i, start: s}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].start < refs[j].start })
+
+	// For plain text without explicit embedding controls, the embedding
+	// level of a run is one of three values:
+	//   - paragraph base (0 in LTR, 1 in RTL) — used when the run direction
+	//     matches the paragraph base
+	//   - paragraph base + 1 — used for the opposite direction (LTR run in
+	//     RTL paragraph → 2; RTL run in LTR paragraph → 1)
+	// Without these stair-step levels the post-linebreak reorder cannot tell
+	// LTR-in-RTL from LTR-in-LTR and a paragraph like
+	// "Hebrew[RTL] english[LTR] Hebrew[RTL]" comes out with the spaces
+	// trapped at the line edges instead of between the words.
+	var baseLevel uint8
+	if paragraphDir == DirectionRTL {
+		baseLevel = 1
+	}
+	var atoms []font.Atom
+	var levels []uint8
+	for _, ref := range refs {
+		run := o.Run(ref.idx)
+		runDir := ot.DirectionLTR
+		var lvl uint8
+		if run.Direction() == bidi.RightToLeft {
+			runDir = ot.DirectionRTL
+			lvl = 1 // RTL is always odd; lowest odd level is 1
+		} else if baseLevel == 1 {
+			lvl = 2 // LTR within RTL paragraph → next-higher even level
+		}
+		// else: LTR within LTR paragraph stays at level 0 (zero value)
+		runAtoms := fnt.ShapeDir(run.String(), features, variations, runDir)
+		// HarfBuzz returns RTL output in reverse-logical (visual) order.
+		// We store atoms in *logical* order so paragraph-edge whitespace
+		// stripping and Knuth–Plass linebreaking see word boundaries at the
+		// natural positions; the post-linebreak reorder rebuilds visual
+		// order at line time.
+		if runDir == ot.DirectionRTL {
+			reverseAtoms(runAtoms)
+		}
+		atoms = append(atoms, runAtoms...)
+		for range runAtoms {
+			levels = append(levels, lvl)
+		}
+	}
+	return atoms, levels
+}
+
+// reverseAtoms flips an atom slice in place and shifts Kernafter values so
+// that the kerning between two glyphs stays attached to the same logical
+// pair after a subsequent visual-order pass. HarfBuzz stores Kernafter on
+// atom[i] meaning "kern between buffer position i and i+1". After reversing
+// the array, the kern between visual pair (i, i+1) ends up between new
+// atoms (N-1-i, N-2-i), so we need to shift Kernafter one position left.
+func reverseAtoms(atoms []font.Atom) {
+	n := len(atoms)
+	if n < 2 {
+		return
+	}
+	for i, j := 0, n-1; i < j; i, j = i+1, j-1 {
+		atoms[i], atoms[j] = atoms[j], atoms[i]
+	}
+	for i := 0; i < n-1; i++ {
+		atoms[i].Kernafter = atoms[i+1].Kernafter
+	}
+	atoms[n-1].Kernafter = 0
+}
+
+// shapeFallback shapes str as a single run when bidi analysis fails or the
+// input has no recognisable directional content. Levels are derived from
+// paragraphDir so the rest of the pipeline still has consistent metadata.
+func shapeFallback(fnt *font.Font, str string, features []ot.Feature, variations map[string]float64, paragraphDir Direction) ([]font.Atom, []uint8) {
+	dir := ot.DirectionLTR
+	var lvl uint8
+	if paragraphDir == DirectionRTL {
+		dir = ot.DirectionRTL
+		lvl = 1
+	}
+	atoms := fnt.ShapeDir(str, features, variations, dir)
+	levels := make([]uint8, len(atoms))
+	for i := range levels {
+		levels[i] = lvl
+	}
+	return atoms, levels
+}
+
+// detectParagraphDirection runs UAX#9 over the concatenated text of te and
+// returns DirectionRTL if the paragraph reads right-to-left, DirectionLTR
+// otherwise. Mixed paragraphs fall back to LTR in this initial bidi stage —
+// proper run-level handling will be added later.
+func detectParagraphDirection(te *Text) Direction {
+	var b bytes.Buffer
+	collectParagraphText(te, &b)
+	if b.Len() == 0 {
+		return DirectionLTR
+	}
+	p := bidi.Paragraph{}
+	if _, err := p.SetString(b.String()); err != nil {
+		return DirectionLTR
+	}
+	// Order() must run before Direction() — the latter reads o.directions[0]
+	// which is unset until Order() populates it.
+	o, err := p.Order()
+	if err != nil || o.NumRuns() == 0 {
+		return DirectionLTR
+	}
+	if o.Direction() == bidi.RightToLeft {
+		return DirectionRTL
+	}
+	return DirectionLTR
 }
 
 func parseOpenTypeFeatures(featurelist any) []ot.Feature {
@@ -925,6 +1279,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	preserveWhitespace := false
 	letterSpacing := bag.ScaledPoint(0)
 	yoffset := bag.ScaledPoint(0)
+	direction := DirectionLTR
 	var settingFontFeatures []ot.Feature
 	for k, v := range ts {
 		switch k {
@@ -997,6 +1352,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			preserveWhitespace = v.(bool)
 		case SettingYOffset:
 			yoffset = v.(bag.ScaledPoint)
+		case SettingDirection:
+			if d, ok := v.(Direction); ok {
+				direction = d
+			}
 		default:
 			return nil, fmt.Errorf("Unknown setting %v", k)
 		}
@@ -1104,8 +1463,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	cur = head
 	var lastglue node.Node
-	atoms := fnt.Shape(str, fontfeatures, variations)
-	for _, r := range atoms {
+	atoms, atomLevels := shapeWithBidi(fnt, str, fontfeatures, variations, direction)
+	for i, r := range atoms {
+		level := atomLevels[i]
+		// Capture cur before processing so we can tag all newly-inserted
+		// nodes with this atom's bidi level after the branches run.
+		prevCur := cur
 		if r.IsSpace {
 			if preserveWhitespace {
 				switch r.Components {
@@ -1206,6 +1569,21 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				k.Kern = letterSpacing
 				head = node.InsertAfter(head, cur, k)
 				cur = k
+			}
+		}
+		// Tag every node added in this iteration with the bidi level. Walk
+		// from the first newly-inserted node (prevCur.Next, or head if the
+		// list was empty) up to and including cur.
+		var startNode node.Node
+		if prevCur != nil {
+			startNode = prevCur.Next()
+		} else {
+			startNode = head
+		}
+		for n := startNode; n != nil; n = n.Next() {
+			n.SetBidiLevel(level)
+			if n == cur {
+				break
 			}
 		}
 	}

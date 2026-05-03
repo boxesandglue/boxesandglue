@@ -101,6 +101,12 @@ type Node interface {
 	Type() Type
 	Name() string
 	Copy() Node
+	// BidiLevel returns the UAX#9 embedding level of this node. 0 = LTR
+	// (default). Odd levels are RTL.
+	BidiLevel() uint8
+	// SetBidiLevel records the UAX#9 embedding level of this node. The level
+	// is used by the post-linebreak reorder to put runs into visual order.
+	SetBidiLevel(uint8)
 }
 
 func showRecentNodes(n Node, i int) string {
@@ -195,6 +201,18 @@ type basenode struct {
 	prev       Node
 	Attributes H
 	ID         int
+	bidiLevel  uint8
+}
+
+// BidiLevel returns the UAX#9 embedding level of this node. 0 means LTR
+// (default). Odd levels are RTL.
+func (b *basenode) BidiLevel() uint8 {
+	return b.bidiLevel
+}
+
+// SetBidiLevel sets the UAX#9 embedding level of this node.
+func (b *basenode) SetBidiLevel(level uint8) {
+	b.bidiLevel = level
 }
 
 func newID() int {
