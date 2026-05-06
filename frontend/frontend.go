@@ -130,6 +130,15 @@ const (
 	HAlignCenter
 	// HAlignJustified makes text left and right aligned.
 	HAlignJustified
+	// HAlignStart is the CSS Text 3 logical "start" alignment: left in
+	// LTR paragraphs, right in RTL paragraphs. FormatParagraph resolves
+	// it to HAlignLeft or HAlignRight after the paragraph direction is
+	// known.
+	HAlignStart
+	// HAlignEnd is the CSS Text 3 logical "end" alignment: right in LTR
+	// paragraphs, left in RTL paragraphs. FormatParagraph resolves it
+	// like HAlignStart.
+	HAlignEnd
 )
 
 func (ha HorizontalAlignment) String() string {
@@ -144,6 +153,10 @@ func (ha HorizontalAlignment) String() string {
 		return "center"
 	case HAlignJustified:
 		return "justified"
+	case HAlignStart:
+		return "start"
+	case HAlignEnd:
+		return "end"
 	}
 	return "---"
 }

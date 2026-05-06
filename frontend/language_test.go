@@ -36,6 +36,46 @@ func TestLoadLang(t *testing.T) {
 	}
 }
 
+// TestNoOpLanguage exercises the CSS Text 3 §6 contract: tags without TeX
+// hyphenation patterns must resolve without error and never produce break
+// points. Arabic, Hebrew, CJK, and any custom non-listed tag fall in here.
+func TestNoOpLanguage(t *testing.T) {
+	testdata := []string{"ar", "he", "ja", "zh", "made-up-tag", "x-test"}
+	for _, tag := range testdata {
+		l, err := GetLanguage(tag)
+		if err != nil {
+			t.Fatalf("GetLanguage(%q) returned error: %v", tag, err)
+		}
+		if l == nil {
+			t.Fatalf("GetLanguage(%q) returned nil", tag)
+		}
+		if l.Name != tag {
+			t.Errorf("GetLanguage(%q).Name = %q, want %q", tag, l.Name, tag)
+		}
+		// A typical word in a Latin-pattern language would have several
+		// breakpoints; with a no-op hyphenator we expect the empty slice.
+		if pos := l.Hyphenate("supercalifragilistic"); len(pos) != 0 {
+			t.Errorf("GetLanguage(%q).Hyphenate produced %d breakpoints, want 0",
+				tag, len(pos))
+		}
+	}
+}
+
+// TestIsHyphenationSupported documents which tags qualify as "auto-hyphenable"
+// without falling through to the no-op sentinel.
+func TestIsHyphenationSupported(t *testing.T) {
+	for _, tag := range []string{"en", "EN", "en_US", "de", "de_DE"} {
+		if !IsHyphenationSupported(tag) {
+			t.Errorf("IsHyphenationSupported(%q) = false, want true", tag)
+		}
+	}
+	for _, tag := range []string{"ar", "he", "ja", "zh", "klingon", ""} {
+		if IsHyphenationSupported(tag) {
+			t.Errorf("IsHyphenationSupported(%q) = true, want false", tag)
+		}
+	}
+}
+
 func TestHyphenate(t *testing.T) {
 	str := ` computer.`
 	var head, cur node.Node

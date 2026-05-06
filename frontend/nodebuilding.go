@@ -251,6 +251,19 @@ const (
 	// or DirectionRTL). If unset, the direction is auto-detected from the
 	// paragraph content using the Unicode Bidi algorithm (UAX#9).
 	SettingDirection
+	// SettingLanguage selects the hyphenation language for a Text element. The
+	// value is a *lang.Lang. When set on a sub-Text whose language differs
+	// from the parent, Mknodes emits node.Lang markers around the sub-Text so
+	// the Hyphenate walker switches patterns for that run. CSS-level
+	// `hyphens: none` is encoded by setting SettingLanguage to a no-op
+	// language (see frontend.GetLanguage for unknown tags).
+	SettingLanguage
+	// SettingHyphens carries the CSS Text 3 `hyphens` keyword (string:
+	// "auto", "manual", or "none"). It controls only the soft-hyphen
+	// (U+00AD) behaviour; pattern-based hyphenation is governed by
+	// SettingLanguage. "auto" / unset / "manual" insert a Disc at every
+	// U+00AD; "none" drops U+00AD silently.
+	SettingHyphens
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -397,6 +410,10 @@ func (st SettingType) String() string {
 		settingName = "SettingYOffset"
 	case SettingDirection:
 		settingName = "SettingDirection"
+	case SettingLanguage:
+		settingName = "SettingLanguage"
+	case SettingHyphens:
+		settingName = "SettingHyphens"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -743,6 +760,13 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		Language: fe.Doc.DefaultLanguage,
 		hsize:    hsize,
 	}
+	// SettingLanguage on the paragraph wins over the document default. Sub-Text
+	// language switches are handled by Mknodes via node.Lang markers.
+	if v, ok := te.Settings[SettingLanguage]; ok {
+		if ll, ok := v.(*lang.Lang); ok && ll != nil {
+			p.Language = ll
+		}
+	}
 	if ha, ok := te.Settings[SettingHAlign]; ok {
 		if ha != nil {
 			p.Alignment = ha.(HorizontalAlignment)
@@ -758,13 +782,38 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			te.Settings[SettingDirection] = DirectionRTL
 		}
 	}
-	// For RTL paragraphs without an explicit alignment, default to right
-	// alignment so text reads from the right edge of the line.
+	// Resolve logical text-align (start/end) to physical (left/right) once
+	// the paragraph direction is known. CSS Text 3 §7: "start" maps to the
+	// line-start edge and "end" to the line-end edge of the inline-axis,
+	// which are direction-dependent. CSS-default "text-align: start" thus
+	// produces left-aligned LTR paragraphs and right-aligned RTL paragraphs
+	// without any extra opt-in from the caller.
+	paraDir := DirectionLTR
 	if dir, ok := te.Settings[SettingDirection]; ok {
-		if d, ok := dir.(Direction); ok && d == DirectionRTL {
-			if _, hasAlign := te.Settings[SettingHAlign]; !hasAlign {
-				p.Alignment = HAlignRight
-			}
+		if d, ok := dir.(Direction); ok {
+			paraDir = d
+		}
+	}
+	switch p.Alignment {
+	case HAlignStart:
+		if paraDir == DirectionRTL {
+			p.Alignment = HAlignRight
+		} else {
+			p.Alignment = HAlignLeft
+		}
+	case HAlignEnd:
+		if paraDir == DirectionRTL {
+			p.Alignment = HAlignLeft
+		} else {
+			p.Alignment = HAlignRight
+		}
+	case HAlignDefault:
+		// Pre-spec callers that don't go through ParseHorizontalAlign get
+		// the same direction-aware default: RTL→Right, LTR→Left.
+		if paraDir == DirectionRTL {
+			p.Alignment = HAlignRight
+		} else {
+			p.Alignment = HAlignLeft
 		}
 	}
 	// Apply indent/margin settings from Text settings
@@ -1105,6 +1154,32 @@ func shapeWithBidi(fnt *font.Font, str string, features []ot.Feature, variations
 	if str == "" {
 		return nil, nil
 	}
+	// Soft-hyphen handling. The shaper is configured to drop default-ignorables
+	// from the buffer (font.ShapeDir sets BufferFlagRemoveDefaultIgnorables), so
+	// U+00AD never reaches the atom loop on its own. We split the input on
+	// U+00AD here, shape each segment in its own bidi pass, and emit a sentinel
+	// atom between segments (Components == "­", IsSpace=false). The atom
+	// loop in BuildNodelistFromString recognises this sentinel and turns it
+	// into a discretionary break (or drops it for `hyphens: none`).
+	if strings.ContainsRune(str, '­') {
+		segments := strings.Split(str, "­")
+		var atoms []font.Atom
+		var levels []uint8
+		for i, seg := range segments {
+			if i > 0 {
+				lvl := uint8(0)
+				if paragraphDir == DirectionRTL {
+					lvl = 1
+				}
+				atoms = append(atoms, font.Atom{Components: "­"})
+				levels = append(levels, lvl)
+			}
+			segAtoms, segLevels := shapeWithBidi(fnt, seg, features, variations, paragraphDir)
+			atoms = append(atoms, segAtoms...)
+			levels = append(levels, segLevels...)
+		}
+		return atoms, levels
+	}
 	defaultDir := bidi.LeftToRight
 	if paragraphDir == DirectionRTL {
 		defaultDir = bidi.RightToLeft
@@ -1280,6 +1355,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	letterSpacing := bag.ScaledPoint(0)
 	yoffset := bag.ScaledPoint(0)
 	direction := DirectionLTR
+	hyphensMode := "" // CSS hyphens: "" (auto), "auto", "manual", "none"
 	var settingFontFeatures []ot.Feature
 	for k, v := range ts {
 		switch k {
@@ -1355,6 +1431,13 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingDirection:
 			if d, ok := v.(Direction); ok {
 				direction = d
+			}
+		case SettingLanguage:
+			// consumed at the paragraph level (FormatParagraph) and at
+			// sub-Text boundaries (Mknodes); the glyph builder ignores it.
+		case SettingHyphens:
+			if s, ok := v.(string); ok {
+				hyphensMode = s
 			}
 		default:
 			return nil, fmt.Errorf("Unknown setting %v", k)
@@ -1541,6 +1624,26 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					cur = g
 					lastglue = g
 				}
+			}
+		} else if r.Components == "­" {
+			// Soft hyphen (U+00AD). CSS Text 3 §6:
+			//   * `hyphens: none`   → never break here, drop the codepoint
+			//   * `hyphens: manual` → only break here (no pattern breaks)
+			//   * `hyphens: auto`   → break here AND at language patterns
+			// In all break-allowed modes we emit a Disc node so the line
+			// breaker treats the position as a discretionary breakpoint
+			// with the font's hyphenchar as the visible material.
+			if hyphensMode != "none" {
+				disc := node.NewDisc()
+				hyphen := node.NewGlyph()
+				hyphen.Font = fnt
+				hyphen.Width = fnt.Hyphenchar.Advance
+				hyphen.Components = fnt.Hyphenchar.Components
+				hyphen.Codepoint = fnt.Hyphenchar.Codepoint
+				disc.Pre = hyphen
+				head = node.InsertAfter(head, cur, disc)
+				cur = disc
+				lastglue = nil
 			}
 		} else {
 			n := node.NewGlyph()
@@ -1731,6 +1834,25 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			delete(t.Settings, SettingHyperlink)
 			delete(t.Settings, SettingPrepend)
 			delete(t.Settings, SettingDest)
+
+			// Per-run language switch. If the child Text carries an explicit
+			// SettingLanguage that differs from the surrounding context, emit
+			// node.Lang markers around its node list so the Hyphenate walker
+			// swaps patterns for the run and restores the parent's patterns
+			// afterwards. Settings inheritance has already happened above, so
+			// child-without-explicit-lang inherits the parent's value and the
+			// pointers compare equal here — no spurious switch is emitted.
+			parentLang, _ := newSettings[SettingLanguage].(*lang.Lang)
+			childLang, _ := t.Settings[SettingLanguage].(*lang.Lang)
+			needsLangSwitch := childLang != nil && childLang != parentLang
+
+			if needsLangSwitch {
+				opener := node.NewLang()
+				opener.Lang = childLang
+				head = node.InsertAfter(head, tail, opener)
+				tail = opener
+			}
+
 			nl, end, err = fe.Mknodes(t)
 			if err != nil {
 				return nil, nil, err
@@ -1738,6 +1860,23 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			if nl != nil {
 				head = node.InsertAfter(head, tail, nl)
 				tail = end
+			}
+
+			if needsLangSwitch {
+				// Restore the surrounding language. If the parent had no
+				// explicit SettingLanguage, the document default is what
+				// FormatParagraph started with — that's the language the
+				// run after this child should be hyphenated under.
+				closerLang := parentLang
+				if closerLang == nil {
+					closerLang = fe.Doc.DefaultLanguage
+				}
+				if closerLang != nil {
+					closer := node.NewLang()
+					closer.Lang = closerLang
+					head = node.InsertAfter(head, tail, closer)
+					tail = closer
+				}
 			}
 		case node.Node:
 			head = node.InsertAfter(head, tail, t)

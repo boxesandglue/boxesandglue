@@ -3,7 +3,7 @@ module github.com/boxesandglue/boxesandglue
 go 1.24.0
 
 require (
-	github.com/boxesandglue/baseline-pdf v1.1.9
+	github.com/boxesandglue/baseline-pdf v1.1.10
 	github.com/boxesandglue/svgreader v0.0.2
 	github.com/boxesandglue/textshape v0.0.10
 	github.com/google/uuid v1.6.0
@@ -11,4 +11,4 @@ require (
 	github.com/speedata/optionparser v1.1.1
 )
 
-require github.com/boxesandglue/gofpdi v1.0.22 // indirect
+require github.com/boxesandglue/gofpdi v1.0.23 // indirect

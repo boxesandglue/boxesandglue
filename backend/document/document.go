@@ -640,10 +640,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			x += sumX
 
-			// PDF/UA: check for tag/artifact on child VLists
+			// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 			var childTag *StructureElement
 			var childArtifact bool
 			var childArtifactType ArtifactType
+			var childXObjectFigure bool
 			if v.Attributes != nil {
 				if r, ok := v.Attributes["tag"]; ok {
 					childTag = r.(*StructureElement)
@@ -652,6 +653,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					childArtifactType = a.(ArtifactType)
 					childArtifact = true
 				}
+				if _, ok := v.Attributes["xobject-figure"]; ok {
+					childXObjectFigure = true
+				}
 			}
 			if oc.p.document.Format == FormatPDFUA && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
 				if !vlistHasTaggedDescendant(v) {
@@ -659,13 +663,35 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 			}
 
-			if childArtifact {
+			switch {
+			case childXObjectFigure && childTag != nil:
+				// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
+				// import. The /Do on the page stays unmarked; structure
+				// attachment runs via the XObject's /StructParent → ParentTree
+				// → SE.Obj, plus an OBJR /K entry on the SE.
+				if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
+					sp := oc.p.document.AllocateXObjectStructParent(childTag)
+					img.ImageFile.SetStructParent(sp)
+					if obj := img.ImageFile.ImageObject(); obj != nil {
+						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp)
+					}
+					// Figure BBox is still required by PDF/UA even when
+					// the structure attachment goes via OBJR.
+					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+					llx := (x + v.ShiftX).ToPT()
+					lly := pageHeightPT - moveY.ToPT()
+					urx := llx + v.Width.ToPT()
+					ury := lly + (v.Height + v.Depth).ToPT()
+					childTag.BBox = [4]float64{llx, lly, urx, ury}
+					childTag.HasBBox = true
+				}
+			case childArtifact:
 				if childArtifactType != "" {
 					oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
 				} else {
 					oc.writef("/Artifact BMC\n")
 				}
-			} else if childTag != nil {
+			case childTag != nil:
 				mcid := oc.p.nextMCID
 				oc.p.nextMCID++
 				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
@@ -686,7 +712,10 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 
 			savedTag := oc.tag
 			savedInArtifact := oc.inArtifact
-			if childTag != nil {
+			// xobject-figure does not push oc.tag because the inner /Do is
+			// not part of any marked-content sequence; childTag's K is the
+			// OBJR we already populated.
+			if childTag != nil && !childXObjectFigure {
 				oc.tag = childTag
 			}
 			if childArtifact {
@@ -695,7 +724,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 
 			oc.outputVerticalItems(x+v.ShiftX, moveY, v)
 
-			if childTag != nil || childArtifact {
+			if (childTag != nil && !childXObjectFigure) || childArtifact {
 				oc.gotoTextMode(ScopePage)
 				oc.writef("EMC\n")
 			}
@@ -1009,10 +1038,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.moveto(-posX, -posY)
 			}
 		case *node.VList:
-			// PDF/UA: check for tag/artifact on child VLists
+			// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 			var childTag *StructureElement
 			var childArtifact bool
 			var childArtifactType ArtifactType
+			var childXObjectFigure bool
 			if v.Attributes != nil {
 				if r, ok := v.Attributes["tag"]; ok {
 					childTag = r.(*StructureElement)
@@ -1020,6 +1050,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				if a, ok := v.Attributes["artifact"]; ok {
 					childArtifactType = a.(ArtifactType)
 					childArtifact = true
+				}
+				if _, ok := v.Attributes["xobject-figure"]; ok {
+					childXObjectFigure = true
 				}
 			}
 			// If this child VList has no tag and no artifact and
@@ -1033,14 +1066,36 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				}
 			}
 
-			if childArtifact {
+			switch {
+			case childXObjectFigure && childTag != nil:
+				// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
+				// import. The /Do on the page stays unmarked; structure
+				// attachment runs via /StructParent + ParentTree + OBJR.
+				if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
+					sp := oc.p.document.AllocateXObjectStructParent(childTag)
+					img.ImageFile.SetStructParent(sp)
+					if obj := img.ImageFile.ImageObject(); obj != nil {
+						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp)
+					}
+					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+					posX := (x + v.ShiftX).ToPT()
+					posY := (y - sumY).ToPT()
+					childTag.BBox = [4]float64{
+						posX,
+						pageHeightPT - posY,
+						posX + v.Width.ToPT(),
+						pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
+					}
+					childTag.HasBBox = true
+				}
+			case childArtifact:
 				oc.gotoTextMode(ScopePage)
 				if childArtifactType != "" {
 					oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
 				} else {
 					oc.writef("/Artifact BMC\n")
 				}
-			} else if childTag != nil {
+			case childTag != nil:
 				oc.gotoTextMode(ScopePage)
 				// Save and swap the current tag
 				mcid := oc.p.nextMCID
@@ -1066,7 +1121,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 
 			savedTag := oc.tag
 			savedInArtifact := oc.inArtifact
-			if childTag != nil {
+			// xobject-figure does not push oc.tag — the inner /Do is unmarked.
+			if childTag != nil && !childXObjectFigure {
 				oc.tag = childTag
 			}
 			if childArtifact {
@@ -1075,7 +1131,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 
 			oc.outputVerticalItems(x+v.ShiftX, y-sumY, v)
 
-			if childTag != nil || childArtifact {
+			if (childTag != nil && !childXObjectFigure) || childArtifact {
 				oc.gotoTextMode(ScopePage)
 				oc.writef("EMC\n")
 			}
@@ -1364,6 +1420,31 @@ func hlistHasTaggedDescendant(hl *node.HList) bool {
 	return false
 }
 
+// findImageForXObjectFigure walks a node list looking for a *node.Image
+// whose underlying Imagefile is a PDF import (Form XObject). The shipout
+// pipeline uses it for the PDF/UA-1 §7.1 Note 1 path: the image carries a
+// /StructParent and the parent Figure attaches via OBJR rather than via a
+// page-level marked-content sequence.
+func findImageForXObjectFigure(head node.Node) *node.Image {
+	for n := head; n != nil; n = n.Next() {
+		switch t := n.(type) {
+		case *node.Image:
+			if t.ImageFile != nil && t.ImageFile.Format == "pdf" {
+				return t
+			}
+		case *node.HList:
+			if img := findImageForXObjectFigure(t.List); img != nil {
+				return img
+			}
+		case *node.VList:
+			if img := findImageForXObjectFigure(t.List); img != nil {
+				return img
+			}
+		}
+	}
+	return nil
+}
+
 // ArtifactType represents the type of a PDF artifact.
 type ArtifactType string
 
@@ -1384,11 +1465,30 @@ type mcidEntry struct {
 	mcid      int
 }
 
-// objRefEntry records an object reference (OBJR) for annotations.
+// objRefEntry records an object reference (OBJR) emitted as a /K child of
+// the owning StructureElement. PDF 1.7 §14.7.5.4 uses OBJR to attach an
+// annotation or a Form XObject to a structure element by indirect object
+// reference rather than via a marked-content sequence on the page. The
+// `annotObjNum` field name is historical — it carries either the annotation
+// object number or a Form XObject's object number, depending on the source.
 type objRefEntry struct {
 	pageIndex    int
 	annotObjNum  pdf.Objectnumber
-	structParent int // StructParents index for the annotation
+	structParent int // StructParents index of the referenced object
+}
+
+// AddXObjectRef attaches a Form XObject to this structure element via an
+// OBJR /K child entry (PDF 1.7 §14.7.5.4 + §14.7.4.4). Combined with a
+// /StructParent N entry on the XObject (where N is what
+// PDFDocument.AllocateXObjectStructParent returned), this makes the
+// XObject the single, atomic content of the structure element — without
+// needing a marked-content sequence on the parent page.
+func (se *StructureElement) AddXObjectRef(xobjOnum pdf.Objectnumber, pageIndex int, structParent int) {
+	se.objRefs = append(se.objRefs, objRefEntry{
+		pageIndex:    pageIndex,
+		annotObjNum:  xobjOnum,
+		structParent: structParent,
+	})
 }
 
 // StructureElement represents a tagged PDF element such as H1 or P.
@@ -1420,8 +1520,21 @@ func (se *StructureElement) AddChild(cld *StructureElement) {
 type pdfStructureObject struct {
 	pageObjnum pdf.Objectnumber
 	annotSE    *StructureElement // non-nil for annotation StructParent entries
+	xobjectSE  *StructureElement // non-nil for Form XObject StructParent entries
 	id         int
 	pageIndex  int
+}
+
+// AllocateXObjectStructParent reserves a /StructParents number for a Form
+// XObject that participates in the structure tree as an atomic content
+// entity (PDF/UA-1 §7.1 Note 1). The returned integer is the value to write
+// as /StructParent in the XObject dictionary; the ParentTree will map it
+// directly to se.Obj at finalisation time.
+func (d *PDFDocument) AllocateXObjectStructParent(se *StructureElement) int {
+	po := d.newPDFStructureObject()
+	po.xobjectSE = se
+	d.pdfStructureObjects = append(d.pdfStructureObjects, po)
+	return po.id
 }
 
 func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
@@ -1455,7 +1568,12 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Table /Scope /%s >>", se.Scope)
 	}
 	if se.HasBBox {
-		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Layout /BBox [ %s %s %s %s ] >>",
+		// PDF/UA-1 §7.1.5 best practice: a Figure tag should carry both a
+		// /BBox (for layout) and a /Placement entry. /Placement /Block is
+		// the safe default for block-level figures and silences PAC's
+		// "possibly inappropriate use" heuristic, which checks for the
+		// presence of a Layout placement on Figure structure elements.
+		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Layout /Placement /Block /BBox [ %s %s %s %s ] >>",
 			pdf.FloatToPoint(se.BBox[0]), pdf.FloatToPoint(se.BBox[1]),
 			pdf.FloatToPoint(se.BBox[2]), pdf.FloatToPoint(se.BBox[3]))
 	}
@@ -1882,12 +2000,20 @@ func (d *PDFDocument) Finish() error {
 		// Build ParentTree: maps (StructParents index, MCID) → leaf SE object
 		var poStr strings.Builder
 		for _, po := range d.pdfStructureObjects {
-			if po.annotSE != nil {
+			switch {
+			case po.annotSE != nil:
 				// Annotation StructParent: maps directly to the Link SE object
 				if po.annotSE.Obj != nil {
 					fmt.Fprintf(&poStr, "%d %s ", po.id, po.annotSE.Obj.ObjectNumber.Ref())
 				}
-			} else {
+			case po.xobjectSE != nil:
+				// Form XObject StructParent: maps directly to the SE that owns
+				// the XObject (PDF/UA-1 §7.1 Note 1). No MCID array — the
+				// XObject is a single, atomic content entity.
+				if po.xobjectSE.Obj != nil {
+					fmt.Fprintf(&poStr, "%d %s ", po.id, po.xobjectSE.Obj.ObjectNumber.Ref())
+				}
+			default:
 				// Page StructParent: maps MCID array to leaf SE objects
 				pg := d.Pages[po.pageIndex]
 				var refs []string
