@@ -31,15 +31,16 @@ func (s *slab[T]) alloc() *T {
 
 // Package-level slabs for each node type.
 var (
-	glyphSlab     slab[Glyph]
-	glueSlab      slab[Glue]
-	kernSlab      slab[Kern]
-	hlistSlab     slab[HList]
-	vlistSlab     slab[VList]
-	penaltySlab   slab[Penalty]
-	ruleSlab      slab[Rule]
-	discSlab      slab[Disc]
-	langSlab      slab[Lang]
-	startStopSlab slab[StartStop]
-	imageSlab     slab[Image]
+	glyphSlab          slab[Glyph]
+	glueSlab           slab[Glue]
+	kernSlab           slab[Kern]
+	hlistSlab          slab[HList]
+	vlistSlab          slab[VList]
+	penaltySlab        slab[Penalty]
+	ruleSlab           slab[Rule]
+	discSlab           slab[Disc]
+	langSlab           slab[Lang]
+	startStopSlab      slab[StartStop]
+	imageSlab          slab[Image]
+	hardBreakSlab slab[HardBreak]
 )

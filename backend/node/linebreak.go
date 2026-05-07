@@ -15,6 +15,19 @@ var (
 	breakpointNextID atomic.Int64
 )
 
+// isForcedBreak reports whether n is a node that must end the current line.
+// Penalty(-10000) is the classic forced-break signal; HardBreak is a typed
+// forced break emitted by string atom processing for "\n".
+func isForcedBreak(n Node) bool {
+	switch t := n.(type) {
+	case *Penalty:
+		return t.Penalty <= -10000
+	case *HardBreak:
+		return true
+	}
+	return false
+}
+
 // The data structure here used to store the breakpoints is a two way linked
 // list where the "next" pointer builds the chain of active nodes (all nodes to
 // be considered when looking if the active can reach the current position) and
@@ -144,6 +157,10 @@ compute:
 			if t.Penalty == -10000 && e != n {
 				break compute
 			}
+		case *HardBreak:
+			if e != n {
+				break compute
+			}
 		default:
 			break compute
 		}
@@ -185,6 +202,8 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 	switch t := n.(type) {
 	case *Penalty:
 		curpenalty = t.Penalty
+	case *HardBreak:
+		curpenalty = -10000
 	case *Disc:
 		curpenalty = lb.settings.Hyphenpenalty + t.Penalty
 		curflagged = true
@@ -267,7 +286,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 			// remove them from the current list of active nodes.
 			r, sumExpand := lb.computeAdjustmentRatio(n, active)
 
-			if p, ok := n.(*Penalty); r < -1 || ok && p.Penalty == -10000 {
+			if r < -1 || isForcedBreak(n) {
 				// If line is too wide or a forced break, we can remove the node
 				// from the active list.
 				lb.removeActiveNode(active)
@@ -438,6 +457,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			if t.Penalty < 10000 {
 				lb.mainLoop(t)
 			}
+		case *HardBreak:
+			prevItemBox = false
+			lb.mainLoop(t)
 		case *Disc:
 			// NOTE: Do NOT reset prevItemBox here. A Disc is not a "box" in TeX terms.
 			// If we reset it, a Glue following a Disc won't be considered as a breakpoint,
@@ -518,6 +540,36 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		if startPos != nil {
 			// if PDF/UA is written, the line end should have a space at the end.
 			lineEnd := settings.LineEndGlue.Copy().(*Glue)
+			// Forced-break suppression of justification: a line that
+			// ends in a HardBreak should not be justified, even when
+			// the surrounding paragraph is. In Justify mode
+			// LineEndGlue / LineStartGlue are zero-stretch placeholders
+			// (StretchOrder = StretchNormal), so the only stretch
+			// source for the line is the inline Word-Glues — those
+			// would get spread out to span HSize. Substitute a fill-
+			// stretch LineEndGlue for this one line; its higher
+			// StretchOrder dominates the per-line glue accounting and
+			// the Word-Glues stay at their natural width.
+			//
+			// Left/Right/Center already configure a fill-stretch
+			// LineEndGlue or LineStartGlue at the paragraph level, so
+			// no override is needed there — the existing per-line glue
+			// carries the effect for free.
+			//
+			// Note: the line being built here ends at endNode (the
+			// next break trigger that follows e in source order). When
+			// endNode is the HardBreak, this is the line we want to
+			// fix. e.Position itself marks the START of this line and
+			// is therefore the wrong node to test.
+			if _, endsAtHB := endNode.(*HardBreak); endsAtHB {
+				if settings.LineEndGlue.StretchOrder < StretchFil &&
+					settings.LineStartGlue.StretchOrder < StretchFil {
+					lineEnd = NewGlue()
+					lineEnd.Stretch = bag.Factor
+					lineEnd.StretchOrder = StretchFill
+					lineEnd.Subtype = GlueLineEnd
+				}
+			}
 			lineEnd.Attributes = H{"origin": "lineend"}
 			InsertAfter(startPos, endNode.Prev(), lineEnd)
 

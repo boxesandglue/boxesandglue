@@ -41,6 +41,8 @@ const (
 	TypeStartStop
 	// TypeVList is a VList node.
 	TypeVList
+	// TypeHardBreak is a forced line break (HTML <br>, source "\n").
+	TypeHardBreak
 )
 
 func (t Type) String() string {
@@ -69,6 +71,8 @@ func (t Type) String() string {
 		return "StartStop"
 	case TypeVList:
 		return "Vlist"
+	case TypeHardBreak:
+		return "HardBreak"
 	default:
 		return "something else"
 	}
@@ -222,7 +226,7 @@ func newID() int {
 // IsNode returns true if the argument is a Node.
 func IsNode(arg any) bool {
 	switch arg.(type) {
-	case *Disc, *Glyph, *Glue, *Image, *HList, *Kern, *Lang, *StartStop, *VList:
+	case *Disc, *Glyph, *Glue, *Image, *HList, *Kern, *Lang, *StartStop, *VList, *HardBreak:
 		return true
 	}
 	return false
@@ -1162,4 +1166,57 @@ func NewImage() *Image {
 func IsImage(elt Node) (*Image, bool) {
 	img, ok := elt.(*Image)
 	return img, ok
+}
+
+// HardBreak forces a line break. The line breaker treats it like a
+// Penalty(-10000) of zero width: the current line ends here without any
+// in-line stretch glue, so per-paragraph LineStartGlue / LineEndGlue
+// continue to drive alignment unaffected. HardBreak corresponds to HTML
+// <br> and to "\n" in source text.
+type HardBreak struct {
+	basenode
+}
+
+func (hb *HardBreak) String() string {
+	return String(hb)
+}
+
+// Next returns the following node or nil if no such node exists.
+func (hb *HardBreak) Next() Node { return hb.next }
+
+// Prev returns the node preceding this node or nil if no such node exists.
+func (hb *HardBreak) Prev() Node { return hb.prev }
+
+// SetNext sets the following node.
+func (hb *HardBreak) SetNext(n Node) { hb.next = n }
+
+// SetPrev sets the preceding node.
+func (hb *HardBreak) SetPrev(n Node) { hb.prev = n }
+
+// GetID returns the node id.
+func (hb *HardBreak) GetID() int { return hb.ID }
+
+// Name returns the name of the node.
+func (hb *HardBreak) Name() string { return "hardbreak" }
+
+// Type returns the type of the node.
+func (hb *HardBreak) Type() Type { return TypeHardBreak }
+
+// Copy creates a deep copy of the node.
+func (hb *HardBreak) Copy() Node {
+	return NewHardBreak()
+}
+
+// NewHardBreak creates an initialized HardBreak node.
+func NewHardBreak() *HardBreak {
+	n := hardBreakSlab.alloc()
+	n.ID = newID()
+	return n
+}
+
+// IsHardBreak returns the value of the element and true, if the element is a
+// HardBreak node.
+func IsHardBreak(elt Node) (*HardBreak, bool) {
+	hb, ok := elt.(*HardBreak)
+	return hb, ok
 }

@@ -264,6 +264,18 @@ const (
 	// SettingLanguage. "auto" / unset / "manual" insert a Disc at every
 	// U+00AD; "none" drops U+00AD silently.
 	SettingHyphens
+	// SettingHyphenPenalty carries the Knuth-Plass hyphen penalty as int.
+	// Lower values encourage hyphenation, higher discourage. TeX default
+	// is 50; lower (5–25) helps long compound words in German typesetting,
+	// higher (200+) discourages hyphenation in narrow English columns.
+	SettingHyphenPenalty
+	// SettingLinebreakTolerance carries the Knuth-Plass tolerance (badness
+	// ceiling) as float64. Higher values accept looser lines. TeX defaults
+	// to 200 for \fussy and 10000 for \sloppy. The boxesandglue default is
+	// conservative (4); set higher per paragraph or per element to allow
+	// the line breaker more flexibility (e.g. for narrow columns or text
+	// with few hyphenation opportunities).
+	SettingLinebreakTolerance
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -414,6 +426,10 @@ func (st SettingType) String() string {
 		settingName = "SettingLanguage"
 	case SettingHyphens:
 		settingName = "SettingHyphens"
+	case SettingHyphenPenalty:
+		settingName = "SettingHyphenPenalty"
+	case SettingLinebreakTolerance:
+		settingName = "SettingLinebreakTolerance"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -816,10 +832,6 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			p.Alignment = HAlignLeft
 		}
 	}
-	// Write the resolved physical alignment back so downstream code
-	// (notably BuildNodelistFromString's "\n" handler) sees a consistent
-	// value instead of the original logical/default placeholder.
-	te.Settings[SettingHAlign] = p.Alignment
 	// Apply indent/margin settings from Text settings
 	if il, ok := te.Settings[SettingIndentLeft]; ok {
 		p.IndentLeft = il.(bag.ScaledPoint)
@@ -902,6 +914,20 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	}
 	if p.HyphenPenalty != 0 {
 		ls.Hyphenpenalty = p.HyphenPenalty
+	}
+	// Settings-driven overrides (e.g. CSS -bag-linebreak-tolerance and
+	// -bag-linebreak-hyphen-penalty routed through htmlbag). The settings
+	// path takes precedence over the option-based defaults above so that
+	// per-element CSS can tune the line breaker's behaviour.
+	if v, ok := te.Settings[SettingLinebreakTolerance]; ok {
+		if t, ok := v.(float64); ok && t > 0 {
+			ls.Tolerance = t
+		}
+	}
+	if v, ok := te.Settings[SettingHyphenPenalty]; ok {
+		if hp, ok := v.(int); ok && hp != 0 {
+			ls.Hyphenpenalty = hp
+		}
 	}
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
@@ -1443,6 +1469,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if s, ok := v.(string); ok {
 				hyphensMode = s
 			}
+		case SettingHyphenPenalty, SettingLinebreakTolerance:
+			// consumed at the paragraph level (FormatParagraph); the glyph
+			// builder ignores them.
 		default:
 			return nil, fmt.Errorf("Unknown setting %v", k)
 		}
@@ -1589,80 +1618,62 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					cur = g
 					lastglue = g
 				case "\n":
-					head, cur = node.AppendLineEndAfter(head, cur)
-					lastglue = cur
+					// Forced line break. Each "\n" emits one HardBreak;
+					// consecutive newlines therefore produce consecutive
+					// forced breaks, which the line breaker renders as
+					// empty lines between them — that is how blank lines
+					// in plain-text source come through.
+					br := node.NewHardBreak()
+					head = node.InsertAfter(head, cur, br)
+					cur = br
+					lastglue = br
 				default:
 					panic("unhandled whitespace type")
 				}
 			} else {
 				if r.Components == "\n" {
-					// Embedded newline as a forced line break. Justified
-					// paragraphs have no per-line stretch glue, so the
-					// break needs its own fill-stretch glue to absorb the
-					// remaining width — otherwise the line would be
-					// justified out to the right margin. Left/right/center
-					// alignments install LineStartGlue / LineEndGlue per
-					// line in FormatParagraph; an extra fill-stretch glue
-					// here would compete with those and unbalance the
-					// per-line layout (right-aligned lines centre instead
-					// of flushing right; centered lines get unequal end
-					// stretch). The alignment was resolved to a physical
-					// value at FormatParagraph entry and written back into
-					// ts; HAlignDefault here means the caller bypassed
-					// FormatParagraph entirely (e.g. ad-hoc
-					// BuildNodelistFromString use), in which case we
-					// preserve historical justified-style behaviour.
-					p1 := node.NewPenalty()
-					p1.Penalty = 10000
-					head = node.InsertAfter(head, cur, p1)
-					cur = p1
-					alignment := HAlignDefault
-					if ha, ok := ts[SettingHAlign]; ok {
-						if a, ok := ha.(HorizontalAlignment); ok {
-							alignment = a
-						}
-					}
-					switch alignment {
-					case HAlignLeft, HAlignRight, HAlignCenter:
-						// Per-line glue handles stretch; no in-line fill
-						// glue needed.
-					default:
-						g := node.NewGlue()
-						g.Attributes = node.H{"origin": "newline"}
-						g.Stretch = bag.Factor
-						g.StretchOrder = node.StretchFill
-						head = node.InsertAfter(head, cur, g)
-						cur = g
-					}
-					p2 := node.NewPenalty()
-					p2.Penalty = -10000
-					head = node.InsertAfter(head, cur, p2)
-					cur = p2
-					// Mark lastglue non-nil so the post-\n branch below does
-					// not inject a leading space glue on the next line. The
-					// preserve-whitespace "\n" branch (line ~1592) does the
-					// same thing with lastglue = cur. Without this, a buyer-
-					// address pattern ("Foo\nBar 15\n12345 City") gets a
-					// space-width indent on every line after the first.
-					lastglue = p2
+					// Forced line break. The line breaker handles
+					// alignment via per-paragraph LineStartGlue /
+					// LineEndGlue, so no in-line stretch glue is
+					// emitted here — that lets the alignment
+					// configuration "own" line stretching unambiguously
+					// (no more in-line fill glue competing with
+					// per-line glue, and no more alignment lookup in
+					// the atom loop). Each "\n" emits one HardBreak;
+					// consecutive newlines therefore produce empty
+					// HBoxes between them — that is how a blank line
+					// in plain-text source comes through.
+					br := node.NewHardBreak()
+					head = node.InsertAfter(head, cur, br)
+					cur = br
+					// lastglue stays untouched: the type-switch in the
+					// default-space block below recognises HardBreak
+					// via cur and skips the leading space insert.
 				}
 
 				if lastglue == nil {
-					if r.NoBreak {
-						// NBSP: insert Penalty(10000) to prevent line break
-						p := node.NewPenalty()
-						p.Penalty = 10000
-						head = node.InsertAfter(head, cur, p)
-						cur = p
+					switch cur.(type) {
+					case *node.HardBreak:
+						// A HardBreak already terminates the line and
+						// consumes adjacent whitespace — do not insert
+						// the default-space glue.
+					default:
+						if r.NoBreak {
+							// NBSP: insert Penalty(10000) to prevent line break
+							p := node.NewPenalty()
+							p.Penalty = 10000
+							head = node.InsertAfter(head, cur, p)
+							cur = p
+						}
+						g := node.NewGlue()
+						g.Attributes = node.H{"origin": "lastglue=nil"}
+						g.Width = fnt.Space
+						g.Stretch = fnt.SpaceStretch
+						g.Shrink = fnt.SpaceShrink
+						head = node.InsertAfter(head, cur, g)
+						cur = g
+						lastglue = g
 					}
-					g := node.NewGlue()
-					g.Attributes = node.H{"origin": "lastglue=nil"}
-					g.Width = fnt.Space
-					g.Stretch = fnt.SpaceStretch
-					g.Shrink = fnt.SpaceShrink
-					head = node.InsertAfter(head, cur, g)
-					cur = g
-					lastglue = g
 				}
 			}
 		} else if r.Components == "­" {
