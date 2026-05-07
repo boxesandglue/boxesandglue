@@ -816,6 +816,10 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			p.Alignment = HAlignLeft
 		}
 	}
+	// Write the resolved physical alignment back so downstream code
+	// (notably BuildNodelistFromString's "\n" handler) sees a consistent
+	// value instead of the original logical/default placeholder.
+	te.Settings[SettingHAlign] = p.Alignment
 	// Apply indent/margin settings from Text settings
 	if il, ok := te.Settings[SettingIndentLeft]; ok {
 		p.IndentLeft = il.(bag.ScaledPoint)
@@ -1592,19 +1596,55 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				}
 			} else {
 				if r.Components == "\n" {
+					// Embedded newline as a forced line break. Justified
+					// paragraphs have no per-line stretch glue, so the
+					// break needs its own fill-stretch glue to absorb the
+					// remaining width — otherwise the line would be
+					// justified out to the right margin. Left/right/center
+					// alignments install LineStartGlue / LineEndGlue per
+					// line in FormatParagraph; an extra fill-stretch glue
+					// here would compete with those and unbalance the
+					// per-line layout (right-aligned lines centre instead
+					// of flushing right; centered lines get unequal end
+					// stretch). The alignment was resolved to a physical
+					// value at FormatParagraph entry and written back into
+					// ts; HAlignDefault here means the caller bypassed
+					// FormatParagraph entirely (e.g. ad-hoc
+					// BuildNodelistFromString use), in which case we
+					// preserve historical justified-style behaviour.
 					p1 := node.NewPenalty()
 					p1.Penalty = 10000
-					g := node.NewGlue()
-					g.Attributes = node.H{"origin": "newline"}
-					g.Stretch = bag.Factor
-					g.StretchOrder = node.StretchFill
+					head = node.InsertAfter(head, cur, p1)
+					cur = p1
+					alignment := HAlignDefault
+					if ha, ok := ts[SettingHAlign]; ok {
+						if a, ok := ha.(HorizontalAlignment); ok {
+							alignment = a
+						}
+					}
+					switch alignment {
+					case HAlignLeft, HAlignRight, HAlignCenter:
+						// Per-line glue handles stretch; no in-line fill
+						// glue needed.
+					default:
+						g := node.NewGlue()
+						g.Attributes = node.H{"origin": "newline"}
+						g.Stretch = bag.Factor
+						g.StretchOrder = node.StretchFill
+						head = node.InsertAfter(head, cur, g)
+						cur = g
+					}
 					p2 := node.NewPenalty()
 					p2.Penalty = -10000
-					head = node.InsertAfter(head, cur, p1)
-					head = node.InsertAfter(head, p1, g)
-					head = node.InsertAfter(head, g, p2)
+					head = node.InsertAfter(head, cur, p2)
 					cur = p2
-					lastglue = g
+					// Mark lastglue non-nil so the post-\n branch below does
+					// not inject a leading space glue on the next line. The
+					// preserve-whitespace "\n" branch (line ~1592) does the
+					// same thing with lastglue = cur. Without this, a buyer-
+					// address pattern ("Foo\nBar 15\n12345 City") gets a
+					// space-width indent on every line after the first.
+					lastglue = p2
 				}
 
 				if lastglue == nil {
