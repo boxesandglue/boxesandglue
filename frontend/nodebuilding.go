@@ -728,6 +728,39 @@ func HorizontalAlign(a HorizontalAlignment) TypesettingOption {
 	}
 }
 
+// resolveLogicalAlignment maps the alignment value carried on a paragraph
+// to a physical HorizontalAlignment, given the paragraph's resolved
+// direction. Two distinct defaults serve different aufrufer-worlds:
+//
+//   - HAlignDefault is the Go zero value and means "no SettingHAlign was
+//     ever set" — i.e. a TeX-style API caller. These get full justification
+//     regardless of direction.
+//   - HAlignStart / HAlignEnd are CSS Text 3 §7 logical keywords. They
+//     resolve direction-aware so that "text-align: start" produces the
+//     line-start edge of the inline axis (left for LTR, right for RTL).
+//     htmlbag funnels here for unstyled HTML so Arabic blocks are right-
+//     aligned and Latin blocks are left-aligned without explicit opt-in.
+//
+// Physical keywords (HAlignLeft / HAlignRight / HAlignCenter / HAlignJustified)
+// pass through unchanged — they are author-set and must not flip on direction.
+func resolveLogicalAlignment(a HorizontalAlignment, dir Direction) HorizontalAlignment {
+	switch a {
+	case HAlignStart:
+		if dir == DirectionRTL {
+			return HAlignRight
+		}
+		return HAlignLeft
+	case HAlignEnd:
+		if dir == DirectionRTL {
+			return HAlignLeft
+		}
+		return HAlignRight
+	case HAlignDefault:
+		return HAlignJustified
+	}
+	return a
+}
+
 // ParagraphInfo contains information about the whole paragraph and each line.
 type ParagraphInfo struct {
 	Widths []bag.ScaledPoint
@@ -832,28 +865,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			paraDir = d
 		}
 	}
-	switch p.Alignment {
-	case HAlignStart:
-		if paraDir == DirectionRTL {
-			p.Alignment = HAlignRight
-		} else {
-			p.Alignment = HAlignLeft
-		}
-	case HAlignEnd:
-		if paraDir == DirectionRTL {
-			p.Alignment = HAlignLeft
-		} else {
-			p.Alignment = HAlignRight
-		}
-	case HAlignDefault:
-		// Pre-spec callers that don't go through ParseHorizontalAlign get
-		// the same direction-aware default: RTL→Right, LTR→Left.
-		if paraDir == DirectionRTL {
-			p.Alignment = HAlignRight
-		} else {
-			p.Alignment = HAlignLeft
-		}
-	}
+	p.Alignment = resolveLogicalAlignment(p.Alignment, paraDir)
 	// Apply indent/margin settings from Text settings
 	if il, ok := te.Settings[SettingIndentLeft]; ok {
 		p.IndentLeft = il.(bag.ScaledPoint)
