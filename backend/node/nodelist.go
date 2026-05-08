@@ -23,6 +23,7 @@ type LinebreakSettings struct {
 	LineStartGlue         *Glue
 	DemeritsFitness       int
 	DoublehyphenDemerits  int
+	EmergencyStretch      bag.ScaledPoint
 	FontExpansion         float64
 	HSize                 bag.ScaledPoint
 	Hyphenpenalty         int

@@ -82,7 +82,14 @@ func newLinebreaker(settings *LinebreakSettings) *linebreaker {
 	return lb
 }
 
-func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, bag.ScaledPoint) {
+// computeAdjustmentRatio computes the Knuth-Plass adjustment ratio r for a
+// candidate line from active node a to break trigger n. It additionally
+// returns overfullNoShrink, which signals the "L > l_j AND Z = 0" case from
+// Knuth-Plass 1981 §4 — a definitively overfull line with no shrink budget
+// available. The paper writes r := ∞ here, but the active-deactivation
+// criterion for this case is *not* simply r < -1; it has to be tested as a
+// separate condition on the (L > l_j, Z = 0) state, which this flag carries.
+func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64, sumExpand bag.ScaledPoint, overfullNoShrink bool) {
 	// compute the adjustment ratio r from a to n
 	thisLineWidth := lb.sumW - a.sumW
 	switch t := n.(type) {
@@ -104,11 +111,14 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 	}
 	// subtract left glue setting
 	maxwd := lb.settings.HSize - lb.getIndent(a.Line)
-	maxExpand := lb.sumExpand - a.sumExpand
-	r := 0.0
+	sumExpand = lb.sumExpand - a.sumExpand
 	if thisLineWidth < maxwd {
-		// needs to stretch
-		y := lb.sumY - a.sumY + maxExpand
+		// needs to stretch. EmergencyStretch (TeX \emergencystretch) is added
+		// to the per-line stretch capacity unconditionally — it acts as a
+		// last-resort budget so a feasible underfull break can be found when
+		// the only glue on the line is the candidate breakpoint itself (whose
+		// own stretch is discarded at the break).
+		y := lb.sumY - a.sumY + sumExpand + lb.settings.EmergencyStretch
 		if y > 0 {
 			if (lb.stretchFil-a.stretchFil) > 0 || (lb.stretchFill-a.stretchFill) > 0 || (lb.stretchFilll-a.stretchFilll) > 0 {
 				// stretchable glue available
@@ -121,14 +131,20 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (float64, b
 		}
 	} else if maxwd < thisLineWidth {
 		// needs to shrink
-		z := lb.sumZ - a.sumZ + maxExpand
+		z := lb.sumZ - a.sumZ + sumExpand
 		if z > 0 {
 			r = float64(maxwd-thisLineWidth) / float64(z)
 		} else {
+			// Definitively overfull, no shrink available. Knuth-Plass 1981 §4
+			// writes r := ∞ here as a generic infeasibility sentinel; the
+			// active-deactivation condition for this case is handled
+			// separately at the call site (see mainLoop). r is positiveInf
+			// here for symmetry with the underfull-no-stretch case.
 			r = positiveInf
+			overfullNoShrink = true
 		}
 	}
-	return r, maxExpand
+	return r, sumExpand, overfullNoShrink
 }
 
 // computeSum computes the sum of all glues from n
@@ -236,10 +252,21 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 		}
 	}
 
+	// Detect *signed* integer overflow when accumulating with the active
+	// path's demerits. A naively-negative result is not necessarily an
+	// overflow: Knuth-Plass §4 lets demerits go negative legitimately when
+	// a flagged break carries a negative penalty (a bonus, e.g. an
+	// explicit hyphenpenalty < 0 to favour hyphenation). The classic
+	// signed-overflow rule for a + b: overflow happened iff both addends
+	// have the same sign and the result has the opposite sign. Any other
+	// sign combination is a real arithmetic result and must pass through
+	// unchanged.
+	prev := demerits
 	demerits += active.Demerits
-	// integer overflow?
-	if demerits < 0 {
+	if prev > 0 && active.Demerits > 0 && demerits < 0 {
 		demerits = math.MaxInt
+	} else if prev < 0 && active.Demerits < 0 && demerits > 0 {
+		demerits = math.MinInt
 	}
 	return
 }
@@ -284,9 +311,15 @@ func (lb *linebreaker) mainLoop(n Node) {
 			// For each active breakpoint check if the breakpoint is still
 			// active (= reachable from the current position backward). If not,
 			// remove them from the current list of active nodes.
-			r, sumExpand := lb.computeAdjustmentRatio(n, active)
+			r, sumExpand, overfullNoShrink := lb.computeAdjustmentRatio(n, active)
 
-			if r < -1 || isForcedBreak(n) {
+			// Knuth-Plass 1981 §4: deactivate active a if the line a→b is
+			// definitively overfull, i.e. either r < -1 (Z > 0 but shrink
+			// would have to exceed 100%) or "L > l_j AND Z = 0" (no shrink
+			// reservoir at all). The two cases are equivalent in semantics
+			// — once a→b is too wide, no later b' > b can become feasible
+			// from a, since the line only grows.
+			if r < -1 || overfullNoShrink || isForcedBreak(n) {
 				// If line is too wide or a forced break, we can remove the node
 				// from the active list.
 				lb.removeActiveNode(active)

@@ -276,6 +276,13 @@ const (
 	// the line breaker more flexibility (e.g. for narrow columns or text
 	// with few hyphenation opportunities).
 	SettingLinebreakTolerance
+	// SettingLinebreakEmergencyStretch carries TeX's \emergencystretch as
+	// bag.ScaledPoint. It adds a per-line stretch budget that the breaker
+	// may draw on as a last resort, so a feasible underfull break can be
+	// found when no natural stretch is available on the line (e.g. very
+	// long words in narrow columns). Default 0 disables it. Typical values
+	// are 1–3em of the body font size.
+	SettingLinebreakEmergencyStretch
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -430,6 +437,8 @@ func (st SettingType) String() string {
 		settingName = "SettingHyphenPenalty"
 	case SettingLinebreakTolerance:
 		settingName = "SettingLinebreakTolerance"
+	case SettingLinebreakEmergencyStretch:
+		settingName = "SettingLinebreakEmergencyStretch"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -626,16 +635,17 @@ func (ts *Text) String() string {
 
 // Options collects the TypesettingOption for FormatParagraph.
 type Options struct {
-	Fontfamily     *FontFamily
-	Language       *lang.Lang
-	Alignment      HorizontalAlignment
-	Fontsize       bag.ScaledPoint
-	hsize          bag.ScaledPoint
-	HyphenPenalty  int
-	IndentLeft     bag.ScaledPoint
-	IndentLeftRows int
-	Leading        bag.ScaledPoint
-	Tolerance      float64
+	Fontfamily       *FontFamily
+	Language         *lang.Lang
+	Alignment        HorizontalAlignment
+	Fontsize         bag.ScaledPoint
+	hsize            bag.ScaledPoint
+	HyphenPenalty    int
+	IndentLeft       bag.ScaledPoint
+	IndentLeftRows   int
+	Leading          bag.ScaledPoint
+	Tolerance        float64
+	EmergencyStretch bag.ScaledPoint
 }
 
 // TypesettingOption controls the formatting of the paragraph.
@@ -674,6 +684,18 @@ func HyphenPenalty(penalty int) TypesettingOption {
 func Tolerance(tolerance float64) TypesettingOption {
 	return func(p *Options) {
 		p.Tolerance = tolerance
+	}
+}
+
+// EmergencyStretch sets a per-line stretch budget that the line breaker
+// may use as a last resort when no natural stretch is available on a
+// candidate line. This is TeX's \emergencystretch and helps narrow
+// columns containing long words: without it the breaker may go overfull
+// rather than produce an underfull line. Default is 0 (disabled).
+// Typical values are 1–3em of the body font size.
+func EmergencyStretch(es bag.ScaledPoint) TypesettingOption {
+	return func(p *Options) {
+		p.EmergencyStretch = es
 	}
 }
 
@@ -912,6 +934,9 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if p.Tolerance != 0 {
 		ls.Tolerance = p.Tolerance
 	}
+	if p.EmergencyStretch != 0 {
+		ls.EmergencyStretch = p.EmergencyStretch
+	}
 	if p.HyphenPenalty != 0 {
 		ls.Hyphenpenalty = p.HyphenPenalty
 	}
@@ -922,6 +947,11 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if v, ok := te.Settings[SettingLinebreakTolerance]; ok {
 		if t, ok := v.(float64); ok && t > 0 {
 			ls.Tolerance = t
+		}
+	}
+	if v, ok := te.Settings[SettingLinebreakEmergencyStretch]; ok {
+		if es, ok := v.(bag.ScaledPoint); ok && es > 0 {
+			ls.EmergencyStretch = es
 		}
 	}
 	if v, ok := te.Settings[SettingHyphenPenalty]; ok {
@@ -1469,7 +1499,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if s, ok := v.(string); ok {
 				hyphensMode = s
 			}
-		case SettingHyphenPenalty, SettingLinebreakTolerance:
+		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
 		default:
