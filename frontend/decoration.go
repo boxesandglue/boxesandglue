@@ -34,16 +34,16 @@ func postLinebreakHL(n node.Node, st *styles) node.Node {
 		} else if vl, ok := e.(*node.VList); ok {
 			vl.List = postLinebreakHL(vl.List, st)
 		} else if ss, ok := e.(*node.StartStop); ok {
-			if val, ok := node.GetAttribute(ss, "underline"); ok {
+			if val, ok := ss.GetAttribute("underline"); ok {
 				if val.(bool) {
 					st.isUnderline = true
 					underlineStart = ss
-					if ulpos, ok := node.GetAttribute(ss, "underlinepos"); ok {
+					if ulpos, ok := ss.GetAttribute("underlinepos"); ok {
 						if ulpos != nil {
 							st.ulpos = ulpos.(bag.ScaledPoint)
 						}
 					}
-					if lw, ok := node.GetAttribute(ss, "underlinelw"); ok {
+					if lw, ok := ss.GetAttribute("underlinelw"); ok {
 						if lw != nil {
 							st.linewidth = lw.(bag.ScaledPoint)
 						}

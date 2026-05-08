@@ -474,7 +474,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 		default:
 			prevItemBox = true
-			wd := getWidth(e, Horizontal)
+			wd, _, _ := e.Sizes(Horizontal)
 			lb.sumW += wd
 		}
 		endNode = e

@@ -1,7 +1,6 @@
 package node
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -111,6 +110,46 @@ func InsertBefore(head, cur, insert Node) Node {
 	return head
 }
 
+// Walk visits every node reachable from start, descending into container
+// sub-lists: HList.List, VList.List, Disc.Pre/Post/Replace, and the list
+// inside Glue.Leader. The visitor receives each node in source order and
+// returns true to continue or false to abort the traversal. Walk itself
+// returns false if the visitor aborted, true otherwise.
+func Walk(start Node, fn func(Node) bool) bool {
+	for e := start; e != nil; e = e.Next() {
+		if !fn(e) {
+			return false
+		}
+		switch v := e.(type) {
+		case *HList:
+			if !Walk(v.List, fn) {
+				return false
+			}
+		case *VList:
+			if !Walk(v.List, fn) {
+				return false
+			}
+		case *Disc:
+			if !Walk(v.Pre, fn) {
+				return false
+			}
+			if !Walk(v.Post, fn) {
+				return false
+			}
+			if !Walk(v.Replace, fn) {
+				return false
+			}
+		case *Glue:
+			if v.Leader != nil {
+				if !Walk(v.Leader.List, fn) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 // Tail returns the last node of a node list.
 func Tail(nl Node) Node {
 	if nl == nil {
@@ -150,10 +189,8 @@ func Dimensions(start Node, stop Node, dir Direction) (bag.ScaledPoint, bag.Scal
 	var sumwd, sumht, sumdp bag.ScaledPoint
 
 	for e := start; e != nil; e = e.Next() {
-		wd := getWidth(e, dir)
+		wd, ht, dp := e.Sizes(dir)
 		sumwd += wd
-
-		ht, dp := getHeight(e, dir)
 		if ht > sumht {
 			sumht = ht
 		}
@@ -196,55 +233,13 @@ func Hpack(firstNode Node) *HList {
 	maxdp := bag.ScaledPoint(0)
 
 	for e := firstNode; e != nil; e = e.Next() {
-		switch v := e.(type) {
-		case *Disc:
-			// Discretionary nodes do not contribute to box dimensions
-		case *Glyph:
-			sumwd += v.Width
-			if v.Height > maxht {
-				maxht = v.Height
-			}
-			if v.Depth > maxdp {
-				maxdp = v.Depth
-			}
-		case *Glue:
-			sumwd += v.Width
-		case *HList:
-			sumwd += v.Width
-			if v.Height > maxht {
-				maxht = v.Height
-			}
-			if v.Depth > maxdp {
-				maxdp = v.Depth
-			}
-		case *Kern:
-			sumwd += v.Kern
-		case *Lang:
-		case *Penalty:
-			sumwd += v.Width
-		case *VList:
-			sumwd += v.Width
-			if v.Height > maxht {
-				maxht = v.Height
-			}
-			if v.Depth > maxdp {
-				maxdp = v.Depth
-			}
-		case *Rule:
-			sumwd += v.Width
-			if v.Height > maxht {
-				maxht = v.Height
-			}
-			if v.Depth > maxdp {
-				maxdp = v.Depth
-			}
-		case *Image:
-			sumwd += v.Width
-			if v.Height > maxht {
-				maxht = v.Height
-			}
-		default:
-			bag.Logger.Error(fmt.Sprintf("Hpack: unknown node %v", v))
+		wd, ht, dp := e.Sizes(Horizontal)
+		sumwd += wd
+		if ht > maxht {
+			maxht = ht
+		}
+		if dp > maxdp {
+			maxdp = dp
 		}
 	}
 	hl := NewHList()
@@ -299,27 +294,9 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 				totalExtend += extend
 			}
 			sumGlyph += v.Width
-		case *Rule:
-			sumwd += v.Width
-			if v.Height > maxht {
-				maxht = v.Height
-			}
-			if v.Depth > maxdp {
-				maxdp = v.Depth
-			}
-		case *VList:
-			sumwd += getWidth(v, Vertical)
-			ht, dp := getHeight(v, Vertical)
-			if ht > maxht {
-				maxht = ht
-			}
-			if dp > maxdp {
-				maxdp = dp
-			}
-
 		default:
-			sumwd += getWidth(v, Horizontal)
-			ht, dp := getHeight(v, Vertical)
+			wd, ht, dp := e.Sizes(Horizontal)
+			sumwd += wd
 			if ht > maxht {
 				maxht = ht
 			}
@@ -408,18 +385,21 @@ func Vpack(firstNode Node) *VList {
 
 	var lastNode Node
 	for e := firstNode; e != nil; e = e.Next() {
-		ht, dp := getHeight(e, Vertical)
+		wd, ht, dp := e.Sizes(Vertical)
 		sumht += ht + dp
-		if wd := getWidth(e, Vertical); wd > maxwd {
+		if wd > maxwd {
 			maxwd = wd
 		}
 		lastNode = e
 	}
 	vl := NewVList()
 	vl.List = firstNode
-	vl.Depth = getDepth(lastNode)
-	vl.Height = sumht - getDepth(lastNode)
 	vl.Width = maxwd
+	if lastNode != nil {
+		_, _, lastDepth := lastNode.Sizes(Vertical)
+		vl.Depth = lastDepth
+		vl.Height = sumht - lastDepth
+	}
 	return vl
 }
 
@@ -438,81 +418,4 @@ func Boxit(n Node) Node {
 		t.List = InsertBefore(t.List, t.List, r)
 	}
 	return n
-}
-
-func getWidth(n Node, dir Direction) bag.ScaledPoint {
-	switch t := n.(type) {
-	case *Glue:
-		if dir == Horizontal {
-			return t.Width
-		}
-		return 0
-	case *Glyph:
-		return t.Width
-	case *Penalty:
-		return t.Width
-	case *Rule:
-		return t.Width
-	case *HList:
-		return t.Width
-	case *Image:
-		return t.Width
-	case *Kern:
-		return t.Kern
-	case *VList:
-		return t.Width
-	case *StartStop, *Disc, *Lang:
-		return 0
-	default:
-		bag.Logger.Error(fmt.Sprintf("getWidth: unknown node type %T", n))
-	}
-	return 0
-}
-
-// getHeight returns the height and the depth of the node list starting at n.
-// Depending on the progressing direction, the height of a glue is either 0 or
-// the glue width.
-func getHeight(n Node, dir Direction) (bag.ScaledPoint, bag.ScaledPoint) {
-	switch t := n.(type) {
-	case *HList:
-		return t.Height, t.Depth
-	case *Glyph:
-		return t.Height, t.Depth
-	case *VList:
-		return t.Height, t.Depth
-	case *Rule:
-		return t.Height, t.Depth
-	case *Image:
-		return t.Height, 0
-	case *Glue:
-		if dir == Vertical {
-			return t.Width, 0
-		}
-		return 0, 0
-	case *StartStop, *Disc, *Lang, *Penalty, *Kern:
-		return 0, 0
-	default:
-		bag.Logger.Error("getHeight: unknown node type", "type", fmt.Sprintf("%T", n))
-	}
-	return 0, 0
-}
-
-func getDepth(n Node) bag.ScaledPoint {
-	switch t := n.(type) {
-	case *HList:
-		return t.Depth
-	case *Glyph:
-		return t.Depth
-	case *Rule:
-		return t.Depth
-	case *StartStop, *Disc, *Lang, *Glue, *Penalty, *Kern:
-		return 0
-	case *VList:
-		return t.Depth
-	case *Image:
-		return 0
-	default:
-		bag.Logger.Error("getDepth: unknown node type", "type", fmt.Sprintf("%T", n))
-	}
-	return 0
 }

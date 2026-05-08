@@ -1555,10 +1555,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var underlineStart *node.StartStop
 	if hasUnderline {
 		underlineStart = node.NewStartStop()
-		node.SetAttribute(underlineStart, "underline", true)
-		node.SetAttribute(underlineStart, "underlinepos", -fontsize/6)
-		node.SetAttribute(underlineStart, "underlinelw", fontsize/20)
-		node.SetAttribute(underlineStart, "SettingTextDecorationLine", TextDecorationUnderline)
+		underlineStart.SetAttribute("underline", true)
+		underlineStart.SetAttribute("underlinepos", -fontsize/6)
+		underlineStart.SetAttribute("underlinelw", fontsize/20)
+		underlineStart.SetAttribute("SettingTextDecorationLine", TextDecorationUnderline)
 		if head != nil {
 			head = node.InsertAfter(head, head, underlineStart)
 		} else {
@@ -1753,7 +1753,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if hasUnderline {
 		underlineStop := node.NewStartStop()
 		underlineStop.StartNode = underlineStart
-		node.SetAttribute(underlineStop, "underline", false)
+		underlineStop.SetAttribute("underline", false)
 		head = node.InsertAfter(head, cur, underlineStop)
 		cur = underlineStop
 	}

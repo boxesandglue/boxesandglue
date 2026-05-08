@@ -1426,23 +1426,15 @@ func hlistHasTaggedDescendant(hl *node.HList) bool {
 // /StructParent and the parent Figure attaches via OBJR rather than via a
 // page-level marked-content sequence.
 func findImageForXObjectFigure(head node.Node) *node.Image {
-	for n := head; n != nil; n = n.Next() {
-		switch t := n.(type) {
-		case *node.Image:
-			if t.ImageFile != nil && t.ImageFile.Format == "pdf" {
-				return t
-			}
-		case *node.HList:
-			if img := findImageForXObjectFigure(t.List); img != nil {
-				return img
-			}
-		case *node.VList:
-			if img := findImageForXObjectFigure(t.List); img != nil {
-				return img
-			}
+	var found *node.Image
+	node.Walk(head, func(n node.Node) bool {
+		if img, ok := n.(*node.Image); ok && img.ImageFile != nil && img.ImageFile.Format == "pdf" {
+			found = img
+			return false
 		}
-	}
-	return nil
+		return true
+	})
+	return found
 }
 
 // ArtifactType represents the type of a PDF artifact.

@@ -5,10 +5,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
-	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/boxesandglue/boxesandglue/backend/lang"
 )
 
 var nextID atomic.Int64
@@ -45,37 +42,35 @@ const (
 	TypeHardBreak
 )
 
+// typeMetadata is the single source of truth for a node Type's
+// human-readable strings. Index by Type constant. Adding a new node type
+// requires exactly one entry here plus a slab in arena.go and the type
+// constant above.
+var typeMetadata = [...]struct {
+	debug   string // mixed case, used by Type.String() for logs
+	element string // lowercase, used by Name() for debug XML output
+}{
+	TypeUnknown:   {"Unknown", "unknown"},
+	TypeDisc:      {"Disc", "disc"},
+	TypeGlue:      {"Glue", "glue"},
+	TypeGlyph:     {"Glyph", "glyph"},
+	TypeHList:     {"HList", "hlist"},
+	TypeImage:     {"Image", "image"},
+	TypeKern:      {"Kern", "kern"},
+	TypeLang:      {"Lang", "lang"},
+	TypePenalty:   {"Penalty", "penalty"},
+	TypeRule:      {"Rule", "rule"},
+	TypeStartStop: {"StartStop", "startstop"},
+	TypeVList:     {"Vlist", "vlist"},
+	TypeHardBreak: {"HardBreak", "hardbreak"},
+}
+
+// String returns the mixed-case name used in log output.
 func (t Type) String() string {
-	switch t {
-	case TypeUnknown:
-		return "Unknown"
-	case TypeDisc:
-		return "Disc"
-	case TypeGlue:
-		return "Glue"
-	case TypeGlyph:
-		return "Glyph"
-	case TypeHList:
-		return "HList"
-	case TypeImage:
-		return "Image"
-	case TypeKern:
-		return "Kern"
-	case TypeLang:
-		return "Lang"
-	case TypePenalty:
-		return "Penalty"
-	case TypeRule:
-		return "Rule"
-	case TypeStartStop:
-		return "StartStop"
-	case TypeVList:
-		return "Vlist"
-	case TypeHardBreak:
-		return "HardBreak"
-	default:
-		return "something else"
+	if int(t) >= 0 && int(t) < len(typeMetadata) {
+		return typeMetadata[t].debug
 	}
+	return "something else"
 }
 
 // VerticalAlignment sets the alignment in horizontal lists (hlist). The default
@@ -105,6 +100,19 @@ type Node interface {
 	Type() Type
 	Name() string
 	Copy() Node
+	// Sizes returns the natural width, height and depth of the node in the
+	// given progression direction. Nodes that do not contribute to box
+	// geometry (Disc, Lang, StartStop, HardBreak) return zeros.
+	Sizes(dir Direction) (w, h, d bag.ScaledPoint)
+	// GetAttribute reads a per-node attribute.
+	GetAttribute(attr string) (any, bool)
+	// SetAttribute stores a per-node attribute.
+	SetAttribute(attr string, val any)
+	// DebugAttributes returns the typed key/value pairs to emit for this
+	// node in debug XML output, together with the user-defined attribute
+	// map. The default implementation on basenode returns just {id} plus
+	// b.Attributes; geometry-bearing types override.
+	DebugAttributes() ([]kv, H)
 	// BidiLevel returns the UAX#9 embedding level of this node. 0 = LTR
 	// (default). Odd levels are RTL.
 	BidiLevel() uint8
@@ -205,6 +213,7 @@ type basenode struct {
 	prev       Node
 	Attributes H
 	ID         int
+	typ        Type
 	bidiLevel  uint8
 }
 
@@ -219,1004 +228,63 @@ func (b *basenode) SetBidiLevel(level uint8) {
 	b.bidiLevel = level
 }
 
-func newID() int {
-	return int(nextID.Add(1))
-}
-
-// IsNode returns true if the argument is a Node.
-func IsNode(arg any) bool {
-	switch arg.(type) {
-	case *Disc, *Glyph, *Glue, *Image, *HList, *Kern, *Lang, *StartStop, *VList, *HardBreak:
-		return true
-	}
-	return false
-}
-
-// A Disc represents a hyphenation point. Currently only the Penalty field is
-// used.
-type Disc struct {
-	basenode
-	Pre     Node
-	Post    Node
-	Replace Node
-	Penalty int // Added to the hyphen penalty
-}
-
-func (d *Disc) String() string {
-	return String(d)
-}
-
-// NewDisc creates an initialized Disc node
-func NewDisc() *Disc {
-	n := discSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
 // Next returns the following node or nil if no such node exists.
-func (d *Disc) Next() Node {
-	return d.next
-}
+func (b *basenode) Next() Node { return b.next }
 
-// Prev returns the node preceding this node or nil if no such node exists.
-func (d *Disc) Prev() Node {
-	return d.prev
-}
+// Prev returns the preceding node or nil if no such node exists.
+func (b *basenode) Prev() Node { return b.prev }
 
 // SetNext sets the following node.
-func (d *Disc) SetNext(n Node) {
-	d.next = n
-}
+func (b *basenode) SetNext(n Node) { b.next = n }
 
 // SetPrev sets the preceding node.
-func (d *Disc) SetPrev(n Node) {
-	d.prev = n
-}
-
-// GetID returns the node id
-func (d *Disc) GetID() int {
-	return d.ID
-}
-
-// Name returns the name of the node
-func (d *Disc) Name() string {
-	return "disc"
-}
-
-// Type returns the type of the node
-func (d *Disc) Type() Type {
-	return TypeDisc
-}
-
-// Copy creates a deep copy of the node.
-func (d *Disc) Copy() Node {
-	n := NewDisc()
-	n.Pre = CopyList(d.Pre)
-	n.Post = CopyList(d.Post)
-	n.Replace = CopyList(d.Replace)
-	n.Penalty = d.Penalty
-	return n
-}
-
-// NewDiscWithContents creates an initialized Disc node with the given contents
-func NewDiscWithContents(d *Disc) *Disc {
-	n := discSlab.alloc()
-	*n = *d
-	n.ID = newID()
-	return n
-}
-
-// IsDisc returns the value of the element and true, if the element is a Disc
-// node.
-func IsDisc(elt Node) (*Disc, bool) {
-	Disc, ok := elt.(*Disc)
-	return Disc, ok
-}
-
-// Glyph nodes represents a single visible entity such as a letter or a
-// ligature.
-type Glyph struct {
-	basenode
-	Font *font.Font
-	// A codepoint can contain more than one rune, for example a fi ligature
-	// contains f + i. Filling the components string is optional.
-	Components string
-	// The font specific glyph id
-	Codepoint int
-	// The advance width of the box.
-	Width bag.ScaledPoint
-	// The height is the length above the base line.
-	Height bag.ScaledPoint
-	// The Depth is the length below the base line. For example the letter g has
-	// a depth > 0.
-	Depth bag.ScaledPoint
-	// Horizontal displacement. Positive values move the glyph to the right.
-	// Used for GPOS mark positioning without affecting text flow.
-	XOffset bag.ScaledPoint
-	// Vertical displacement. Positive values move the glyph towards the top of
-	// the page.
-	YOffset bag.ScaledPoint
-	// This allows the glyph to be part of word hyphenation.
-	Hyphenate bool
-}
-
-func (g *Glyph) String() string {
-	return String(g)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (g *Glyph) Next() Node {
-	return g.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (g *Glyph) Prev() Node {
-	return g.prev
-}
-
-// SetNext sets the following node.
-func (g *Glyph) SetNext(n Node) {
-	g.next = n
-}
-
-// SetPrev sets the preceding node.
-func (g *Glyph) SetPrev(n Node) {
-	g.prev = n
-}
-
-// GetID returns the node id
-func (g *Glyph) GetID() int {
-	return g.ID
-}
-
-// Name returns the name of the node
-func (g *Glyph) Name() string {
-	return "glyph"
-}
-
-// Type returns the type of the node
-func (g *Glyph) Type() Type {
-	return TypeGlyph
-}
-
-// Copy creates a deep copy of the node.
-func (g *Glyph) Copy() Node {
-	n := NewGlyph()
-	n.Font = g.Font
-	n.Codepoint = g.Codepoint
-	n.Components = g.Components
-	n.Width = g.Width
-	n.Height = g.Height
-	n.Depth = g.Depth
-	n.Hyphenate = g.Hyphenate
-	n.YOffset = g.YOffset
-	n.Hyphenate = g.Hyphenate
-	return n
-}
-
-// NewGlyph returns an initialized Glyph
-func NewGlyph() *Glyph {
-	n := glyphSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsGlyph returns the value of the element and true, if the element is a Glyph
-// node.
-func IsGlyph(elt Node) (*Glyph, bool) {
-	n, ok := elt.(*Glyph)
-	return n, ok
-}
-
-// GlueOrder represents the stretch and shrink priority.
-type GlueOrder int
-
-const (
-	// StretchNormal means no stretching
-	StretchNormal GlueOrder = iota
-	// StretchFil is the first order infinity
-	StretchFil
-	// StretchFill is the second order infinity
-	StretchFill
-	// StretchFilll is the third order infinity
-	StretchFilll
-)
-
-// GlueSubtype is set wherever the glue comes from.
-type GlueSubtype int
-
-const (
-	// GlueDefault when no subtype is set
-	GlueDefault GlueSubtype = iota
-	// GlueLineStart is inserted left of the hlist during the line breaking
-	GlueLineStart
-	// GlueLineEnd is added at the end of each line in a paragraph so that copy
-	// and paste works in PDF.
-	GlueLineEnd
-)
-
-// LeaderType determines how leader patterns are aligned.
-type LeaderType int
-
-const (
-	// LeaderAligned repeats the pattern on a global grid so that
-	// patterns in different lines align vertically (TeX's \leaders).
-	LeaderAligned LeaderType = iota
-	// LeaderCentered centers copies; excess space is split at both ends (TeX's \cleaders).
-	LeaderCentered
-	// LeaderExpanded distributes excess space equally between copies (TeX's \xleaders).
-	LeaderExpanded
-)
-
-// A Glue node has the value of a shrinking and stretching space
-type Glue struct {
-	basenode
-	Leader       *HList // Pattern to repeat; nil means normal glue.
-	Subtype      GlueSubtype
-	Width        bag.ScaledPoint // The natural width of the glue.
-	Stretch      bag.ScaledPoint // The stretchability of the glue, where width plus stretch = maximum width.
-	Shrink       bag.ScaledPoint // The shrinkability of the glue, where width minus shrink = minimum width.
-	StretchOrder GlueOrder       // The order of infinity of stretching.
-	ShrinkOrder  GlueOrder       // The order of infinity of shrinking.
-	LeaderType   LeaderType      // Alignment mode for the repeated pattern.
-}
-
-func (g *Glue) String() string {
-	return String(g)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (g *Glue) Next() Node {
-	return g.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (g *Glue) Prev() Node {
-	return g.prev
-}
-
-// SetNext sets the following node.
-func (g *Glue) SetNext(n Node) {
-	g.next = n
-}
-
-// SetPrev sets the preceding node.
-func (g *Glue) SetPrev(n Node) {
-	g.prev = n
-}
-
-// GetID returns the node id
-func (g *Glue) GetID() int {
-	return g.ID
-}
-
-// Name returns the name of the node
-func (g *Glue) Name() string {
-	return "glue"
-}
-
-// Type returns the type of the node
-func (g *Glue) Type() Type {
-	return TypeGlue
-}
-
-// Copy creates a deep copy of the node.
-func (g *Glue) Copy() Node {
-	n := NewGlue()
-	n.Width = g.Width
-	n.Stretch = g.Stretch
-	n.Shrink = g.Shrink
-	n.StretchOrder = g.StretchOrder
-	n.ShrinkOrder = g.ShrinkOrder
-	return n
-}
-
-// NewGlue creates an initialized Glue node
-func NewGlue() *Glue {
-	n := glueSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsGlue returns the value of the element and true, if the element is a Glue
-// node.
-func IsGlue(elt Node) (*Glue, bool) {
-	n, ok := elt.(*Glue)
-	return n, ok
-}
-
-// A HList is a container for a list which items are placed horizontally next to
-// each other. The most convenient way to create a hlist is using node.HPack.
-// The width, height, depth, badness and the glue settings are calculated when
-// using node.HPack.
-type HList struct {
-	basenode
-	List      Node // The list itself.
-	Width     bag.ScaledPoint
-	Height    bag.ScaledPoint
-	Depth     bag.ScaledPoint
-	Badness   int
-	GlueSet   float64         // The ratio of the glue. Positive means stretching, negative shrinking.
-	GlueOrder GlueOrder       // The level of infinity
-	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
-	VAlign    VerticalAlignment
-	GlueSign  uint8 // 0 = normal, 1 = stretching, 2 = shrinking
-}
-
-func (h *HList) String() string {
-	return String(h)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (h *HList) Next() Node {
-	return h.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (h *HList) Prev() Node {
-	return h.prev
-}
-
-// SetNext sets the following node.
-func (h *HList) SetNext(n Node) {
-	h.next = n
-}
-
-// SetPrev sets the preceding node.
-func (h *HList) SetPrev(n Node) {
-	h.prev = n
-}
-
-// GetID returns the node id
-func (h *HList) GetID() int {
-	return h.ID
-}
-
-// Name returns the name of the node
-func (h *HList) Name() string {
-	return "hlist"
-}
-
-// Type returns the type of the node
-func (h *HList) Type() Type {
-	return TypeHList
-}
-
-// Copy creates a deep copy of the node.
-func (h *HList) Copy() Node {
-	n := NewHList()
-	n.Width = h.Width
-	n.Height = h.Height
-	n.Depth = h.Depth
-	n.GlueSet = h.GlueSet
-	n.GlueSign = h.GlueSign
-	n.Shift = h.Shift
-	n.List = CopyList(h.List)
-	return n
-}
-
-// NewHList creates an initialized HList node
-func NewHList() *HList {
-	n := hlistSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsHList returns the value of the element and true, if the element is a HList
-// node.
-func IsHList(elt Node) (*HList, bool) {
-	hlist, ok := elt.(*HList)
-	return hlist, ok
-}
-
-// A Kern is a small space between glyphs.
-type Kern struct {
-	basenode
-	// The displacement in progression direction.
-	Kern bag.ScaledPoint
-}
-
-func (k *Kern) String() string {
-	return String(k)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (k *Kern) Next() Node {
-	return k.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (k *Kern) Prev() Node {
-	return k.prev
-}
-
-// SetNext sets the following node.
-func (k *Kern) SetNext(n Node) {
-	k.next = n
-}
-
-// SetPrev sets the preceding node.
-func (k *Kern) SetPrev(n Node) {
-	k.prev = n
-}
-
-// GetID returns the node id
-func (k *Kern) GetID() int {
-	return k.ID
-}
-
-// Name returns the name of the node
-func (k *Kern) Name() string {
-	return "kern"
-}
-
-// Type returns the type of the node
-func (k *Kern) Type() Type {
-	return TypeKern
-}
-
-// Copy creates a deep copy of the node.
-func (k *Kern) Copy() Node {
-	n := NewKern()
-	n.Kern = k.Kern
-	return n
-}
-
-// NewKern creates an initialized Kern node
-func NewKern() *Kern {
-	n := kernSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsKern returns the value of the element and true, if the element is a Kern
-// node.
-func IsKern(elt Node) (*Kern, bool) {
-	n, ok := elt.(*Kern)
-	return n, ok
-}
-
-// A Lang is a node that sets the current language.
-type Lang struct {
-	basenode
-	Lang *lang.Lang // The language setting  for the following nodes.
-}
-
-func (l *Lang) String() string {
-	return "lang: " + l.Lang.Name
-}
-
-// Next returns the following node or nil if no such node exists.
-func (l *Lang) Next() Node {
-	return l.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (l *Lang) Prev() Node {
-	return l.prev
-}
-
-// SetNext sets the following node.
-func (l *Lang) SetNext(n Node) {
-	l.next = n
-}
-
-// SetPrev sets the preceding node.
-func (l *Lang) SetPrev(n Node) {
-	l.prev = n
-}
-
-// GetID returns the node id
-func (l *Lang) GetID() int {
-	return l.ID
-}
-
-// Name returns the name of the node
-func (l *Lang) Name() string {
-	return "lang"
-}
-
-// Copy creates a deep copy of the node.
-func (l *Lang) Copy() Node {
-	n := NewLang()
-	n.Lang = l.Lang
-	return n
-}
-
-// NewLang creates an initialized Lang node
-func NewLang() *Lang {
-	n := langSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// NewLangWithContents creates an initialized Lang node with the given contents
-func NewLangWithContents(l *Lang) *Lang {
-	n := langSlab.alloc()
-	*n = *l
-	n.ID = newID()
-	return n
-}
-
-// IsLang returns the value of the element and true, if the element is a Lang
-// node.
-func IsLang(elt Node) (*Lang, bool) {
-	lang, ok := elt.(*Lang)
-	return lang, ok
-}
-
-// Type returns the type of the node
-func (l *Lang) Type() Type {
-	return TypeLang
-}
-
-// A Penalty is a valid horizontal or vertical break point. The higher the
-// penalty the less likely the break occurs at this penalty. Anything below
-// or equal -10000 is considered a forced break, anything higher than or
-// equal to 10000 is considered a disallowed break.
-type Penalty struct {
-	basenode
-	Penalty int             // Value
-	Width   bag.ScaledPoint // Width of the penalty
-}
-
-func (p *Penalty) String() string {
-	return String(p)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (p *Penalty) Next() Node {
-	return p.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (p *Penalty) Prev() Node {
-	return p.prev
-}
-
-// SetNext sets the following node.
-func (p *Penalty) SetNext(n Node) {
-	p.next = n
-}
-
-// SetPrev sets the preceding node.
-func (p *Penalty) SetPrev(n Node) {
-	p.prev = n
-}
-
-// GetID returns the node id
-func (p *Penalty) GetID() int {
-	return p.ID
-}
-
-// Name returns the name of the node
-func (p *Penalty) Name() string {
-	return "penalty"
-}
-
-// Type returns the type of the node
-func (p *Penalty) Type() Type {
-	return TypePenalty
-}
-
-// Copy creates a deep copy of the node.
-func (p *Penalty) Copy() Node {
-	n := NewPenalty()
-	n.Penalty = p.Penalty
-	n.Width = p.Width
-	return n
-}
-
-// NewPenalty creates an initialized Penalty node
-func NewPenalty() *Penalty {
-	n := penaltySlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsPenalty returns the value of the element and true, if the element is a Penalty
-// node.
-func IsPenalty(elt Node) (*Penalty, bool) {
-	Penalty, ok := elt.(*Penalty)
-	return Penalty, ok
-}
-
-// A Rule is a node represents a colored rectangular area.
-type Rule struct {
-	basenode
-	// PDF code that gets output before the rule.
-	Pre string
-	// PDF Code after drawing the rule.
-	Post string
-	// Hide makes the rule invisible, no colored area is drawn. Used to make Pre
-	// and Post appear in the output with the given dimensions.
-	Hide   bool
-	Width  bag.ScaledPoint
-	Height bag.ScaledPoint
-	Depth  bag.ScaledPoint
-}
-
-func (r *Rule) String() string {
-	return String(r)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (r *Rule) Next() Node {
-	return r.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (r *Rule) Prev() Node {
-	return r.prev
-}
-
-// SetNext sets the following node.
-func (r *Rule) SetNext(n Node) {
-	r.next = n
-}
-
-// SetPrev sets the preceding node.
-func (r *Rule) SetPrev(n Node) {
-	r.prev = n
-}
-
-// GetID returns the node id
-func (r *Rule) GetID() int {
-	return r.ID
-}
-
-// Name returns the name of the node
-func (r *Rule) Name() string {
-	return "rule"
-}
-
-// Type returns the type of the node
-func (r *Rule) Type() Type {
-	return TypeRule
-}
-
-// Copy creates a deep copy of the node.
-func (r *Rule) Copy() Node {
-	n := NewRule()
-	n.Width = r.Width
-	n.Height = r.Height
-	n.Depth = r.Depth
-	return n
-}
-
-// NewRule creates an initialized Rule node
-func NewRule() *Rule {
-	n := ruleSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsRule returns the value of the element and true, if the element is a Rule
-// node.
-func IsRule(elt Node) (*Rule, bool) {
-	rule, ok := elt.(*Rule)
-	return rule, ok
-}
-
-// PDFDataOutput defines the location of inserted PDF data.
-type PDFDataOutput int
-
-// ActionType represents a start/stop action such as a PDF link.
-type ActionType int
-
-const (
-	// PDFOutputNone ignores any movement commands.
-	PDFOutputNone PDFDataOutput = iota
-	// PDFOutputHere inserts ET and moves to current position before inserting
-	// the PDF data.
-	PDFOutputHere
-	// PDFOutputDirect inserts the PDF data without leaving the text mode with ET.
-	PDFOutputDirect
-	// PDFOutputPage inserts ET before writing the PDF data.
-	PDFOutputPage
-	// PDFOutputLowerLeft moves to the lower left corner before inserting the
-	// PDF data.
-	PDFOutputLowerLeft
-)
-
-const (
-	// ActionNone represents no special action
-	ActionNone ActionType = iota
-	// ActionHyperlink represents a hyperlink.
-	ActionHyperlink
-	// ActionDest insets a PDF destination.
-	ActionDest
-	// ActionUserSetting allows user defined settings.
-	ActionUserSetting
-)
-
-func (at ActionType) String() string {
-	switch at {
-	case ActionNone:
-		return "ActionNone"
-	case ActionHyperlink:
-		return "ActionHyperlink"
-	case ActionDest:
-		return "ActionDest"
-	case ActionUserSetting:
-		return "ActionUserSetting"
-	default:
-		return "other action"
-	}
-}
-
-// StartStopFunc is the type of the callback when this node is encountered in the
-// node list. The returned string (if not empty) gets written to the PDF.
-type StartStopFunc func(thisnode Node) string
-
-// A StartStop is a paired node type used for color switches, hyperlinks and
-// such.
-type StartStop struct {
-	basenode
-	// Value contains action specific contents
-	Value           any
-	StartNode       *StartStop
-	ShipoutCallback StartStopFunc
-	Action          ActionType
-	Position        PDFDataOutput
-}
-
-func (d *StartStop) String() string {
-	return String(d)
-}
-
-// NewStartStop creates an initialized Start node
-func NewStartStop() *StartStop {
-	n := startStopSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// Next returns the following node or nil if no such node exists.
-func (d *StartStop) Next() Node {
-	return d.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (d *StartStop) Prev() Node {
-	return d.prev
-}
-
-// SetNext sets the following node.
-func (d *StartStop) SetNext(n Node) {
-	d.next = n
-}
-
-// SetPrev sets the preceding node.
-func (d *StartStop) SetPrev(n Node) {
-	d.prev = n
-}
-
-// GetID returns the node id
-func (d *StartStop) GetID() int {
-	return d.ID
-}
-
-// Name returns the name of the node
-func (d *StartStop) Name() string {
-	return "startstop"
-}
-
-// Type returns the type of the node
-func (d *StartStop) Type() Type {
-	return TypeStartStop
-}
-
-// Copy creates a deep copy of the node.
-func (d *StartStop) Copy() Node {
-	n := NewStartStop()
-	n.Action = d.Action
-	n.StartNode = d.StartNode
-	n.Position = d.Position
-	n.ShipoutCallback = d.ShipoutCallback
-	n.Value = d.Value
-	return n
-}
-
-// A VList is a vertical list.
-type VList struct {
-	basenode
-	List     Node
-	Width    bag.ScaledPoint
-	Height   bag.ScaledPoint
-	Depth    bag.ScaledPoint
-	GlueSet  float64
-	ShiftX   bag.ScaledPoint
-	GlueSign uint8
-}
-
-func (v *VList) String() string {
-	return "vlist"
-}
-
-// Next returns the following node or nil if no such node exists.
-func (v *VList) Next() Node {
-	return v.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (v *VList) Prev() Node {
-	return v.prev
-}
-
-// SetNext sets the following node.
-func (v *VList) SetNext(n Node) {
-	v.next = n
-}
-
-// SetPrev sets the preceding node.
-func (v *VList) SetPrev(n Node) {
-	v.prev = n
-}
-
-// GetID returns the node id
-func (v *VList) GetID() int {
-	return v.ID
-}
-
-// Name returns the name of the node
-func (v *VList) Name() string {
-	return "vlist"
-}
-
-// Type returns the type of the node
-func (v *VList) Type() Type {
-	return TypeVList
-}
-
-// Copy creates a deep copy of the node.
-func (v *VList) Copy() Node {
-	n := NewVList()
-	n.Width = v.Width
-	n.Height = v.Height
-	n.Depth = v.Depth
-	n.GlueSet = v.GlueSet
-	n.GlueSign = v.GlueSign
-	n.ShiftX = v.ShiftX
-	n.List = CopyList(v.List)
-	return n
-}
-
-// NewVList creates an initialized VList node
-func NewVList() *VList {
-	n := vlistSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsVList returns the value of the element and true, if the element is a VList node.
-func IsVList(elt Node) (*VList, bool) {
-	vlist, ok := elt.(*VList)
-	return vlist, ok
-}
-
-// An Image contains a reference to the image object.
-type Image struct {
-	basenode
-	ImageFile  *pdf.Imagefile
-	Width      bag.ScaledPoint
-	Height     bag.ScaledPoint
-	PageNumber int // Requested page number
-	Used       bool
-}
-
-func (img *Image) String() string {
-	return "image"
-}
-
-// Next returns the following node or nil if no such node exists.
-func (img *Image) Next() Node {
-	return img.next
-}
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (img *Image) Prev() Node {
-	return img.prev
-}
-
-// SetNext sets the following node.
-func (img *Image) SetNext(n Node) {
-	img.next = n
-}
-
-// SetPrev sets the preceding node.
-func (img *Image) SetPrev(n Node) {
-	img.prev = n
-}
-
-// GetID returns the node id
-func (img *Image) GetID() int {
-	return img.ID
-}
-
-// Name returns the name of the node
-func (img *Image) Name() string {
-	return "image"
-}
-
-// Type returns the type of the node
-func (img *Image) Type() Type {
-	return TypeImage
-}
-
-// Copy creates a deep copy of the node.
-func (img *Image) Copy() Node {
-	n := NewImage()
-	n.Width = img.Width
-	n.Height = img.Height
-	n.ImageFile = img.ImageFile
-	n.PageNumber = img.PageNumber
-	n.Used = img.Used
-	return n
-}
-
-// NewImage creates an initialized Image node
-func NewImage() *Image {
-	n := imageSlab.alloc()
-	n.ID = newID()
-	return n
-}
-
-// IsImage returns the value of the element and true, if the element is a Image node.
-func IsImage(elt Node) (*Image, bool) {
-	img, ok := elt.(*Image)
-	return img, ok
-}
-
-// HardBreak forces a line break. The line breaker treats it like a
-// Penalty(-10000) of zero width: the current line ends here without any
-// in-line stretch glue, so per-paragraph LineStartGlue / LineEndGlue
-// continue to drive alignment unaffected. HardBreak corresponds to HTML
-// <br> and to "\n" in source text.
-type HardBreak struct {
-	basenode
-}
-
-func (hb *HardBreak) String() string {
-	return String(hb)
-}
-
-// Next returns the following node or nil if no such node exists.
-func (hb *HardBreak) Next() Node { return hb.next }
-
-// Prev returns the node preceding this node or nil if no such node exists.
-func (hb *HardBreak) Prev() Node { return hb.prev }
-
-// SetNext sets the following node.
-func (hb *HardBreak) SetNext(n Node) { hb.next = n }
-
-// SetPrev sets the preceding node.
-func (hb *HardBreak) SetPrev(n Node) { hb.prev = n }
+func (b *basenode) SetPrev(n Node) { b.prev = n }
 
 // GetID returns the node id.
-func (hb *HardBreak) GetID() int { return hb.ID }
+func (b *basenode) GetID() int { return b.ID }
 
-// Name returns the name of the node.
-func (hb *HardBreak) Name() string { return "hardbreak" }
+// Sizes returns the natural width, height and depth of the node when laid
+// out in the given progression direction. The default implementation
+// returns zero on all three axes; container or geometry-bearing nodes
+// override it.
+func (b *basenode) Sizes(Direction) (w, h, d bag.ScaledPoint) { return }
 
-// Type returns the type of the node.
-func (hb *HardBreak) Type() Type { return TypeHardBreak }
-
-// Copy creates a deep copy of the node.
-func (hb *HardBreak) Copy() Node {
-	return NewHardBreak()
+// GetAttribute returns the value stored under attr and true, or nil and
+// false if no such attribute is set.
+func (b *basenode) GetAttribute(attr string) (any, bool) {
+	if b.Attributes == nil {
+		return nil, false
+	}
+	v, ok := b.Attributes[attr]
+	return v, ok
 }
 
-// NewHardBreak creates an initialized HardBreak node.
-func NewHardBreak() *HardBreak {
-	n := hardBreakSlab.alloc()
-	n.ID = newID()
-	return n
+// SetAttribute stores val under attr, allocating the attribute map on
+// first use.
+func (b *basenode) SetAttribute(attr string, val any) {
+	if b.Attributes == nil {
+		b.Attributes = H{}
+	}
+	b.Attributes[attr] = val
 }
 
-// IsHardBreak returns the value of the element and true, if the element is a
-// HardBreak node.
-func IsHardBreak(elt Node) (*HardBreak, bool) {
-	hb, ok := elt.(*HardBreak)
-	return hb, ok
+// Type returns the type code stamped on the node by its constructor.
+func (b *basenode) Type() Type { return b.typ }
+
+// Name returns the lowercase element name used for debug XML output.
+func (b *basenode) Name() string {
+	if int(b.typ) >= 0 && int(b.typ) < len(typeMetadata) {
+		return typeMetadata[b.typ].element
+	}
+	return "unknown"
+}
+
+// DebugAttributes returns the minimal ID-only attribute set used by nodes
+// without geometry (Disc, HardBreak). Geometry-bearing types override.
+func (b *basenode) DebugAttributes() ([]kv, H) {
+	return []kv{{key: "id", value: b.ID}}, b.Attributes
+}
+
+func newID() int {
+	return int(nextID.Add(1))
 }
