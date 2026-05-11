@@ -209,15 +209,18 @@ func (oc *objectContext) gotoTextMode(newMode TextScope) {
 	if newMode < oc.textmode {
 		if oc.textmode == ScopePage {
 			oc.writef("BT ")
-			if oc.currentExpand != 0 {
-				oc.writef("100 Tz ")
-				oc.currentExpand = 0
-			}
-			// Reset text rise (Ts) at start of each text object.
-			// PDF text state persists across BT...ET blocks, but objectContext
-			// is created fresh for each object with currentVShift=0. Without this
-			// reset, a non-zero Ts from a previous object would persist.
-			oc.writef("0 Ts ")
+			// Reset Tz (horizontal scaling, font expansion) and Ts (text rise)
+			// at the start of each text object. PDF text state persists
+			// across BT...ET blocks AND across separate content-stream
+			// objects within a page, but objectContext is created fresh for
+			// each object with the Go zero value (currentExpand=0,
+			// currentVShift=0). Without an unconditional reset, a non-zero
+			// Tz/Ts left active by the previous object stays in effect on
+			// the next object's first glyphs — silent ~5–10pt drift between
+			// glyph runs when the inherited Tz mismatches the new Go state.
+			oc.writef("100 Tz 0 Ts ")
+			oc.currentExpand = 0
+			oc.currentVShift = 0
 			oc.textmode = ScopeText
 		}
 		if oc.textmode == ScopeText && newMode < oc.textmode {
