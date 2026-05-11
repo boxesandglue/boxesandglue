@@ -1632,7 +1632,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				switch r.Components {
 				case " ", "\u00A0":
 					g := node.NewRule()
-					g.Width = fnt.Space
+					// Real glyph advance, not fnt.Space (TeX inter-word
+					// glue default of size*333/1000), so monospace ASCII
+					// art and code blocks line up column-for-column.
+					g.Width = fnt.SpaceChar.Advance
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
