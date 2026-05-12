@@ -873,12 +873,17 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if ilr, ok := te.Settings[SettingIndentLeftRows]; ok {
 		p.IndentLeftRows = ilr.(int)
 	}
-	// Use padding-left as indent for all rows (HTML list behavior)
+	// Use padding-left as indent for all rows (HTML list behavior).
+	// Consume and delete from te.Settings so Mknodes does not also apply
+	// it as an inline padding-left glue at the start of the paragraph —
+	// padding-left at the block level becomes IndentLeft, the inline-glue
+	// path is reserved for child Texts (e.g. <code>, <span>).
 	if pl, ok := te.Settings[SettingPaddingLeft]; ok {
 		if p.IndentLeft == 0 {
 			p.IndentLeft = pl.(bag.ScaledPoint)
 			p.IndentLeftRows = 0 // 0 means all rows
 		}
+		delete(te.Settings, SettingPaddingLeft)
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -1863,6 +1868,15 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			}
 
 			if nl != nil {
+				if pl, ok := ts.Settings[SettingPaddingLeft]; ok {
+					paddingLeft := pl.(bag.ScaledPoint)
+					if paddingLeft > 0 {
+						g := node.NewGlue()
+						g.Width = paddingLeft
+						g.Attributes = node.H{"origin": "padding left"}
+						nl = node.InsertBefore(nl, nl, g)
+					}
+				}
 				if pr, ok := ts.Settings[SettingPaddingRight]; ok {
 					paddingRight := pr.(bag.ScaledPoint)
 					if paddingRight > 0 {

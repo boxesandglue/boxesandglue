@@ -1510,6 +1510,14 @@ func (se *StructureElement) AddChild(cld *StructureElement) {
 	cld.Parent = se
 }
 
+// Children returns the direct child structure elements in document order.
+// The returned slice aliases the internal storage — callers must not
+// mutate it. Used by external packages (htmlbag tests, downstream
+// PDF/UA tooling) to walk the structure tree.
+func (se *StructureElement) Children() []*StructureElement {
+	return se.children
+}
+
 // pdfStructureObject holds information about the PDF/UA structures for each
 // page, annotation and XObject.
 type pdfStructureObject struct {
