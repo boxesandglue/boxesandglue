@@ -818,6 +818,71 @@ func stripLeadingTrailingGlue(head, tail node.Node) (node.Node, node.Node) {
 	return head, tail
 }
 
+// preventBreakBeforeClosingPunctuation walks the node list and, for every
+// glyph that must not start a line (closing brackets, closing quotation
+// marks), neutralises every break-opportunity that immediately precedes it
+// by inserting a Penalty(10000) before each preceding Glue/Disc until the
+// previous glyph (or list start). Without this pass, an inline-padding glue
+// from a <code>/<span> right before a ")" is a valid breakpoint and the
+// linebreaker happily wraps the bracket onto the next line — visible e.g.
+// as "…CSS @bottom-center\n), and a Lua…". Stretch/shrink contributions of
+// the glue itself are preserved; only the breakability is removed.
+func preventBreakBeforeClosingPunctuation(head node.Node) node.Node {
+	for n := head; n != nil; n = n.Next() {
+		g, ok := n.(*node.Glyph)
+		if !ok || !isLineStartForbidden(g.Components) {
+			continue
+		}
+		p := n.Prev()
+	walkBack:
+		for p != nil {
+			prev := p.Prev()
+			switch p.(type) {
+			case *node.Glyph:
+				break walkBack
+			case *node.Glue, *node.Disc:
+				if pn, ok := prev.(*node.Penalty); !(ok && pn.Penalty >= 10000) {
+					pen := node.NewPenalty()
+					pen.Penalty = 10000
+					head = node.InsertBefore(head, p, pen)
+				}
+				p = prev
+			default:
+				// Kern, StartStop, Lang and similar non-breaking markers —
+				// keep walking back through them.
+				p = prev
+			}
+		}
+	}
+	return head
+}
+
+// isLineStartForbidden returns true for characters that should never appear
+// at the start of a line: closing brackets and closing quotation marks. The
+// list mirrors Unicode "Pe" (Punctuation, Close) plus the closing members of
+// the "Pf" (Final Punctuation) category in widespread typographic use.
+func isLineStartForbidden(s string) bool {
+	r := []rune(s)
+	if len(r) != 1 {
+		return false
+	}
+	switch r[0] {
+	case ')', ']', '}',
+		'›', // ›  single right-pointing angle quotation mark
+		'»', // »  right-pointing double angle quotation mark
+		'’', // ’  right single quotation mark
+		'”', // ”  right double quotation mark
+		'」', // 」 right corner bracket
+		'』', // 』 right white corner bracket
+		'〉', // 〉 right angle bracket
+		'》', // 》 right double angle bracket
+		'】', // 】 right black lenticular bracket
+		'〕': // 〕 right tortoise shell bracket
+		return true
+	}
+	return false
+}
+
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph. It applies hyphenation to the node list.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
@@ -941,6 +1006,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	}
 
 	Hyphenate(hlist, p.Language)
+	hlist = preventBreakBeforeClosingPunctuation(hlist)
 	node.AppendLineEndAfter(hlist, tail)
 
 	ls := node.NewLinebreakSettings()
@@ -1868,22 +1934,31 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			}
 
 			if nl != nil {
+				// Inline padding is rigid space without break opportunity —
+				// CSS does not allow a line break inside the padding of an
+				// inline box. A Kern fits both constraints (fixed advance,
+				// not a Knuth-Plass breakpoint); a Glue would be a break
+				// candidate and the linebreaker would happily wrap a
+				// trailing ")" onto the next line across the </code> font
+				// boundary (see preventBreakBeforeClosingPunctuation for
+				// the defense-in-depth pass that also catches stray
+				// Glue-based break opportunities from other sources).
 				if pl, ok := ts.Settings[SettingPaddingLeft]; ok {
 					paddingLeft := pl.(bag.ScaledPoint)
 					if paddingLeft > 0 {
-						g := node.NewGlue()
-						g.Width = paddingLeft
-						g.Attributes = node.H{"origin": "padding left"}
-						nl = node.InsertBefore(nl, nl, g)
+						k := node.NewKern()
+						k.Kern = paddingLeft
+						k.Attributes = node.H{"origin": "padding left"}
+						nl = node.InsertBefore(nl, nl, k)
 					}
 				}
 				if pr, ok := ts.Settings[SettingPaddingRight]; ok {
 					paddingRight := pr.(bag.ScaledPoint)
 					if paddingRight > 0 {
-						g := node.NewGlue()
-						g.Width = paddingRight
-						g.Attributes = node.H{"origin": "padding right"}
-						node.InsertAfter(nl, node.Tail(nl), g)
+						k := node.NewKern()
+						k.Kern = paddingRight
+						k.Attributes = node.H{"origin": "padding right"}
+						node.InsertAfter(nl, node.Tail(nl), k)
 					}
 				}
 				head = node.InsertAfter(head, tail, nl)

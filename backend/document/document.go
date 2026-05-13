@@ -311,7 +311,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.moveto(x+oc.shiftX+sumX, yPos)
 				oc.shiftX = 0
 			}
-			v.Font.Face.RegisterCodepoint(v.Codepoint)
+			v.Font.Face.RegisterGlyph(v.Codepoint, v.Components)
 			// Handle GPOS XOffset for mark positioning (visual shift without affecting text flow)
 			var xOffsetMove int
 			if v.XOffset != 0 && oc.currentFont != nil && oc.currentFont.Size != 0 {
