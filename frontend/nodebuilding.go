@@ -982,6 +982,22 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 			return vl, &pi, nil
 		}
 	}
+	// CSS list-style-position: outside. A marker hbox carrying
+	// Attributes["outside-marker"]=true (htmlbag's <li> renderer)
+	// must be painted at the line's content-origin minus
+	// ListPaddingLeft regardless of the line's text-align stretch.
+	// The X offset to use as the marker's anchor inside the line is
+	// p.IndentLeft (the LeftSkip portion that's not the centering
+	// fil-stretch). Stamp it here so the backend can recover it
+	// post-HpackTo, when the natural-vs-actual Glue split is gone.
+	if prep, ok := te.Settings[SettingPrepend]; ok {
+		if hbox, ok := prep.(*node.HList); ok && hbox.Attributes != nil {
+			if outside, _ := hbox.Attributes["outside-marker"].(bool); outside {
+				hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
+			}
+		}
+	}
+
 	var hlist, tail node.Node
 	var err error
 

@@ -631,6 +631,21 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if hlist.VAlign == node.VAlignTop {
 				moveY -= v.Height
 			}
+			// CSS list-style-position: outside — paint the marker
+			// at a fixed offset inside the line, decoupled from the
+			// running sumX (which is shifted right by LineStartGlue
+			// stretch for text-align: center/right).
+			if v.Attributes != nil {
+				if outside, _ := v.Attributes["outside-marker"].(bool); outside {
+					anchorX := bag.ScaledPoint(0)
+					if ax, ok := v.Attributes["outside-marker-anchor"].(bag.ScaledPoint); ok {
+						anchorX = ax
+					}
+					oc.outputHorizontalItems(x+anchorX, moveY, v)
+					sumX += v.Width
+					break
+				}
+			}
 			oc.outputHorizontalItems(x+sumX, moveY, v)
 			sumX += v.Width
 		case *node.VList:

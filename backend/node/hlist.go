@@ -1,6 +1,8 @@
 package node
 
 import (
+	"maps"
+
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
@@ -52,6 +54,9 @@ func (h *HList) Copy() Node {
 	n.GlueSign = h.GlueSign
 	n.Shift = h.Shift
 	n.List = CopyList(h.List)
+	if h.Attributes != nil {
+		n.Attributes = maps.Clone(h.Attributes)
+	}
 	return n
 }
 
