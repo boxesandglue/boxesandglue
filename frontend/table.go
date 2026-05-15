@@ -27,6 +27,7 @@ type Table struct {
 	nRow         int
 	Stretch      bool
 	HeaderRows   int // number of initial rows that are header rows (from <thead>)
+	FooterRows   int // number of trailing rows that are footer rows (from <tfoot>)
 }
 
 // TableRow represents a row in a table.
