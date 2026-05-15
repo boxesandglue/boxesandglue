@@ -20,6 +20,11 @@ type HList struct {
 	GlueSet   float64         // The ratio of the glue. Positive means stretching, negative shrinking.
 	GlueOrder GlueOrder       // The level of infinity
 	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
+	// ShiftX shifts the HList's outer origin to the right when its
+	// parent renders it. Symmetric with VList.ShiftX — every box-like
+	// node can be moved, regardless of progressing direction (TeX's
+	// \moveright applies to both \hbox and \vbox).
+	ShiftX    bag.ScaledPoint
 	VAlign    VerticalAlignment
 	GlueSign  uint8 // 0 = normal, 1 = stretching, 2 = shrinking
 }
@@ -53,6 +58,7 @@ func (h *HList) Copy() Node {
 	n.GlueSet = h.GlueSet
 	n.GlueSign = h.GlueSign
 	n.Shift = h.Shift
+	n.ShiftX = h.ShiftX
 	n.List = CopyList(h.List)
 	if h.Attributes != nil {
 		n.Attributes = maps.Clone(h.Attributes)

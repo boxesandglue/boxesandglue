@@ -807,7 +807,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.gotoTextMode(ScopePage)
 				oc.writef("/Artifact BMC\n")
 			}
-			oc.outputHorizontalItems(x, shiftDown, v)
+			// HList.ShiftX moves the line origin to the right.
+			// Symmetric with VList.ShiftX in the case below.
+			oc.outputHorizontalItems(x+v.ShiftX, shiftDown, v)
 			if needsArtifact {
 				oc.gotoTextMode(ScopePage)
 				oc.writef("EMC\n")

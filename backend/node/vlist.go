@@ -7,12 +7,15 @@ import (
 // A VList is a vertical list.
 type VList struct {
 	basenode
-	List     Node
-	Width    bag.ScaledPoint
-	Height   bag.ScaledPoint
-	Depth    bag.ScaledPoint
-	GlueSet  float64
+	List   Node
+	Width  bag.ScaledPoint
+	Height bag.ScaledPoint
+	Depth  bag.ScaledPoint
+	// ShiftX shifts the VList's outer origin to the right when its
+	// parent renders it. Symmetric with HList.ShiftX — every box-like
+	// node can be moved, regardless of progressing direction.
 	ShiftX   bag.ScaledPoint
+	GlueSet  float64
 	GlueSign uint8
 }
 

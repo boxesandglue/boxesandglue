@@ -1760,7 +1760,19 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					cur = br
 					lastglue = br
 				default:
-					panic("unhandled whitespace type")
+					// Unicode whitespace other than U+0020 / U+00A0 /
+					// tab / newline, e.g. U+2009 THIN SPACE, U+2002 EN
+					// SPACE, U+2003 EM SPACE. The shaper has already
+					// looked up the font's own glyph advance; emit a
+					// rigid Rule of that width so the visible gap
+					// matches the codepoint, not the TeX inter-word
+					// fnt.Space default. The rule renders nothing (the
+					// font's glyph is typically blank).
+					g := node.NewRule()
+					g.Width = r.Advance
+					head = node.InsertAfter(head, cur, g)
+					cur = g
+					lastglue = g
 				}
 			} else {
 				if r.Components == "\n" {
@@ -1989,6 +2001,13 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 					}
 				}
 				delete(t.Settings, SettingLeader)
+				// Pattern whitespace must keep its exact widths: a thin
+				// space inside "  .  " has to render as a thin space, not
+				// collapse to the TeX inter-word fnt.Space glue. The
+				// preserve-whitespace branch in BuildNodelistFromString
+				// uses the atom's shaper-provided Advance instead of the
+				// font-wide Space default.
+				t.Settings[SettingPreserveWhitespace] = true
 				nl, err = fe.BuildNodelistFromString(t.Settings, leaderStr.(string))
 				if err != nil {
 					return nil, nil, err
