@@ -1649,9 +1649,6 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 
 	if fe.usedFonts[face] == nil {
-		fe.usedFonts = make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font)
-	}
-	if fe.usedFonts[face][fontsize] == nil {
 		fe.usedFonts[face] = make(map[bag.ScaledPoint]*font.Font)
 	}
 
