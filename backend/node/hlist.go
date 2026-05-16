@@ -24,9 +24,9 @@ type HList struct {
 	// parent renders it. Symmetric with VList.ShiftX — every box-like
 	// node can be moved, regardless of progressing direction (TeX's
 	// \moveright applies to both \hbox and \vbox).
-	ShiftX    bag.ScaledPoint
-	VAlign    VerticalAlignment
-	GlueSign  uint8 // 0 = normal, 1 = stretching, 2 = shrinking
+	ShiftX   bag.ScaledPoint
+	VAlign   VerticalAlignment
+	GlueSign uint8 // 0 = normal, 1 = stretching, 2 = shrinking
 }
 
 func (h *HList) String() string {

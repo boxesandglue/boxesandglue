@@ -3,6 +3,7 @@ package frontend
 import (
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
@@ -39,6 +40,18 @@ func initDocument(w io.Writer) (*Document, error) {
 		FontFamilies:   make(map[string]*FontFamily),
 		fontlocal:      make(map[string]*FontSource),
 		Doc:            document.NewDocument(w),
+	}
+	// Honour the reproducible-builds.org SOURCE_DATE_EPOCH convention
+	// at library level so every consumer (bagme, glu/markdown,
+	// glu/.lua entry, ad-hoc callers) gets deterministic timestamps
+	// and XMP UUIDs without having to re-implement the lookup.
+	// Callers that explicitly assign Doc.CreationDate after this
+	// still win — frontend.New returns to them before Finish.
+	if v := os.Getenv("SOURCE_DATE_EPOCH"); v != "" {
+		if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
+			d.Doc.CreationDate = time.Unix(secs, 0).UTC()
+			d.Doc.SuppressInfo = true
+		}
 	}
 	var err error
 	if d.Doc.DefaultLanguage, err = GetLanguage("en"); err != nil {
