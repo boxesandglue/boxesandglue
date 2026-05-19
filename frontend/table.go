@@ -541,13 +541,19 @@ func (m matrix) String() string {
 // analyzeTable builds some helper data structures for the table to calculate
 // row span and col span and border widths (in case of border collapse).
 func (tbl *Table) analyzeTable() {
-	// calculate number of rows and columns
+	// calculate number of rows and columns. The column count is the maximum
+	// sum of colspans per row, not the maximum number of cells per row — a
+	// row with a single colspan="10" cell still occupies 10 columns.
 	tbl.nRow = len(tbl.Rows)
 	for i, row := range tbl.Rows {
 		row.table = tbl
 		row.row = i
-		if n := len(row.Cells); n > tbl.nCol {
-			tbl.nCol = n
+		sum := 0
+		for _, c := range row.Cells {
+			sum += c.ExtraColspan + 1
+		}
+		if sum > tbl.nCol {
+			tbl.nCol = sum
 		}
 	}
 
