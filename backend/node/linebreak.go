@@ -118,16 +118,34 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		// last-resort budget so a feasible underfull break can be found when
 		// the only glue on the line is the candidate breakpoint itself (whose
 		// own stretch is discarded at the break).
-		y := lb.sumY - a.sumY + sumExpand + lb.settings.EmergencyStretch
-		if y > 0 {
-			if (lb.stretchFil-a.stretchFil) > 0 || (lb.stretchFill-a.stretchFill) > 0 || (lb.stretchFilll-a.stretchFilll) > 0 {
-				// stretchable glue available
-				r = 0
-			} else {
-				r = float64(maxwd-thisLineWidth) / float64(y)
+		//
+		// LineStartGlue / LineEndGlue (TeX \leftskip / \rightskip) are
+		// inserted per line in the post-linebreak pass (see Linebreak),
+		// so their stretch is not part of lb.sumY / lb.stretchFil etc.
+		// If they carry fil-order stretch (the typical setup for
+		// HAlignLeft / Right / Center), every underfull line is
+		// effectively perfect: the fil-stretch absorbs whatever slack
+		// remains. Treat that case as r=0 here so feasible breaks at
+		// inter-word glue aren't rejected with r=+inf just because the
+		// line itself has no normal stretch reservoir.
+		hasFilStretch := (lb.stretchFil-a.stretchFil) > 0 || (lb.stretchFill-a.stretchFill) > 0 || (lb.stretchFilll-a.stretchFilll) > 0
+		if !hasFilStretch {
+			if g := lb.settings.LineEndGlue; g != nil && g.StretchOrder >= StretchFil && g.Stretch > 0 {
+				hasFilStretch = true
 			}
+			if g := lb.settings.LineStartGlue; g != nil && g.StretchOrder >= StretchFil && g.Stretch > 0 {
+				hasFilStretch = true
+			}
+		}
+		if hasFilStretch {
+			r = 0
 		} else {
-			r = positiveInf
+			y := lb.sumY - a.sumY + sumExpand + lb.settings.EmergencyStretch
+			if y > 0 {
+				r = float64(maxwd-thisLineWidth) / float64(y)
+			} else {
+				r = positiveInf
+			}
 		}
 	} else if maxwd < thisLineWidth {
 		// needs to shrink
