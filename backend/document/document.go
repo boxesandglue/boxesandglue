@@ -72,8 +72,46 @@ const (
 	FormatPDFX3
 	// FormatPDFX4 is the PDF/X-4 format
 	FormatPDFX4
-	// FormatPDFUA is the PDF/UA format
+	// FormatPDFUA is the PDF/UA-1 format (ISO 14289-1, on PDF 1.7)
 	FormatPDFUA
+	// FormatPDFUA2 is the PDF/UA-2 format (ISO 14289-2, on PDF 2.0)
+	FormatPDFUA2
+)
+
+// pdfVersion returns the PDF specification version this format requires.
+func (f Format) pdfVersion() pdf.Version {
+	switch f {
+	case FormatPDFUA2:
+		return pdf.Version20
+	}
+	return pdf.Version17
+}
+
+// isPDFUA reports whether this format requires tagged-PDF / accessibility
+// structures (StructTreeRoot, MarkInfo, /Lang, /DisplayDocTitle, etc.).
+// True for both UA-1 and UA-2.
+func (f Format) isPDFUA() bool {
+	return f == FormatPDFUA || f == FormatPDFUA2
+}
+
+// PDF 2.0 namespace URIs for tagged structure elements (ISO 32000-2 §14.7.4).
+// Use as the NS field of StructureElement to declare which namespace a role
+// name belongs to. UA-2 documents must use at least one of these.
+const (
+	// NamespacePDF17SSN is the PDF 1.7 Standard Structure Namespace.
+	// Includes PDF 1.7-era inline roles such as Code that are not part
+	// of the PDF 2.0 Standard Structure Namespace.
+	NamespacePDF17SSN = "http://iso.org/pdf/ssn"
+	// NamespacePDF20SSN is the PDF 2.0 Standard Structure Namespace.
+	// Role names: Document, Sect, Part, P, H, H1-H6, L, LI, Lbl, LBody,
+	// Table, TR, TH, TD, THead, TBody, TFoot, Figure, Caption, Formula,
+	// Link, Span, Quote, Note, Reference, Aside, etc.
+	NamespacePDF20SSN = "http://iso.org/pdf2/ssn"
+	// NamespaceHTML5 is the HTML5 / XHTML namespace.
+	// Role names follow HTML5 element conventions (lowercase): p, h1-h6,
+	// figure, figcaption, table, thead, tbody, tfoot, tr, th, td, ul, ol,
+	// li, a, span, em, strong, etc.
+	NamespaceHTML5 = "http://www.w3.org/1999/xhtml"
 )
 
 // TextScope represents the nesting level within PDF content stream.
@@ -410,7 +448,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			oc.gotoTextMode(ScopePage)
 			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
-			hRuleNeedsArtifact := oc.p.document.Format == FormatPDFUA && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
+			hRuleNeedsArtifact := oc.p.document.Format.isPDFUA() && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
 			if hRuleNeedsArtifact {
 				oc.writef("/Artifact BMC\n")
 			}
@@ -452,9 +490,13 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			ifile := v.ImageFile
 			oc.usedImages[ifile] = true
+			// Image visual extent = Height (above baseline) + Depth (below).
+			// Bottom-left corner sits at (x+sumX, y-Depth); image top is then
+			// at y+Height. Depth=0 is the baseline-anchored default.
+			visualHt := v.Height + v.Depth
 			scaleX := v.Width.ToPT() / ifile.ScaleX
-			scaleY := v.Height.ToPT() / ifile.ScaleY
-			posy := y
+			scaleY := visualHt.ToPT() / ifile.ScaleY
+			posy := y - v.Depth
 			posx := x + sumX
 			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, v.ImageFile.InternalName())
 			sumX += v.Width
@@ -503,7 +545,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
 					}
 					// PDF/UA: link annotations need Contents and StructParent
-					if oc.p.document.Format == FormatPDFUA {
+					if oc.p.document.Format.isPDFUA() {
 						contents := hyperlink.URI
 						if contents == "" {
 							contents = hyperlink.Local
@@ -675,7 +717,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					childXObjectFigure = true
 				}
 			}
-			if oc.p.document.Format == FormatPDFUA && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+			if oc.p.document.Format.isPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
 				if !vlistHasTaggedDescendant(v) {
 					childArtifact = true
 				}
@@ -783,7 +825,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 	// PDF/UA: track whether we're inside an untagged container
 	// (no tag, no artifact set). Content in such containers that
 	// is not a tagged child VList must be wrapped as Artifact.
-	untaggedContainer := oc.p.document.Format == FormatPDFUA && oc.tag == nil && !oc.inArtifact
+	untaggedContainer := oc.p.document.Format.isPDFUA() && oc.tag == nil && !oc.inArtifact
 
 	sumY := bag.ScaledPoint(0)
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
@@ -829,14 +871,16 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			oc.usedImages[ifile] = true
 			oc.gotoTextMode(ScopePage)
 
+			// Vertical mode: y is the top of the image's slot. The image's
+			// visible extent spans Height (above its baseline) + Depth (below).
+			visualHt := v.Height + v.Depth
 			scaleX := v.Width.ToPT() / ifile.ScaleX
-			scaleY := v.Height.ToPT() / ifile.ScaleY
+			scaleY := visualHt.ToPT() / ifile.ScaleY
 
-			ht := v.Height
-			posy := y - ht
+			posy := y - visualHt
 			posx := x
 			if oc.p.document.IsTrace(VTraceImages) {
-				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, v.Height)
+				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, visualHt)
 			}
 			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, v.ImageFile.InternalName())
 		case *node.Glue:
@@ -965,7 +1009,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
 					}
 					// PDF/UA: link annotations need Contents and StructParent
-					if oc.p.document.Format == FormatPDFUA {
+					if oc.p.document.Format.isPDFUA() {
 						contents := hyperlink.URI
 						if contents == "" {
 							contents = hyperlink.Local
@@ -1080,7 +1124,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			// container), mark as artifact in PDF/UA mode — but only
 			// if there are no tagged descendants (otherwise let them
 			// emit their own BDC/EMC).
-			if oc.p.document.Format == FormatPDFUA && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+			if oc.p.document.Format.isPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
 				if !vlistHasTaggedDescendant(v) {
 					childArtifact = true
 				}
@@ -1247,7 +1291,7 @@ func (p *Page) Shipout() {
 	}
 
 	// In PDF/UA mode, mark background objects as artifacts automatically.
-	if p.document.Format == FormatPDFUA {
+	if p.document.Format.isPDFUA() {
 		for i := range p.Background {
 			vl := p.Background[i].Vlist
 			if vl.Attributes == nil {
@@ -1300,7 +1344,7 @@ func (p *Page) Shipout() {
 		// PDF/UA: untagged top-level VLists without tagged descendants
 		// default to Artifact. VLists with tagged descendants are left
 		// untagged so children can emit their own BDC/EMC.
-		if p.document.Format == FormatPDFUA && oc.tag == nil && !oc.inArtifact {
+		if p.document.Format.isPDFUA() && oc.tag == nil && !oc.inArtifact {
 			if !vlistHasTaggedDescendant(vlist) {
 				oc.inArtifact = true
 			}
@@ -1377,7 +1421,7 @@ func (p *Page) Shipout() {
 	page.Annotations = p.Annotations
 
 	// PDF/UA: pages with annotations must have /Tabs /S
-	if p.document.Format == FormatPDFUA && len(p.Annotations) > 0 {
+	if p.document.Format.isPDFUA() && len(p.Annotations) > 0 {
 		page.Dict["Tabs"] = "/S"
 	}
 
@@ -1508,6 +1552,7 @@ type StructureElement struct {
 	Parent     *StructureElement
 	Obj        *pdf.Object
 	Role       string
+	NS         string     // namespace URI for Role (PDF 2.0 §14.7.4); empty = default
 	ActualText string
 	Alt        string     // alternative text (for Figure, Formula etc.)
 	Lang       string     // BCP 47 language tag for this element
@@ -1563,6 +1608,61 @@ func (d *PDFDocument) newPDFStructureObject() *pdfStructureObject {
 	return po
 }
 
+// DeclareNamespace returns the indirect /Namespace object for the given URI,
+// allocating a new one on first use. The returned object is unsaved; Finish()
+// finalizes it (with any role-map set via SetNamespaceRoleMap) before
+// serializing the StructTreeRoot. Callers may set additional /RoleMapNS
+// entries directly on the returned object's Dictionary; the serializer
+// preserves them.
+func (d *PDFDocument) DeclareNamespace(uri string) *pdf.Object {
+	if obj, ok := d.namespaceObjs[uri]; ok {
+		return obj
+	}
+	if d.namespaceObjs == nil {
+		d.namespaceObjs = make(map[string]*pdf.Object)
+	}
+	obj := d.PDFWriter.NewObject()
+	obj.Dictionary = pdf.Dict{
+		"Type": "/Namespace",
+		"NS":   pdf.Serialize(pdf.String(uri)),
+	}
+	d.namespaceObjs[uri] = obj
+	return obj
+}
+
+// SetNamespaceRoleMap installs a /RoleMapNS dictionary on a previously
+// declared namespace. Each entry maps a role name in this namespace
+// (the key) to a target description (the value):
+//   - If targetNS is empty, the value is a /<targetRole> name token —
+//     mapping to a standard role in the same namespace.
+//   - Otherwise the value is an array [/<targetRole> <ns-ref>] mapping
+//     to a standard role in the namespace identified by targetNS.
+//
+// Required for ISO 14289-2 §8.2.4 when a non-standard namespace
+// (e.g. HTML5) is used: every role must role-map to a standard one
+// (PDF 1.7 SSN / PDF 2.0 SSN / MathML).
+func (d *PDFDocument) SetNamespaceRoleMap(uri string, roleMap map[string]NamespaceRoleEntry) {
+	nsObj := d.DeclareNamespace(uri)
+	rm := pdf.Dict{}
+	for role, entry := range roleMap {
+		if entry.TargetNS == "" {
+			rm[pdf.Name(role)] = "/" + entry.TargetRole
+			continue
+		}
+		nsRef := d.DeclareNamespace(entry.TargetNS).ObjectNumber.Ref()
+		rm[pdf.Name(role)] = fmt.Sprintf("[ /%s %s ]", entry.TargetRole, nsRef)
+	}
+	nsObj.Dictionary["RoleMapNS"] = rm
+}
+
+// NamespaceRoleEntry describes how a role in one namespace maps to a
+// standard role in either the same or another namespace. See
+// PDFDocument.SetNamespaceRoleMap.
+type NamespaceRoleEntry struct {
+	TargetRole string // standard role name (without leading slash)
+	TargetNS   string // namespace URI; empty = same namespace as the source
+}
+
 // serializeStructureElement recursively creates PDF objects for the structure
 // tree. parentObjnum is the object number of the parent (either StructTreeRoot
 // or a parent StructElem). pageObjnums maps page indices to page object numbers.
@@ -1574,6 +1674,10 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 		"Type": "/StructElem",
 		"S":    "/" + se.Role,
 		"P":    parentObjnum.Ref(),
+	}
+	if se.NS != "" {
+		nsObj := d.DeclareNamespace(se.NS)
+		se.Obj.Dictionary["NS"] = nsObj.ObjectNumber.Ref()
 	}
 	if se.ActualText != "" {
 		se.Obj.Dictionary["ActualText"] = pdf.Serialize(pdf.String(se.ActualText))
@@ -1672,6 +1776,7 @@ type PDFDocument struct {
 	ShowHyperlinks       bool
 	SuppressInfo         bool
 	xmpExtensions        []XMPExtension
+	namespaceObjs        map[string]*pdf.Object // namespace URI → lazily-allocated /Namespace object
 }
 
 // NewDocument creates an empty document.
@@ -1927,10 +2032,14 @@ func formatDate(t time.Time) string {
 // not close the writer.
 func (d *PDFDocument) Finish() error {
 	var err error
+	// Resolve Format-driven PDF version now (Format may have been set after
+	// NewDocument by the caller). The PDF header is written lazily on the
+	// first byte to outfile, which happens during FinishAndClose below.
+	d.PDFWriter.SetVersion(d.Format.pdfVersion())
 	d.PDFWriter.Catalog = pdf.Dict{}
 
 	// Automatically create root structure element for PDF/UA if not set
-	if d.Format == FormatPDFUA && d.RootStructureElement == nil {
+	if d.Format.isPDFUA() && d.RootStructureElement == nil {
 		d.RootStructureElement = &StructureElement{Role: "Document"}
 	}
 
@@ -2058,6 +2167,24 @@ func (d *PDFDocument) Finish() error {
 			}
 			structRoot.Dictionary["RoleMap"] = rm
 		}
+		// Finalize and reference any namespaces collected during SE serialization
+		// (PDF 2.0 §14.7.4: /Namespaces lives on StructTreeRoot).
+		if len(d.namespaceObjs) > 0 {
+			uris := make([]string, 0, len(d.namespaceObjs))
+			for uri := range d.namespaceObjs {
+				uris = append(uris, uri)
+			}
+			sort.Strings(uris)
+			refs := make([]string, 0, len(uris))
+			for _, uri := range uris {
+				obj := d.namespaceObjs[uri]
+				if err = obj.Save(); err != nil {
+					return err
+				}
+				refs = append(refs, obj.ObjectNumber.Ref())
+			}
+			structRoot.Dictionary["Namespaces"] = fmt.Sprintf("[ %s ]", strings.Join(refs, " "))
+		}
 		structRoot.Save()
 
 		d.PDFWriter.Catalog["StructTreeRoot"] = structRoot.ObjectNumber.Ref()
@@ -2069,7 +2196,7 @@ func (d *PDFDocument) Finish() error {
 			langStr = d.DefaultLanguage.Name
 		}
 		d.PDFWriter.Catalog["Lang"] = fmt.Sprintf("(%s)", langStr)
-		d.PDFWriter.Catalog["MarkInfo"] = `<< /Marked true /Suspects false >>`
+		d.PDFWriter.Catalog["MarkInfo"] = pdf.Dict{"Marked": true}
 
 	}
 

@@ -92,6 +92,12 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		}
 	case FormatPDFUA:
 		x.textElement("pdfuaid:part", "1")
+	case FormatPDFUA2:
+		x.textElement("pdfuaid:part", "2")
+		// ISO 14289-2:2024 §5 requires pdfuaid:rev as a four-digit year
+		// identifying the revision of the PDF/UA-2 specification this
+		// document claims conformance to. ISO 14289-2 was published in 2024.
+		x.textElement("pdfuaid:rev", "2024")
 	}
 
 	x.textElement("xmpMM:DocumentID", "uuid:"+docID)
@@ -104,7 +110,7 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 
 	if t := d.Title; t != "" {
 		switch d.Format {
-		case FormatPDFA3b, FormatPDFUA:
+		case FormatPDFA3b, FormatPDFUA, FormatPDFUA2:
 			x.start("dc:title")
 			x.start("rdf:Alt")
 			x.start("rdf:li", "xml:lang", "x-default")
