@@ -374,6 +374,16 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 	hl.Badness = badness
 	if useExpand {
 		a := (sumwd - width - shrinkability).ToPT() / sumGlyph.ToPT()
+		// Clamp at the configured fontexpansion ceiling (microtype/hz
+		// limit). Beyond that, glyphs shrink visibly and the cell looks
+		// like it uses a smaller font size, which is exactly the
+		// "Quanti-ty rendered narrower than Unit Cost" symptom. The
+		// remaining overflow stays in the HList as box-overfull — much
+		// better than secretly squeezing the glyph widths beyond the
+		// hz limit.
+		if a > hs.fontexpansion {
+			a = hs.fontexpansion
+		}
 		hl.Attributes = H{"expand": int(-1 * a * 100)}
 	}
 	return hl

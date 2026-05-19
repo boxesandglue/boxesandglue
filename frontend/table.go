@@ -86,9 +86,10 @@ type cellptr struct {
 }
 
 type span struct {
-	start int
-	end   int
-	size  bag.ScaledPoint
+	start   int
+	end     int
+	size    bag.ScaledPoint // colspan cell's max width
+	minSize bag.ScaledPoint // colspan cell's min width
 }
 
 func (cell *TableCell) String() string {
@@ -113,16 +114,42 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 					minwd = wd
 				}
 			} else {
-				_, pi, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+				vl, pi, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
 				if err != nil {
 					return 0, err
 				}
 				if pi == nil {
 					return 0, nil
 				}
-				for _, wd := range pi.Widths {
-					if wd > minwd {
-						minwd = wd
+				// pi.Widths is unreliable for hyphenation breaks: the
+				// emergency-fallback path in the line breaker stores
+				// Width = lb.sumW - lastInactive.sumW, which omits the
+				// Disc.Pre (hyphen) glyph width even though it will be
+				// inserted into the rendered line. Walk the produced
+				// VList ourselves and sum the actual node widths so the
+				// hyphen is counted — otherwise the column comes out
+				// just narrow enough that the hyphen renders past the
+				// cell border.
+				if vl != nil {
+					for line := vl.List; line != nil; line = line.Next() {
+						hl, ok := line.(*node.HList)
+						if !ok {
+							continue
+						}
+						var lineW bag.ScaledPoint
+						for hn := hl.List; hn != nil; hn = hn.Next() {
+							switch hnt := hn.(type) {
+							case *node.Glyph:
+								lineW += hnt.Width
+							case *node.Glue:
+								lineW += hnt.Width
+							case *node.Kern:
+								lineW += hnt.Kern
+							}
+						}
+						if lineW > minwd {
+							minwd = lineW
+						}
 					}
 				}
 			}
@@ -427,7 +454,7 @@ func (row *TableRow) calculateWidths() ([]bag.ScaledPoint, []bag.ScaledPoint, []
 			colwidthsMin[c.colStart] = minwd
 			colwidthsMax[c.colStart] = maxwd
 		} else {
-			colspans = append(colspans, span{start: c.colStart, end: c.colStart + c.ExtraColspan, size: maxwd})
+			colspans = append(colspans, span{start: c.colStart, end: c.colStart + c.ExtraColspan, size: maxwd, minSize: minwd})
 		}
 	}
 	return colwidthsMin, colwidthsMax, colspans, nil
@@ -728,6 +755,21 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 					colmax[r] += stretch
 				}
 			}
+			// Propagate the colspan cell's min width to the inner
+			// columns the same way: a colspan cell may sit over
+			// columns whose individual colmin is 0 (no non-colspan
+			// cell ever touched them), and the table's shrink pass
+			// later divides by colmin, which would blow up at 0.
+			sumMin := bag.ScaledPoint(0)
+			for i := cs.start; i <= cs.end; i++ {
+				sumMin += colmin[i]
+			}
+			if cs.minSize > sumMin {
+				stretch := (cs.minSize - sumMin) / bag.ScaledPoint(cs.end-cs.start+1)
+				for r := cs.start; r <= cs.end; r++ {
+					colmin[r] += stretch
+				}
+			}
 		}
 
 		sumCols := bag.ScaledPoint(0)
@@ -754,7 +796,15 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 					excess += a
 					tbl.columnWidths[i] = colmin[i]
 				} else if a > 0 {
-					shrinkTbl[i] = tbl.columnWidths[i].ToPT() / colmin[i].ToPT()
+					// Guard against colmin == 0 (would yield +Inf
+					// and poison the proportional redistribution
+					// below). Treat such a column as fully
+					// shrinkable, weighted by its current width.
+					if colmin[i] > 0 {
+						shrinkTbl[i] = tbl.columnWidths[i].ToPT() / colmin[i].ToPT()
+					} else {
+						shrinkTbl[i] = tbl.columnWidths[i].ToPT()
+					}
 					sumShrinkFactor += shrinkTbl[i]
 				}
 			}
