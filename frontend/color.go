@@ -41,7 +41,14 @@ func (d *Document) GetColor(s string) *color.Color {
 		case 7:
 			fmt.Sscanf(s, "#%2x%2x%2x", &r, &g, &b)
 		case 4:
+			// CSS Color 3 §4.2.1: 3-digit hex (#RGB) expands by
+			// duplicating each digit (#abc → #aabbcc), not by zero-
+			// padding. Equivalent: shift the nibble into the high
+			// half so 0xd becomes 0xdd.
 			fmt.Sscanf(s, "#%1x%1x%1x", &r, &g, &b)
+			r = r<<4 | r
+			g = g<<4 | g
+			b = b<<4 | b
 		default:
 			// FIXME: proper error handling
 			// logger.Error("GetColor HTML not implemented", "size", len(s))
