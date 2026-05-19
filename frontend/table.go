@@ -840,6 +840,30 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		}
 	}
 
+	// Store footer information so the page breaker can repeat footers
+	// at the bottom of every page the table spans (HTML <tfoot>
+	// semantics, CSS Tables 3 §11.1).
+	if tbl.FooterRows > 0 {
+		footerHeight := bag.ScaledPoint(0)
+		start := len(tbl.Rows) - tbl.FooterRows
+		for i := start; i < len(tbl.Rows); i++ {
+			footerHeight += tbl.rowHeights[i]
+		}
+		vl.Attributes["_footerCount"] = tbl.FooterRows
+		vl.Attributes["_footerHeight"] = footerHeight
+		vl.Attributes["_buildFooters"] = func() ([]*node.HList, error) {
+			var footers []*node.HList
+			for i := start; i < len(tbl.Rows); i++ {
+				hl, err := buildRow(i)
+				if err != nil {
+					return nil, err
+				}
+				footers = append(footers, hl)
+			}
+			return footers, nil
+		}
+	}
+
 	return []*node.VList{vl}, nil
 }
 
