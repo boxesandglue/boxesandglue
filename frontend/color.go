@@ -17,8 +17,33 @@ func (d *Document) DefineColor(name string, col *color.Color) {
 
 var rgbmatcher = regexp.MustCompile(`rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*([0-9.-]*)?\s*\)`)
 
+// parseCMYKComponent accepts CSS-style CMYK components — a percentage
+// ("36%" → 0.36) or a unit-less number ("0.5" → 0.5). Returns the 0..1
+// value and ok=false on malformed input. CSS Color 5 §6.1 specifies
+// numbers in 0..1; the legacy cmyk()-function (Prince / Antenna House)
+// uses percentages — both cases drop into the same parser.
+func parseCMYKComponent(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if bare, ok := strings.CutSuffix(s, "%"); ok {
+		f, err := strconv.ParseFloat(bare, 64)
+		if err != nil {
+			return 0, false
+		}
+		return f / 100.0, true
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, true
+}
+
 // GetColor returns a color. The string can be a predefined color name or an
-// HTML / CSS color definition such as #FAF or rgb(0.5.,0.5,0.5).
+// HTML / CSS color definition such as #FAF, rgb(128,128,128), cmyk(0%,0%,0%,100%)
+// or device-cmyk(0 0 0 1).
 func (d *Document) GetColor(s string) *color.Color {
 	if col, ok := d.usedcolors[s]; ok {
 		return col
@@ -31,6 +56,7 @@ func (d *Document) GetColor(s string) *color.Color {
 		d.usedcolors[s] = col
 		return col
 	}
+	s = strings.TrimSpace(s)
 	var r, g, b int
 	var alpha float64
 	var err error
@@ -56,6 +82,36 @@ func (d *Document) GetColor(s string) *color.Color {
 		col.R = math.Round(100.0*float64(r)/float64(255)) / 100.0
 		col.G = math.Round(100.0*float64(g)/float64(255)) / 100.0
 		col.B = math.Round(100.0*float64(b)/float64(255)) / 100.0
+		return col
+	} else if strings.HasPrefix(s, "cmyk") || strings.HasPrefix(s, "device-cmyk") {
+		i := strings.IndexByte(s, '(')
+		j := strings.LastIndexByte(s, ')')
+		if i < 0 || j <= i {
+			return nil
+		}
+		inner := strings.ReplaceAll(s[i+1:j], ",", " ")
+		parts := strings.Fields(inner)
+		if len(parts) < 4 {
+			return nil
+		}
+		cv, ok := parseCMYKComponent(parts[0])
+		if !ok {
+			return nil
+		}
+		mv, ok := parseCMYKComponent(parts[1])
+		if !ok {
+			return nil
+		}
+		yv, ok := parseCMYKComponent(parts[2])
+		if !ok {
+			return nil
+		}
+		kv, ok := parseCMYKComponent(parts[3])
+		if !ok {
+			return nil
+		}
+		col.Space = color.ColorCMYK
+		col.C, col.M, col.Y, col.K = cv, mv, yv, kv
 		return col
 	} else if strings.HasPrefix(s, "rgb") {
 		col.Space = color.ColorRGB

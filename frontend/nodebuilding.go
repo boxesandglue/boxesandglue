@@ -984,16 +984,30 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	}
 	// CSS list-style-position: outside. A marker hbox carrying
 	// Attributes["outside-marker"]=true (htmlbag's <li> renderer)
-	// must be painted at the line's content-origin minus
-	// ListPaddingLeft regardless of the line's text-align stretch.
-	// The X offset to use as the marker's anchor inside the line is
-	// p.IndentLeft (the LeftSkip portion that's not the centering
-	// fil-stretch). Stamp it here so the backend can recover it
-	// post-HpackTo, when the natural-vs-actual Glue split is gone.
+	// must be painted in the gutter regardless of the line's
+	// text-align stretch.
+	//
+	// LTR: anchor = p.IndentLeft. The hbox itself contains a
+	// -ListPaddingLeft glue that places the marker glyph in the
+	// left gutter (X = -ListPaddingLeft from the anchor).
+	//
+	// RTL: anchor = p.hsize (the line's right content edge). The
+	// hbox uses a mirrored +ListPaddingLeft trailing glue, so the
+	// marker glyph lands in the right gutter (X = +0..ListPaddingLeft
+	// from the anchor).
+	//
+	// Both anchors must be captured here, not in the backend,
+	// because HpackTo mutates Glue.Width in place from natural to
+	// actual width during line packing, erasing the natural-vs-
+	// stretch split that the backend would otherwise need.
 	if prep, ok := te.Settings[SettingPrepend]; ok {
 		if hbox, ok := prep.(*node.HList); ok && hbox.Attributes != nil {
 			if outside, _ := hbox.Attributes["outside-marker"].(bool); outside {
-				hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
+				if rtl, _ := hbox.Attributes["outside-marker-rtl"].(bool); rtl {
+					hbox.Attributes["outside-marker-anchor"] = p.hsize
+				} else {
+					hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
+				}
 			}
 		}
 	}

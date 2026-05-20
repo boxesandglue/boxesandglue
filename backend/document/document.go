@@ -944,6 +944,20 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						anchorX = ax
 					}
 					oc.outputHorizontalItems(x+anchorX, moveY, v)
+					// PDF text positioning between glyphs is cumulative
+					// inside a TJ array. If the marker ends at a
+					// different X than where the next body glyph should
+					// start (i.e. the line uses text-align: center /
+					// right / start-with-RTL and the LineStartGlue has
+					// stretched), close the TJ array so the next Glyph
+					// case re-emits Tm at its true x. When sumX ==
+					// anchorX (default left-aligned LTR list) the
+					// marker and body share the same X and no Tm reset
+					// is needed — keeping the existing TJ avoids
+					// gratuitous byte-level churn in tests.
+					if sumX != anchorX && oc.textmode < ScopeText {
+						oc.gotoTextMode(ScopeText)
+					}
 					sumX += v.Width
 					break
 				}
@@ -1813,7 +1827,7 @@ type StructureElement struct {
 	Parent     *StructureElement
 	Obj        *pdf.Object
 	Role       string
-	NS         string     // namespace URI for Role (PDF 2.0 §14.7.4); empty = default
+	NS         string // namespace URI for Role (PDF 2.0 §14.7.4); empty = default
 	ActualText string
 	Alt        string     // alternative text (for Figure, Formula etc.)
 	Lang       string     // BCP 47 language tag for this element
