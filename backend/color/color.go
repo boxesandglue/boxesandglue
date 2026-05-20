@@ -3,7 +3,22 @@ package color
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
+
+// formatColorComponent renders a 0..1 color component for PDF content
+// streams. 4 decimal places give a resolution of 0.0001 — finer than the
+// 8-bit input (1/255 ≈ 0.0039) — while keeping content streams compact
+// (`0.5294` instead of `0.5294117647058824`). Trailing zeros and an empty
+// fractional part are trimmed (`0.5000` → `0.5`, `1.0000` → `1`).
+func formatColorComponent(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 4, 64)
+	if strings.ContainsRune(s, '.') {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+	}
+	return s
+}
 
 // Color holds color values for the document. All intensities are from 0 to 1.
 // Basecolor is a spot color name such as Pantone 119 for example.
@@ -67,11 +82,11 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 	}
 	switch col.Space {
 	case ColorRGB:
-		return fmt.Sprintf("%s %s %s %s", strconv.FormatFloat(col.R, 'f', -1, 64), strconv.FormatFloat(col.G, 'f', -1, 64), strconv.FormatFloat(col.B, 'f', -1, 64), col.getPDFColorSuffix(stroking))
+		return fmt.Sprintf("%s %s %s %s", formatColorComponent(col.R), formatColorComponent(col.G), formatColorComponent(col.B), col.getPDFColorSuffix(stroking))
 	case ColorCMYK:
-		return fmt.Sprintf("%s %s %s %s %s", strconv.FormatFloat(col.C, 'f', -1, 64), strconv.FormatFloat(col.M, 'f', -1, 64), strconv.FormatFloat(col.Y, 'f', -1, 64), strconv.FormatFloat(col.K, 'f', -1, 64), col.getPDFColorSuffix(stroking))
+		return fmt.Sprintf("%s %s %s %s %s", formatColorComponent(col.C), formatColorComponent(col.M), formatColorComponent(col.Y), formatColorComponent(col.K), col.getPDFColorSuffix(stroking))
 	case ColorGray:
-		return fmt.Sprintf("%s %s", strconv.FormatFloat(col.G, 'f', -1, 64), col.getPDFColorSuffix(stroking))
+		return fmt.Sprintf("%s %s", formatColorComponent(col.G), col.getPDFColorSuffix(stroking))
 	case ColorSpotcolor:
 		return fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
 	default:
