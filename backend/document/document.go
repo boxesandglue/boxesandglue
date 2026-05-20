@@ -1,6 +1,7 @@
 package document
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 	"github.com/boxesandglue/svgreader"
+	"github.com/boxesandglue/textshape/ot"
 )
 
 const (
@@ -137,6 +139,7 @@ type objectContext struct {
 	currentFont      *font.Font
 	usedFaces        map[*pdf.Face]bool
 	usedImages       map[*pdf.Imagefile]bool
+	colorBitmapCache map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
 	tag              *StructureElement
 	artifactType     ArtifactType
 	outputDebug      *outputDebug
@@ -148,6 +151,16 @@ type objectContext struct {
 	textmode         TextScope
 	hasNewline       bool
 	inArtifact       bool
+}
+
+// colorBitmapKey identifies one (face, glyph, strike) tuple. Multiple
+// occurrences of the same emoji on a page reuse a single PDF Image
+// XObject — a busy emoji document would otherwise embed the same PNG
+// dozens of times.
+type colorBitmapKey struct {
+	faceID int
+	gid    int
+	ppem   int
 }
 
 // emitBDC writes a BDC operator with MCID. ActualText is placed on the
@@ -184,6 +197,184 @@ func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
 	}
 	oc.newline()
 	oc.writef("1 0 0 1 %s %s Tm ", x, y)
+}
+
+// emitColorGlyph writes one COLRv0 base glyph as a sequence of layer
+// glyphs, each rendered at the same origin (x, y) with its own CPAL fill
+// color. The caller must already have selected the right font (Tf) and
+// must update sumX itself afterwards — emitColorGlyph does not touch
+// sumX, only PDF state. After it returns the context is in ScopeText with
+// the non-stroking color reset to black.
+//
+// HarfBuzz equivalent: this is the PDF analogue of the per-layer drawing
+// loop used by HarfBuzz's paint backends. Compare with hb-cairo-paint at
+// hb-cairo.cc (the Cairo backend renders each layer via cairo_set_source
+// + cairo_show_glyphs at the same origin). The CPAL ForegroundColorIndex
+// sentinel (0xFFFF) follows hb_paint_context_t::foreground at
+// OT/Color/COLR/COLR.hh:80 — see textshape/ot/colr.go for the constant.
+//
+// The choice to re-set the text matrix per layer (Tm) instead of using
+// TJ-array kerning is deliberate: layer glyphs in fonts like
+// Twemoji.Mozilla each carry their own hmtx advance, which can differ
+// from the base glyph's advance. Computing per-layer rewinds correctly is
+// error-prone; an absolute Tm at each layer sidesteps the arithmetic
+// entirely at the cost of ~20 extra bytes per layer.
+func (oc *objectContext) emitColorGlyph(g *node.Glyph, x, y bag.ScaledPoint, layers []ot.ColorLayer, palette []ot.BGRAColor) {
+	// ToUnicode mapping uses the BASE glyph (the codepoint the cmap+GSUB
+	// produced); layer glyphs are anonymous from text-extraction
+	// perspective and must not contribute to ActualText.
+	g.Font.Face.RegisterGlyph(g.Codepoint, g.Components)
+
+	for _, layer := range layers {
+		// Layer glyphs share the subsetter's keep-set with their base
+		// glyph — without this, the subsetter would drop their outlines
+		// and ship an emoji font with empty layers.
+		g.Font.Face.RegisterGlyph(int(layer.GlyphID), "")
+
+		// Close any open Tj scope before setting color: color operators
+		// are illegal inside a <…> hex string.
+		oc.gotoTextMode(ScopeText)
+
+		// Resolve color. ColorIndex == 0xFFFF means "use foreground
+		// color". boxesandglue does not yet track per-glyph text fill
+		// color, so we fall back to PDF's text-mode default (black).
+		// HarfBuzz equivalent: hb_paint_context_t::foreground
+		// (OT/Color/COLR/COLR.hh:80).
+		if layer.ColorIndex == ot.ForegroundColorIndex || int(layer.ColorIndex) >= len(palette) {
+			oc.writef("0 0 0 rg ")
+		} else {
+			c := palette[layer.ColorIndex]
+			col := color.Color{
+				Space: color.ColorRGB,
+				R:     float64(c.Red) / 255,
+				G:     float64(c.Green) / 255,
+				B:     float64(c.Blue) / 255,
+				A:     float64(c.Alpha) / 255,
+			}
+			oc.writef("%s ", col.PDFStringNonStroking())
+		}
+
+		// Absolute positioning brings the text cursor back to the base
+		// glyph's origin so this layer overlaps the previous one.
+		oc.moveto(x, y)
+
+		// Show the layer glyph. Tj's automatic advance does not matter:
+		// the next iteration (or the next outer glyph) will re-set Tm.
+		oc.gotoTextMode(ScopeGlyph)
+		oc.writef("%04x", layer.GlyphID)
+	}
+
+	// Reset fill color to black so the next normal text run is not
+	// rendered in the last layer's color.
+	oc.gotoTextMode(ScopeText)
+	oc.writef("0 0 0 rg ")
+}
+
+// emitColorSVGGlyph paints one SVG-in-OpenType glyph by parsing the
+// embedded SVG document and emitting svgreader's PDF content stream
+// inline. The glyph is positioned via an outer transform; svgreader's
+// own inner transform stays in effect.
+//
+// HarfBuzz equivalent: this is the PDF analogue of the SVG-paint path
+// used by Skia / Cairo when responding to
+// hb_ot_color_glyph_reference_svg (hb-ot-color.cc:306-310). HB itself
+// only delivers the raw blob — the backend does the rendering.
+//
+// Coordinate system: the SVG-OT spec explicitly uses SVG's default
+// Y-DOWN convention with origin at the glyph design origin (baseline,
+// left). This is opposite to the OpenType design system (Y-UP), so the
+// rendering pipeline must invert Y exactly ONCE to land on PDF (Y-UP)
+// page coordinates. svgreader already does that flip internally
+// (render.go:107 → Matrix{1,0,0,-1,0,0}); our outer cm therefore stays
+// flip-free and only scales+translates. Verified empirically: TwitterEmoji
+// glyphs have transforms like translate(0,-1638.4) scale(56.88) whose
+// bounding boxes only make geometric sense under Y-DOWN interpretation
+// (ascender at negative y, baseline-adjacent bottom at small positive y).
+//
+// Limits: no per-(face, gid) cache yet — every glyph re-parses its SVG
+// and re-runs svgreader. That is wasteful for documents repeating the
+// same emoji; matches the COLR emitter's lack of caching. Documents
+// with hundreds of identical emojis will see svgreader cost dominate.
+func (oc *objectContext) emitColorSVGGlyph(g *node.Glyph, x, y bag.ScaledPoint, svgBytes []byte) {
+	g.Font.Face.RegisterGlyph(g.Codepoint, g.Components)
+
+	svgDoc, err := svgreader.Parse(bytes.NewReader(svgBytes))
+	if err != nil {
+		bag.Logger.Warn("color SVG glyph: parse failed", "gid", g.Codepoint, "err", err)
+		return
+	}
+
+	upem := float64(g.Font.Face.UnitsPerEM)
+	if upem == 0 {
+		upem = 1000
+	}
+	scale := g.Font.Size.ToPT() / upem
+
+	stream := svgDoc.RenderPDF(svgreader.RenderOptions{})
+
+	oc.gotoTextMode(ScopePage)
+	// Outer transform: scale font-design units → pt, position at glyph
+	// origin. No Y-flip: svgreader already inverts Y once internally,
+	// which is exactly what SVG-OT requires (SVG y-down → design y-up).
+	oc.writef("q %f 0 0 %f %f %f cm\n", scale, scale, x.ToPT(), y.ToPT())
+	oc.write(stream)
+	oc.write("\nQ\n")
+}
+
+// emitColorBitmapGlyph paints one sbix or CBDT bitmap glyph as a PDF
+// Image XObject. Unlike emitColorGlyph (COLRv0, which stays in BT/ET),
+// Image XObjects can only be referenced from page-level content (PDF
+// 1.7 §8.5.1), so we drop down to ScopePage, save graphics state,
+// position the image with cm, paint with Do, then restore.
+//
+// HarfBuzz equivalent: this is the PDF analogue of HB's
+// hb_ot_color_glyph_reference_png consumer path (used by Cairo's
+// cairo_save / cairo_set_source_surface_for_blob / cairo_paint /
+// cairo_restore loop in hb-cairo-paint.cc). HB itself only delivers the
+// PNG blob (hb-ot-color.cc:349-360); the backend handles the rest.
+//
+// Imagefile lifecycle: we cache by (face, gid, ppem) so a document
+// reusing the same emoji twenty times embeds the PNG once and emits
+// twenty /Do references — the canonical PDF size optimization.
+func (oc *objectContext) emitColorBitmapGlyph(g *node.Glyph, x, y bag.ScaledPoint, png *ot.ColorPNG) {
+	// ToUnicode mapping uses the BASE glyph (the codepoint the cmap+GSUB
+	// produced). Bitmap data has no codepoint identity of its own.
+	g.Font.Face.RegisterGlyph(g.Codepoint, g.Components)
+
+	key := colorBitmapKey{
+		faceID: g.Font.Face.FaceID,
+		gid:    g.Codepoint,
+		ppem:   png.PPEM,
+	}
+	imgfile, ok := oc.colorBitmapCache[key]
+	if !ok {
+		var err error
+		imgfile, err = oc.p.document.PDFWriter.LoadImageFromReader(bytes.NewReader(png.PNG), "/MediaBox", 1)
+		if err != nil {
+			bag.Logger.Warn("color bitmap glyph: PNG load failed", "gid", g.Codepoint, "err", err)
+			return
+		}
+		oc.colorBitmapCache[key] = imgfile
+	}
+	oc.usedImages[imgfile] = true
+
+	// Scale and position. We treat the bitmap as a rectangular sprite
+	// occupying (v.Width, v.Height + v.Depth) of PDF space — the same
+	// cell a regular outline glyph would fill. The bitmap's own aspect
+	// ratio is therefore stretched to fit; for typical emoji this is
+	// imperceptible (font shaping already gives them square-ish
+	// metrics). xOffset/yOffset from the source table are deliberately
+	// ignored here: liebeheide-color reports (0,0) for every glyph, and
+	// honoring them would require the unit-aware sbix-vs-CBDT split
+	// (sbix: font units, CBDT: pixels) that we intentionally don't do
+	// in this minimum-viable pass.
+	scaleX := g.Width.ToPT()
+	scaleY := (g.Height + g.Depth).ToPT()
+	posX := x.ToPT()
+	posY := y.ToPT() - g.Depth.ToPT()
+
+	oc.gotoTextMode(ScopePage)
+	oc.writef("q %f 0 0 %f %f %f cm %s Do Q\n", scaleX, scaleY, posX, posY, imgfile.InternalName())
 }
 
 type outputDebug struct {
@@ -340,6 +531,75 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			if oc.textmode > ScopeText {
 				oc.gotoTextMode(ScopeText)
+			}
+			// Bitmap-color path (sbix or CBDT). Tried first because a
+			// font that ships both BITMAP and COLRv0 (rare; Apple Color
+			// Emoji at one point did) renders better from bitmaps —
+			// no per-layer compositing, and HB's public API at
+			// hb-ot-color.cc orders the accessors the same way (sbix
+			// then CBDT, separate from COLR's get_glyph_layers).
+			//
+			// PPEM is derived from the current font size in points;
+			// PDF assumes 72 DPI so size_in_pt == ppem.
+			if otFace := v.Font.Face.OTFace(); otFace != nil && otFace.Font != nil {
+				if otFace.Font.HasColorPNG() {
+					ppem := int(v.Font.Size.ToPT())
+					if pngGlyph := otFace.Font.GlyphColorPNG(ot.GlyphID(v.Codepoint), ppem); pngGlyph != nil {
+						yPos := y
+						if hlist.VAlign == node.VAlignTop {
+							yPos -= v.Height
+						}
+						oc.emitColorBitmapGlyph(v, x+oc.shiftX+sumX, yPos, pngGlyph)
+						oc.shiftX = 0
+						oc.usedFaces[v.Font.Face] = true
+						sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+						continue
+					}
+				}
+			}
+			// SVG-in-OpenType path. Tried between bitmap and COLR
+			// because SVG-OT fonts (e.g. TwitterEmoji.ttf) typically
+			// carry NO other color table, so SVG is the only option
+			// for them. For the rare font that ships sbix+SVG (e.g.
+			// Liebeheide), the bitmap path above wins on speed and
+			// fidelity (sbix delivers final pixels; SVG asks
+			// svgreader to re-render the vector path on every glyph).
+			//
+			// HarfBuzz equivalent: hb_ot_color_glyph_reference_svg
+			// (hb-ot-color.cc:306-310). HB returns the raw blob;
+			// our Face wrapper inflates gzip and the backend
+			// rasterizes inline via svgreader.
+			if otFace := v.Font.Face.OTFace(); otFace != nil && otFace.Font != nil {
+				if svgBytes := otFace.Font.GlyphColorSVG(ot.GlyphID(v.Codepoint)); svgBytes != nil {
+					yPos := y
+					if hlist.VAlign == node.VAlignTop {
+						yPos -= v.Height
+					}
+					oc.emitColorSVGGlyph(v, x+oc.shiftX+sumX, yPos, svgBytes)
+					oc.shiftX = 0
+					oc.usedFaces[v.Font.Face] = true
+					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+					continue
+				}
+			}
+			// COLRv0 color-glyph path. Detection on each glyph is cheap:
+			// GlyphColorLayers binary-searches the COLR base-glyph array
+			// (HarfBuzz parity: OT::COLR::get_glyph_layers at
+			// OT/Color/COLR/COLR.hh:2105-2122). Returns nil for any
+			// non-color font, so the path is a no-op there.
+			if otFace := v.Font.Face.OTFace(); otFace != nil && otFace.Font != nil {
+				if layers := otFace.Font.GlyphColorLayers(ot.GlyphID(v.Codepoint)); len(layers) > 0 {
+					yPos := y
+					if hlist.VAlign == node.VAlignTop {
+						yPos -= v.Height
+					}
+					palette := otFace.Font.ColorPaletteColors(0)
+					oc.emitColorGlyph(v, x+oc.shiftX+sumX, yPos, layers, palette)
+					oc.shiftX = 0
+					oc.usedFaces[v.Font.Face] = true
+					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+					continue
+				}
 			}
 			if oc.textmode > ScopeArray {
 				yPos := y
@@ -1323,6 +1583,7 @@ func (p *Page) Shipout() {
 			s:                st.Data,
 			usedFaces:        make(map[*pdf.Face]bool),
 			usedImages:       make(map[*pdf.Imagefile]bool),
+			colorBitmapCache: make(map[colorBitmapKey]*pdf.Imagefile),
 			p:                p,
 			pageObjectnumber: pageObjectNumber,
 			outputDebug: &outputDebug{

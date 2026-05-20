@@ -3,9 +3,9 @@ module github.com/boxesandglue/boxesandglue
 go 1.24.0
 
 require (
-	github.com/boxesandglue/baseline-pdf v1.1.14
+	github.com/boxesandglue/baseline-pdf v1.1.15
 	github.com/boxesandglue/svgreader v0.0.2
-	github.com/boxesandglue/textshape v0.0.11
+	github.com/boxesandglue/textshape v0.0.12
 	github.com/google/uuid v1.6.0
 	github.com/speedata/hyphenation v1.0.1
 	github.com/speedata/optionparser v1.1.1
