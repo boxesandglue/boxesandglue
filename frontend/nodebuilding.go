@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/document"
@@ -179,6 +178,13 @@ const (
 	SettingFontExpansion
 	// SettingFontFamily selects a font family.
 	SettingFontFamily
+	// SettingFontFamilyStack carries the full CSS-prioritised font-family
+	// list ([]*FontFamily) for per-glyph coverage fallback. SettingFontFamily
+	// holds the first entry of the same list and remains the canonical
+	// single-family setting; the stack is consulted only when at least two
+	// resolvable families are present, so single-family inputs take the
+	// single-shape path unchanged.
+	SettingFontFamilyStack
 	// SettingFontWeight represents a font weight setting.
 	SettingFontWeight
 	// SettingFontVariationSettings contains variable font axis values (e.g., "wght" -> 700).
@@ -221,6 +227,12 @@ const (
 	SettingPaddingLeft
 	// SettingPaddingRight is the right hand padding.
 	SettingPaddingRight
+	// SettingShiftX moves the block's outer origin horizontally
+	// without affecting its formatting width. Used by htmlbag to
+	// implement CSS position: relative offsets (left/right). The
+	// vlist builder reads this and adds the value to the resulting
+	// VList's ShiftX.
+	SettingShiftX
 	// SettingPaddingTop is the top padding.
 	SettingPaddingTop
 	// SettingPrerenderedVListID references a pre-rendered VList stored in CSSBuilder.PendingVLists.
@@ -359,6 +371,8 @@ func (st SettingType) String() string {
 		settingName = "SettingFontExpansion"
 	case SettingFontFamily:
 		settingName = "SettingFontFamily"
+	case SettingFontFamilyStack:
+		settingName = "SettingFontFamilyStack"
 	case SettingFontWeight:
 		settingName = "SettingFontWeight"
 	case SettingFontVariationSettings:
@@ -403,6 +417,8 @@ func (st SettingType) String() string {
 		settingName = "SettingPaddingRight"
 	case SettingPaddingTop:
 		settingName = "SettingPaddingTop"
+	case SettingShiftX:
+		settingName = "SettingShiftX"
 	case SettingPrerenderedVListID:
 		settingName = "SettingPrerenderedVListID"
 	case SettingPrepend:
@@ -1515,6 +1531,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	fontweight := FontWeight400
 	fontstyle := FontStyleNormal
 	var fontfamily *FontFamily
+	var fontfamilyStack []*FontFamily
 	fontsize := 12 * bag.Factor
 	var col *color.Color
 	var hyperlink document.Hyperlink
@@ -1543,6 +1560,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		case SettingFontFamily:
 			fontfamily = v.(*FontFamily)
+		case SettingFontFamilyStack:
+			if s, ok := v.([]*FontFamily); ok {
+				fontfamilyStack = s
+			}
 		case SettingSize:
 			switch t := v.(type) {
 			case int64:
@@ -1579,7 +1600,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			settingFontFeatures = parseOpenTypeFeatures(v)
 		case SettingFontVariationSettings:
 			// handled below when shaping
-		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft, SettingPaddingRight, SettingPaddingBottom, SettingPaddingTop, SettingPaddingLeft:
+		case SettingMarginTop, SettingMarginRight, SettingMarginBottom, SettingMarginLeft, SettingPaddingRight, SettingPaddingBottom, SettingPaddingTop, SettingPaddingLeft, SettingShiftX:
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
@@ -1620,40 +1641,22 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 	}
 
-	var fnt *font.Font
-	var face *pdf.Face
 	var fs *FontSource
 	var err error
 	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
 		return nil, err
 	}
 	bag.Logger.Log(context.Background(), -8, "GetFontSource", "fs", fs.Name)
-	// fs.SizeAdjust is CSS size-adjust normalized so that 0 = 100% and negative = shrinking.
-	if fs.SizeAdjust != 0 {
-		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
-	}
-	// First the font source default features should get applied, then the
-	// features from the current settings.
-	fontfeatures = append(fontfeatures, parseOpenTypeFeatures(fs.FontFeatures)...)
-	fontfeatures = append(fontfeatures, settingFontFeatures...)
 
-	// Collect variation settings: start with FontSource defaults, override with settings
-	var variations map[string]float64
-	if fs.VariationSettings != nil {
-		variations = make(map[string]float64, len(fs.VariationSettings))
-		maps.Copy(variations, fs.VariationSettings)
-	}
+	var settingVariations map[string]float64
 	if settingsVars, ok := ts[SettingFontVariationSettings]; ok {
 		if varMap, ok := settingsVars.(map[string]float64); ok {
-			if variations == nil {
-				variations = make(map[string]float64, len(varMap))
-			}
-			maps.Copy(variations, varMap)
+			settingVariations = varMap
 		}
 	}
-	// Use LoadFaceWithVariations to get a face with the correct variation settings
-	// This ensures each unique variation combination gets its own face for PDF subsetting
-	if face, err = fe.LoadFaceWithVariations(fs, variations); err != nil {
+
+	fnt, primaryFontsize, fontfeatures, variations, err := fe.shapeFontFor(fs, fontsize, fontfeatures, settingFontFeatures, settingVariations)
+	if err != nil {
 		if fs.Name == "" {
 			bag.Logger.Error("Cannot load face", "location", fs.Location)
 		} else {
@@ -1661,17 +1664,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 		return nil, err
 	}
-
-	if fe.usedFonts[face] == nil {
-		fe.usedFonts[face] = make(map[bag.ScaledPoint]*font.Font)
-	}
-
-	var found bool
-	if fnt, found = fe.usedFonts[face][fontsize]; !found {
-		fnt = font.NewFont(face, fontsize)
-		fnt.MissingGlyphFunc = fe.MissingGlyphFunc
-		fe.usedFonts[face][fontsize] = fnt
-	}
+	fontsize = primaryFontsize
 
 	var head, cur node.Node
 	// Insert a destination anchor if SettingDest is set.
@@ -1719,8 +1712,14 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	cur = head
 	var lastglue node.Node
-	atoms, atomLevels := shapeWithBidi(fnt, str, fontfeatures, variations, direction)
+	// When a CSS prioritised font-family list resolves to two or more
+	// families, the input is segmented along grapheme-cluster boundaries
+	// by coverage, each segment is shaped with its own face, and the
+	// per-atom font is recorded in atomFonts. Single-family inputs
+	// (len(stack) < 2) keep the original single-shape path.
+	atoms, atomLevels, atomFonts := fe.shapeForBuild(fnt, str, fontfeatures, variations, direction, fontfamilyStack, fontweight, fontstyle, fontsize, fontfeatures, settingFontFeatures, settingVariations)
 	for i, r := range atoms {
+		atomFnt := atomFonts[i]
 		level := atomLevels[i]
 		// Capture cur before processing so we can tag all newly-inserted
 		// nodes with this atom's bidi level after the branches run.
@@ -1856,13 +1855,23 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			n.Hyphenate = r.Hyphenate
 			n.Codepoint = r.Codepoint
 			n.Components = r.Components
-			n.Font = fnt
+			n.Font = atomFnt
 			n.Width = r.Advance
 			n.Height = r.Height
 			n.Depth = r.Depth
-			// Apply GPOS positioning offsets for mark attachment
+			// Apply GPOS positioning offsets for mark attachment.
+			// Baseline correction for fallback faces: the atom's Y comes
+			// from the run's shape() and is relative to that face's
+			// baseline; shift by (atomFnt.depth - primary.depth) so the
+			// glyph sits on the primary's baseline. Visually this keeps
+			// emoji and CJK characters aligned with the surrounding Latin.
+			// For single-family runs atomFnt == fnt so the delta is zero.
 			n.XOffset = r.XOffset
-			n.YOffset = yoffset + r.YOffset
+			baselineShift := bag.ScaledPoint(0)
+			if atomFnt != fnt {
+				baselineShift = atomFnt.Depth - fnt.Depth
+			}
+			n.YOffset = yoffset + r.YOffset + baselineShift
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil

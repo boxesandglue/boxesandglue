@@ -7,6 +7,7 @@ require (
 	github.com/boxesandglue/svgreader v0.0.4
 	github.com/boxesandglue/textshape v0.0.12
 	github.com/google/uuid v1.6.0
+	github.com/rivo/uniseg v0.4.7
 	github.com/speedata/hyphenation v1.0.1
 	github.com/speedata/optionparser v1.1.1
 )

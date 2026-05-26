@@ -26,6 +26,7 @@ type Document struct {
 	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
 	DefaultFeatures       []ot.Feature
 	MissingGlyphFunc      font.MissingGlyphFunc // Called when a character is not found in the font during shaping. If nil, missing glyphs are silently rendered as .notdef.
+	coverageCache         fontCoverageCache     // per-FontSource cmap probe cache for per-glyph fallback; zero-value is valid
 	dirstack              []string
 	postLinebreakCallback []PostLinebreakCallbackFunc
 	suppressInfo          bool

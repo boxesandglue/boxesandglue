@@ -527,7 +527,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			if v.YOffset != oc.currentVShift {
 				oc.gotoTextMode(ScopeText)
-				oc.writef("%s Ts", v.YOffset)
+				oc.writef("%s Ts ", v.YOffset)
 				oc.currentVShift = v.YOffset
 			}
 			if oc.textmode > ScopeText {
