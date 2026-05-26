@@ -139,6 +139,7 @@ type objectContext struct {
 	currentFont      *font.Font
 	usedFaces        map[*pdf.Face]bool
 	usedImages       map[*pdf.Imagefile]bool
+	pendingShadings  []pendingShading
 	colorBitmapCache map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
 	tag              *StructureElement
 	artifactType     ArtifactType
@@ -733,6 +734,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						}
 					}
 				}
+				if sh, ok := v.Attributes["shadings"]; ok {
+					if list, ok := sh.([]pendingShading); ok {
+						oc.pendingShadings = append(oc.pendingShadings,
+							composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
+					}
+				}
 			}
 			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
@@ -1228,6 +1235,12 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						}
 					}
 				}
+				if sh, ok := v.Attributes["shadings"]; ok {
+					if list, ok := sh.([]pendingShading); ok {
+						oc.pendingShadings = append(oc.pendingShadings,
+							composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
+					}
+				}
 			}
 			if v.Post != "" {
 				pdfinstructions = append(pdfinstructions, v.Post)
@@ -1583,6 +1596,7 @@ func (p *Page) Shipout() {
 	objs = append(objs, p.Objects...)
 	usedFaces := make(map[*pdf.Face]bool)
 	usedImages := make(map[*pdf.Imagefile]bool)
+	var allShadings []pendingShading
 	if p.document.DumpOutput {
 		p.outputDebug = &outputDebug{
 			Name: "page",
@@ -1664,6 +1678,9 @@ func (p *Page) Shipout() {
 		for k := range oc.usedImages {
 			usedImages[k] = true
 		}
+		if len(oc.pendingShadings) > 0 {
+			allShadings = append(allShadings, oc.pendingShadings...)
+		}
 		oc.gotoTextMode(ScopePage)
 
 		// Close the object-level BDC
@@ -1690,6 +1707,9 @@ func (p *Page) Shipout() {
 	}
 	for i := range usedImages {
 		page.Images = append(page.Images, i)
+	}
+	if err := materializeShadingsOnPage(page, p.document, allShadings); err != nil {
+		bag.Logger.Error("write shading pattern", "err", err)
 	}
 
 	// annotations are hyperlinks and structure elements
@@ -2052,6 +2072,11 @@ type PDFDocument struct {
 	SuppressInfo         bool
 	xmpExtensions        []XMPExtension
 	namespaceObjs        map[string]*pdf.Object // namespace URI → lazily-allocated /Namespace object
+	// shadingCounter feeds unique SVG shading-pattern resource names; the
+	// SVG renderer needs a name at fill emission time so the page-level
+	// /Pattern resource dict can refer back to it. Names are document-wide
+	// so the same SVG re-rendered on multiple pages does not collide.
+	shadingCounter int
 }
 
 // NewDocument creates an empty document.
@@ -2234,9 +2259,11 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 	width = bag.ScaledPointFromFloat(wPt)
 	height = bag.ScaledPointFromFloat(hPt)
 
+	collector := &svgShadingCollector{doc: d}
 	opts := svgreader.RenderOptions{
-		Width:  wPt,
-		Height: hPt,
+		Width:            wPt,
+		Height:           hPt,
+		ShadingRegistrar: collector,
 	}
 	if len(textRenderer) > 0 && textRenderer[0] != nil {
 		opts.TextRenderer = textRenderer[0]
@@ -2261,6 +2288,16 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 				rule.Attributes = node.H{"usedFaces": faces}
 			}
 		}
+	}
+
+	// Gradient fills from the SVG produced Pattern resource requests.
+	// Stash them on the rule so the page output path can materialise the
+	// PDF Pattern objects against the actual page they end up on.
+	if len(collector.collected) > 0 {
+		if rule.Attributes == nil {
+			rule.Attributes = node.H{}
+		}
+		rule.Attributes["shadings"] = collector.collected
 	}
 
 	return rule
