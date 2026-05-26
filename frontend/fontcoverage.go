@@ -8,7 +8,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/textshape/ot"
-	"github.com/rivo/uniseg"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 )
 
 // shapeFontFor resolves a FontSource to the (font, size, features, variations)
@@ -223,9 +223,9 @@ func isCoverageIgnorable(r rune) bool {
 }
 
 // coverageSegments splits s into runs along grapheme-cluster boundaries
-// (UAX#29 via rivo/uniseg) where each run is mapped to a single FontSource.
-// Adjacent clusters resolving to the same source are merged so each run
-// becomes one shape() call.
+// (UAX#29 via clipperhouse/uax29) where each run is mapped to a single
+// FontSource. Adjacent clusters resolving to the same source are merged so
+// each run becomes one shape() call.
 //
 // Whitespace clusters pin to the primary (stack[0]) regardless of coverage —
 // CSS spec says inter-word advance is the primary's; otherwise tab/space
@@ -239,11 +239,9 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 		return nil
 	}
 	var runs []coverageRun
-	state := -1
-	rest := s
-	for len(rest) > 0 {
-		var cluster string
-		cluster, rest, _, state = uniseg.FirstGraphemeClusterInString(rest, state)
+	g := graphemes.FromString(s)
+	for g.Next() {
+		cluster := g.Value()
 		var src *FontSource
 		var idx int
 		if isWhitespaceCluster(cluster) {

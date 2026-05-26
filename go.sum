@@ -6,10 +6,12 @@ github.com/boxesandglue/svgreader v0.0.4 h1:q3hGxqpwUUHByfM3NoinB+vWbH18v1TmVnCJ
 github.com/boxesandglue/svgreader v0.0.4/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
 github.com/boxesandglue/textshape v0.0.12 h1:mCLPggl5BNNqK5wgV33T2ZNl3d3DupJOL3NHgirSetg=
 github.com/boxesandglue/textshape v0.0.12/go.mod h1:DdRw4tpKs6xFaulvBfut/ICZGXgZeibMhoLrQycmVh8=
+github.com/clipperhouse/stringish v0.1.1 h1:+NSqMOr3GR6k1FdRhhnXrLfztGzuG+VuFDfatpWHKCs=
+github.com/clipperhouse/stringish v0.1.1/go.mod h1:v/WhFtE1q0ovMta2+m+UbpZ+2/HEXNWYXQgCt4hdOzA=
+github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w94cO8U=
+github.com/clipperhouse/uax29/v2 v2.5.0/go.mod h1:Wn1g7MK6OoeDT0vL+Q0SQLDz/KpfsVRgg6W7ihQeh4g=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
-github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/speedata/hyphenation v1.0.1 h1:O9gKtVw2JvyiHybCYJwpB3zzHaeXEvDtXjiExZdm1TU=
 github.com/speedata/hyphenation v1.0.1/go.mod h1:vwrKKvBvJWFll0sVZw99hyWS/+r4YlMI7MAYjnje0nM=
 github.com/speedata/optionparser v1.1.1 h1:fGVD7n3bzRQH/T1iHpUNzdP1hMAgQSY85LTfqxDZ1zM=
