@@ -1715,8 +1715,11 @@ func (p *Page) Shipout() {
 	// annotations are hyperlinks and structure elements
 	page.Annotations = p.Annotations
 
-	// PDF/UA: pages with annotations must have /Tabs /S
-	if p.document.Format.isPDFUA() && len(p.Annotations) > 0 {
+	// PDF/UA: every page must declare /Tabs /S (ISO 14289-1 §7.18.3,
+	// ISO 14289-2 §8.4.5). Annotation-bearing pages need it for tab order;
+	// annotation-free pages need it because Matterhorn checkpoint 09-001 /
+	// PAC require the entry unconditionally.
+	if p.document.Format.isPDFUA() {
 		page.Dict["Tabs"] = "/S"
 	}
 
@@ -1852,8 +1855,14 @@ type StructureElement struct {
 	Alt        string     // alternative text (for Figure, Formula etc.)
 	Lang       string     // BCP 47 language tag for this element
 	Scope      string     // for TH: "Row", "Column", "Both"
-	BBox       [4]float64 // bounding box [x, y, width, height] in PDF points; set during shipout
-	HasBBox    bool
+	// ListNumbering is the PDF 1.7 §14.8.5.4 ListNumbering attribute on
+	// an L element. Allowed values: None, Disc, Circle, Square, Decimal,
+	// UpperRoman, LowerRoman, UpperAlpha, LowerAlpha, Ordered, Unordered.
+	// Empty = no ListNumbering attribute is written; PAC / matterhorn
+	// linters then warn "default is None" for ordered lists.
+	ListNumbering string
+	BBox          [4]float64 // bounding box [x, y, width, height] in PDF points; set during shipout
+	HasBBox       bool
 	children   []*StructureElement
 	mcids      []mcidEntry
 	objRefs    []objRefEntry
@@ -1983,8 +1992,16 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 	if se.Lang != "" {
 		se.Obj.Dictionary["Lang"] = fmt.Sprintf("(%s)", se.Lang)
 	}
+	// Collect attribute-owner dicts. PDF 1.7 §14.7.5.2 allows /A to be a
+	// single dict or an array of dicts; we emit a single dict when only
+	// one owner is present, otherwise an array so multiple owners can
+	// coexist (e.g. a Table cell that also carries a Layout BBox).
+	var attrDicts []string
 	if se.Scope != "" {
-		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Table /Scope /%s >>", se.Scope)
+		attrDicts = append(attrDicts, fmt.Sprintf("<< /O /Table /Scope /%s >>", se.Scope))
+	}
+	if se.ListNumbering != "" {
+		attrDicts = append(attrDicts, fmt.Sprintf("<< /O /List /ListNumbering /%s >>", se.ListNumbering))
 	}
 	if se.HasBBox {
 		// PDF/UA-1 §7.1.5 best practice: a Figure tag should carry both a
@@ -1992,9 +2009,17 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 		// the safe default for block-level figures and silences PAC's
 		// "possibly inappropriate use" heuristic, which checks for the
 		// presence of a Layout placement on Figure structure elements.
-		se.Obj.Dictionary["A"] = fmt.Sprintf("<< /O /Layout /Placement /Block /BBox [ %s %s %s %s ] >>",
+		attrDicts = append(attrDicts, fmt.Sprintf("<< /O /Layout /Placement /Block /BBox [ %s %s %s %s ] >>",
 			pdf.FloatToPoint(se.BBox[0]), pdf.FloatToPoint(se.BBox[1]),
-			pdf.FloatToPoint(se.BBox[2]), pdf.FloatToPoint(se.BBox[3]))
+			pdf.FloatToPoint(se.BBox[2]), pdf.FloatToPoint(se.BBox[3])))
+	}
+	switch len(attrDicts) {
+	case 0:
+		// no /A entry
+	case 1:
+		se.Obj.Dictionary["A"] = attrDicts[0]
+	default:
+		se.Obj.Dictionary["A"] = "[ " + strings.Join(attrDicts, " ") + " ]"
 	}
 
 	// Build /K array: MCR dicts for marked content, OBJR dicts for
