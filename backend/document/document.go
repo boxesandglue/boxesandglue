@@ -62,38 +62,95 @@ type Page struct {
 	Finished          bool
 }
 
-// Format returns the PDF flavor
-type Format int
+// PDFALevel is the PDF/A conformance level. ISO 19005 defines three
+// levels: "A" (fully accessible), "B" (basic), "U" (Unicode mapping
+// required but no full accessibility).
+type PDFALevel string
 
 const (
-	// FormatPDF is the standard PDF format
-	FormatPDF Format = iota
-	// FormatPDFA3b is the PDF/A-3b format
-	FormatPDFA3b
-	// FormatPDFX3 is the PDF/X-3 format
-	FormatPDFX3
-	// FormatPDFX4 is the PDF/X-4 format
-	FormatPDFX4
-	// FormatPDFUA is the PDF/UA-1 format (ISO 14289-1, on PDF 1.7)
-	FormatPDFUA
-	// FormatPDFUA2 is the PDF/UA-2 format (ISO 14289-2, on PDF 2.0)
-	FormatPDFUA2
+	PDFALevelA PDFALevel = "A"
+	PDFALevelB PDFALevel = "B"
+	PDFALevelU PDFALevel = "U"
 )
 
-// pdfVersion returns the PDF specification version this format requires.
-func (f Format) pdfVersion() pdf.Version {
-	switch f {
-	case FormatPDFUA2:
-		return pdf.Version20
-	}
-	return pdf.Version17
+// PDFAConf identifies a PDF/A conformance declaration. Part is the ISO
+// 19005 part number (1-4); Level is the conformance level (A/B/U).
+type PDFAConf struct {
+	Part  int
+	Level PDFALevel
 }
 
-// isPDFUA reports whether this format requires tagged-PDF / accessibility
-// structures (StructTreeRoot, MarkInfo, /Lang, /DisplayDocTitle, etc.).
-// True for both UA-1 and UA-2.
-func (f Format) isPDFUA() bool {
-	return f == FormatPDFUA || f == FormatPDFUA2
+// PDFUAConf identifies a PDF/UA conformance declaration. Part is the ISO
+// 14289 part number (1 or 2); Rev is the four-digit publication year of
+// the targeted specification revision (PDF/UA-1: "2014", PDF/UA-2: "2024").
+type PDFUAConf struct {
+	Part int
+	Rev  string
+}
+
+// PDFXConf identifies a PDF/X conformance declaration. Variant is the
+// ISO 15930 sub-standard identifier ("X-3", "X-4"; future: "X-1a",
+// "X-5g", "X-6", …).
+type PDFXConf struct {
+	Variant string
+}
+
+// Format describes which PDF conformance standards a document claims to
+// satisfy. The sub-conformances are orthogonal: a single document may
+// declare PDF/A and PDF/UA simultaneously (e.g. accessible archival PDFs
+// or ZUGFeRD invoices with accessibility). A nil sub-conformance pointer
+// means the document does not claim that standard.
+type Format struct {
+	PDFA  *PDFAConf
+	PDFUA *PDFUAConf
+	PDFX  *PDFXConf
+}
+
+// Preset Format values for the common single-conformance cases. Compose
+// Format{PDFA: …, PDFUA: …} directly for combined conformances.
+var (
+	FormatPDF    = Format{}
+	FormatPDFA3b = Format{PDFA: &PDFAConf{Part: 3, Level: PDFALevelB}}
+	FormatPDFX3  = Format{PDFX: &PDFXConf{Variant: "X-3"}}
+	FormatPDFX4  = Format{PDFX: &PDFXConf{Variant: "X-4"}}
+	FormatPDFUA  = Format{PDFUA: &PDFUAConf{Part: 1, Rev: "2014"}}
+	FormatPDFUA2 = Format{PDFUA: &PDFUAConf{Part: 2, Rev: "2024"}}
+)
+
+// IsPDFA reports whether this format claims PDF/A conformance.
+func (f Format) IsPDFA() bool { return f.PDFA != nil }
+
+// IsPDFUA reports whether this format claims PDF/UA conformance (UA-1 or UA-2).
+// True for both parts, since both require the same tagged-PDF infrastructure
+// (StructTreeRoot, MarkInfo, /Lang, /DisplayDocTitle).
+func (f Format) IsPDFUA() bool { return f.PDFUA != nil }
+
+// IsPDFUA2 reports whether this format specifically claims PDF/UA-2.
+func (f Format) IsPDFUA2() bool { return f.PDFUA != nil && f.PDFUA.Part == 2 }
+
+// IsPDFX reports whether this format claims PDF/X conformance.
+func (f Format) IsPDFX() bool { return f.PDFX != nil }
+
+// IsPDFX3 reports whether this format specifically claims PDF/X-3.
+func (f Format) IsPDFX3() bool { return f.PDFX != nil && f.PDFX.Variant == "X-3" }
+
+// IsPDFX4 reports whether this format specifically claims PDF/X-4.
+func (f Format) IsPDFX4() bool { return f.PDFX != nil && f.PDFX.Variant == "X-4" }
+
+// NeedsColorProfile reports whether the format requires an embedded
+// output-intent ICC profile. True for PDF/A and PDF/X.
+func (f Format) NeedsColorProfile() bool { return f.IsPDFA() || f.IsPDFX() }
+
+// pdfVersion returns the PDF specification version this format requires.
+// When sub-conformances disagree on the minimum version (e.g. PDF/A-3
+// prefers 1.7, PDF/UA-2 requires 2.0), the higher version wins. PDF 2.0
+// is backward-compatible with 1.x for all relevant features.
+func (f Format) pdfVersion() pdf.Version {
+	v := pdf.Version17
+	if f.PDFUA != nil && f.PDFUA.Part == 2 {
+		v = pdf.Version20
+	}
+	return v
 }
 
 // PDF 2.0 namespace URIs for tagged structure elements (ISO 32000-2 §14.7.4).
@@ -709,7 +766,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			oc.gotoTextMode(ScopePage)
 			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
-			hRuleNeedsArtifact := oc.p.document.Format.isPDFUA() && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
+			hRuleNeedsArtifact := oc.p.document.Format.IsPDFUA() && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
 			if hRuleNeedsArtifact {
 				oc.writef("/Artifact BMC\n")
 			}
@@ -812,7 +869,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
 					}
 					// PDF/UA: link annotations need Contents and StructParent
-					if oc.p.document.Format.isPDFUA() {
+					if oc.p.document.Format.IsPDFUA() {
 						contents := hyperlink.URI
 						if contents == "" {
 							contents = hyperlink.Local
@@ -998,7 +1055,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					childXObjectFigure = true
 				}
 			}
-			if oc.p.document.Format.isPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+			if oc.p.document.Format.IsPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
 				if !vlistHasTaggedDescendant(v) {
 					childArtifact = true
 				}
@@ -1106,7 +1163,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 	// PDF/UA: track whether we're inside an untagged container
 	// (no tag, no artifact set). Content in such containers that
 	// is not a tagged child VList must be wrapped as Artifact.
-	untaggedContainer := oc.p.document.Format.isPDFUA() && oc.tag == nil && !oc.inArtifact
+	untaggedContainer := oc.p.document.Format.IsPDFUA() && oc.tag == nil && !oc.inArtifact
 
 	sumY := bag.ScaledPoint(0)
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
@@ -1296,7 +1353,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
 					}
 					// PDF/UA: link annotations need Contents and StructParent
-					if oc.p.document.Format.isPDFUA() {
+					if oc.p.document.Format.IsPDFUA() {
 						contents := hyperlink.URI
 						if contents == "" {
 							contents = hyperlink.Local
@@ -1411,7 +1468,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			// container), mark as artifact in PDF/UA mode — but only
 			// if there are no tagged descendants (otherwise let them
 			// emit their own BDC/EMC).
-			if oc.p.document.Format.isPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+			if oc.p.document.Format.IsPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
 				if !vlistHasTaggedDescendant(v) {
 					childArtifact = true
 				}
@@ -1578,7 +1635,7 @@ func (p *Page) Shipout() {
 	}
 
 	// In PDF/UA mode, mark background objects as artifacts automatically.
-	if p.document.Format.isPDFUA() {
+	if p.document.Format.IsPDFUA() {
 		for i := range p.Background {
 			vl := p.Background[i].Vlist
 			if vl.Attributes == nil {
@@ -1633,7 +1690,7 @@ func (p *Page) Shipout() {
 		// PDF/UA: untagged top-level VLists without tagged descendants
 		// default to Artifact. VLists with tagged descendants are left
 		// untagged so children can emit their own BDC/EMC.
-		if p.document.Format.isPDFUA() && oc.tag == nil && !oc.inArtifact {
+		if p.document.Format.IsPDFUA() && oc.tag == nil && !oc.inArtifact {
 			if !vlistHasTaggedDescendant(vlist) {
 				oc.inArtifact = true
 			}
@@ -1719,7 +1776,7 @@ func (p *Page) Shipout() {
 	// ISO 14289-2 §8.4.5). Annotation-bearing pages need it for tab order;
 	// annotation-free pages need it because Matterhorn checkpoint 09-001 /
 	// PAC require the entry unconditionally.
-	if p.document.Format.isPDFUA() {
+	if p.document.Format.IsPDFUA() {
 		page.Dict["Tabs"] = "/S"
 	}
 
@@ -2376,12 +2433,11 @@ func (d *PDFDocument) Finish() error {
 	d.PDFWriter.Catalog = pdf.Dict{}
 
 	// Automatically create root structure element for PDF/UA if not set
-	if d.Format.isPDFUA() && d.RootStructureElement == nil {
+	if d.Format.IsPDFUA() && d.RootStructureElement == nil {
 		d.RootStructureElement = &StructureElement{Role: "Document"}
 	}
 
-	switch d.Format {
-	case FormatPDFA3b, FormatPDFX3, FormatPDFX4:
+	if d.Format.NeedsColorProfile() {
 		if d.ColorProfile == nil {
 			d.ColorProfile, err = d.LoadDefaultColorprofile()
 			if err != nil {
@@ -2430,8 +2486,7 @@ func (d *PDFDocument) Finish() error {
 		}
 	}
 
-	switch d.Format {
-	case FormatPDFA3b, FormatPDFX3, FormatPDFX4:
+	if d.Format.NeedsColorProfile() {
 		outputIntent := d.PDFWriter.NewObject()
 		outputIntent.Dictionary = pdf.Dict{
 			"DestOutputProfile":         cp.ObjectNumber.Ref(),
@@ -2441,10 +2496,10 @@ func (d *PDFDocument) Finish() error {
 			"RegistryName":              pdf.Serialize(pdf.String(d.ColorProfile.Registry)),
 			"Type":                      pdf.Name("OutputIntent"),
 		}
-		switch d.Format {
-		case FormatPDFA3b:
+		switch {
+		case d.Format.IsPDFA():
 			outputIntent.Dictionary["S"] = pdf.Name("GTS_PDFA1")
-		case FormatPDFX3, FormatPDFX4:
+		case d.Format.IsPDFX():
 			outputIntent.Dictionary["S"] = pdf.Name("GTS_PDFX")
 		}
 		outputIntent.Save()
@@ -2578,7 +2633,7 @@ func (d *PDFDocument) Finish() error {
 		d.PDFWriter.InfoDict["Keywords"] = pdf.Serialize(pdf.String(t))
 	}
 	d.PDFWriter.InfoDict["CreationDate"] = formatDate(d.CreationDate)
-	if d.Format == FormatPDFX3 {
+	if d.Format.IsPDFX3() {
 		d.PDFWriter.InfoDict["GTS_PDFXVersion"] = pdf.String("PDF/X-3:2002")
 		d.PDFWriter.InfoDict["ModDate"] = formatDate(d.CreationDate)
 		d.PDFWriter.InfoDict["Trapped"] = pdf.Name("False")

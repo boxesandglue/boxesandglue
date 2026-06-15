@@ -40,8 +40,8 @@ func TestFormatIsPDFUA(t *testing.T) {
 		{FormatPDFUA2, true},
 	}
 	for _, c := range cases {
-		if got := c.format.isPDFUA(); got != c.want {
-			t.Errorf("format %v: isPDFUA() = %v, want %v", c.format, got, c.want)
+		if got := c.format.IsPDFUA(); got != c.want {
+			t.Errorf("format %v: IsPDFUA() = %v, want %v", c.format, got, c.want)
 		}
 	}
 }
@@ -59,6 +59,47 @@ func TestDeclareNamespaceIsIdempotent(t *testing.T) {
 	}
 	if len(d.namespaceObjs) != 2 {
 		t.Errorf("expected 2 namespace objects, got %d", len(d.namespaceObjs))
+	}
+}
+
+func TestFormatPDFA3UA1CombinedXMP(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	// Combined conformance: PDF/A-3b AND PDF/UA-1 in the same document.
+	// The two sub-conformances are orthogonal — both identifier sets must
+	// land in the same rdf:Description block (xmpMM:RenditionClass once,
+	// pdfaid:* and pdfuaid:* both present).
+	d.Format = Format{
+		PDFA:  &PDFAConf{Part: 3, Level: PDFALevelB},
+		PDFUA: &PDFUAConf{Part: 1, Rev: "2014"},
+	}
+	d.Title = "PDF/A-3b + PDF/UA-1 smoke test"
+	d.DefaultLanguageTag = "en"
+	d.SuppressInfo = true
+	d.RootStructureElement = &StructureElement{Role: "Document"}
+	d.NewPage().Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	if err := d.PDFWriter.FinishAndClose(); err != nil {
+		t.Fatalf("FinishAndClose: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"pdfaid:part>3",
+		"pdfaid:conformance>B",
+		"pdfuaid:part>1",
+		"pdfuaid:rev>2014",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("combined PDF/A+UA XMP missing %q", want)
+		}
+	}
+	// RenditionClass must appear exactly once, not duplicated by both
+	// PDFA and PDFX branches firing.
+	if got := strings.Count(out, "xmpMM:RenditionClass"); got != 2 {
+		// open tag + close tag = 2 occurrences for a single emission
+		t.Errorf("xmpMM:RenditionClass: want 2 occurrences (open+close), got %d", got)
 	}
 }
 

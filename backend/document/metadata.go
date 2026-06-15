@@ -3,6 +3,7 @@ package document
 import (
 	"io"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,42 +68,41 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		"xmlns:pdfuaid", "http://www.aiim.org/pdfua/ns/id/",
 		"xmlns:pdfaid", "http://www.aiim.org/pdfa/ns/id/",
 	}
-	switch d.Format {
-	case FormatPDFX3:
+	f := d.Format
+	if f.IsPDFX3() {
 		descAttrs = append(descAttrs, "xmlns:pdfx", "http://ns.adobe.com/pdfx/1.3/")
-	case FormatPDFX4:
+	}
+	if f.IsPDFX4() {
 		descAttrs = append(descAttrs, "xmlns:pdfxid", "http://www.npes.org/pdfx/ns/id/")
 	}
 	x.start("rdf:Description", descAttrs...)
 
-	switch d.Format {
-	case FormatPDFA3b:
+	// xmpMM:RenditionClass originates in print/archival workflows and is
+	// shared between PDF/A and PDF/X declarations. Emit once when either
+	// sub-conformance is active.
+	if f.IsPDFA() || f.IsPDFX() {
 		x.textElement("xmpMM:RenditionClass", "default")
-		x.textElement("pdfaid:part", "3")
-		x.textElement("pdfaid:conformance", "B")
-	case FormatPDFX4, FormatPDFX3:
-		x.textElement("xmpMM:RenditionClass", "default")
+	}
+	if f.PDFA != nil {
+		x.textElement("pdfaid:part", strconv.Itoa(f.PDFA.Part))
+		x.textElement("pdfaid:conformance", string(f.PDFA.Level))
+	}
+	if f.PDFX != nil {
 		x.textElement("xmpMM:VersionID", "1")
 		x.textElement("pdf:Trapped", "False")
-		switch d.Format {
-		case FormatPDFX3:
+		switch f.PDFX.Variant {
+		case "X-3":
 			x.textElement("pdfx:GTS_PDFXVersion", "PDF/X-3:2002")
-		case FormatPDFX4:
+		case "X-4":
 			x.textElement("pdfxid:GTS_PDFXVersion", "PDF/X-4")
 		}
-	case FormatPDFUA:
-		x.textElement("pdfuaid:part", "1")
-		// The PDF/UA identification schema requires pdfuaid:rev as a
-		// four-digit year identifying the revision of the PDF/UA-1
-		// specification this document claims conformance to. ISO 14289-1
-		// was published in 2014.
-		x.textElement("pdfuaid:rev", "2014")
-	case FormatPDFUA2:
-		x.textElement("pdfuaid:part", "2")
-		// ISO 14289-2:2024 §5 requires pdfuaid:rev as a four-digit year
-		// identifying the revision of the PDF/UA-2 specification this
-		// document claims conformance to. ISO 14289-2 was published in 2024.
-		x.textElement("pdfuaid:rev", "2024")
+	}
+	if f.PDFUA != nil {
+		// ISO 14289 §5 requires both pdfuaid:part (1 or 2) and pdfuaid:rev
+		// (four-digit year of the targeted spec revision) for a complete
+		// PDF/UA identification.
+		x.textElement("pdfuaid:part", strconv.Itoa(f.PDFUA.Part))
+		x.textElement("pdfuaid:rev", f.PDFUA.Rev)
 	}
 
 	x.textElement("xmpMM:DocumentID", "uuid:"+docID)
@@ -114,8 +114,10 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 	x.textElement("pdf:Producer", d.producer)
 
 	if t := d.Title; t != "" {
-		switch d.Format {
-		case FormatPDFA3b, FormatPDFUA, FormatPDFUA2:
+		// PDF/A and PDF/UA both require dc:title as a language-alternative
+		// (rdf:Alt with x-default); plain dc:title text is non-conformant
+		// for both standards.
+		if f.IsPDFA() || f.IsPDFUA() {
 			x.start("dc:title")
 			x.start("rdf:Alt")
 			x.start("rdf:li", "xml:lang", "x-default")
@@ -123,12 +125,13 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 			x.end("rdf:li")
 			x.end("rdf:Alt")
 			x.end("dc:title")
-		default:
+		} else {
 			x.textElement("dc:title", t)
 		}
 	}
 	if a := d.Author; a != "" {
-		if d.Format == FormatPDFA3b {
+		// PDF/A requires dc:creator as an ordered sequence (rdf:Seq).
+		if f.IsPDFA() {
 			x.start("dc:creator")
 			x.start("rdf:Seq")
 			x.start("rdf:li")
