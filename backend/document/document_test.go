@@ -62,6 +62,32 @@ func TestDeclareNamespaceIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUA1EmitsPdfuaidPartAndRev(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.Format = FormatPDFUA
+	d.Title = "UA-1 smoke test"
+	d.DefaultLanguageTag = "en"
+	d.SuppressInfo = true
+	root := &StructureElement{Role: "Document"}
+	d.RootStructureElement = root
+	page := d.NewPage()
+	page.Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	if err := d.PDFWriter.FinishAndClose(); err != nil {
+		t.Fatalf("FinishAndClose: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "pdfuaid:part>1") {
+		t.Errorf("XMP pdfuaid:part not set to 1")
+	}
+	if !strings.Contains(out, "pdfuaid:rev>2014") {
+		t.Errorf("XMP pdfuaid:rev (ISO 14289-1 publication year) not emitted as four-digit year")
+	}
+}
+
 func TestUA2EmitsNamespacesAndHTML5Roles(t *testing.T) {
 	var buf bytes.Buffer
 	d := NewDocument(&buf)

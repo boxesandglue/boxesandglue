@@ -92,6 +92,11 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		}
 	case FormatPDFUA:
 		x.textElement("pdfuaid:part", "1")
+		// The PDF/UA identification schema requires pdfuaid:rev as a
+		// four-digit year identifying the revision of the PDF/UA-1
+		// specification this document claims conformance to. ISO 14289-1
+		// was published in 2014.
+		x.textElement("pdfuaid:rev", "2014")
 	case FormatPDFUA2:
 		x.textElement("pdfuaid:part", "2")
 		// ISO 14289-2:2024 §5 requires pdfuaid:rev as a four-digit year
