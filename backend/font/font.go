@@ -193,3 +193,83 @@ func (f *Font) ShapeDir(text string, features []ot.Feature, variations map[strin
 	bufPool.Put(buf)
 	return glyphs
 }
+
+// --- OpenType MATH accessors ----------------------------------------------
+//
+// These three methods expose the bits of the MATH table that the math layout
+// engine in frontend/math needs. They live on *Font (not *Atom) because the
+// data is per-font, not per-glyph-instance, and the math engine reads it
+// lazily at layout time. There is no caching layer — every call walks one map
+// lookup; that is cheap and avoids polluting the text-shaping hot path with
+// math-specific allocations.
+
+// MathConstantsFU returns the parsed OpenType MATH constants block in raw
+// font units, or nil if the font has no MATH support. Callers are expected
+// to scale the returned int16 values to bag.ScaledPoint themselves — that is
+// done once per constant inside the layout engine via a small units helper,
+// which keeps this accessor allocation-free.
+func (f *Font) MathConstantsFU() *ot.MathConstants {
+	if f == nil || f.Face == nil || f.Face.Shaper == nil {
+		return nil
+	}
+	m := f.Face.Shaper.Math()
+	if m == nil {
+		return nil
+	}
+	return m.Constants()
+}
+
+// ItalicCorrection returns the italic correction for the given glyph id, in
+// scaled points. Used by the math engine to shift superscripts to the right
+// past a slanted nucleus (TeXbook Appendix G rule 18a). Returns 0 if the font
+// has no MATH support or the glyph has no entry.
+func (f *Font) ItalicCorrection(gid int) bag.ScaledPoint {
+	if f == nil || f.Face == nil || f.Face.Shaper == nil {
+		return 0
+	}
+	m := f.Face.Shaper.Math()
+	if m == nil {
+		return 0
+	}
+	v := int32(m.ItalicCorrection(ot.GlyphID(gid)))
+	if v == 0 {
+		return 0
+	}
+	return bag.ScaledPoint(v * int32(f.Mag))
+}
+
+// MathKernCorner returns the per-corner math kern for the given glyph at the
+// given correction height (a vertical distance from the glyph baseline, in
+// scaled points), as documented in OT MATH MathKernInfo. Used for sub- and
+// superscript placement: top-right for sup, bottom-right for sub on the
+// nucleus side; top-left / bottom-left on the script side.
+//
+// Returns 0 if the font has no MATH support, no kern entry exists for that
+// corner, or the requested height falls below the first correction step
+// (treated as zero kern by convention).
+//
+// The height is converted to FUnits via /Mag for the lookup; this matches
+// how every other per-glyph metric in this file (XOffset, advance) is
+// rescaled.
+func (f *Font) MathKernCorner(gid int, corner ot.MathKernCorner, height bag.ScaledPoint) bag.ScaledPoint {
+	if f == nil || f.Face == nil || f.Face.Shaper == nil || f.Mag == 0 {
+		return 0
+	}
+	m := f.Face.Shaper.Math()
+	if m == nil {
+		return 0
+	}
+	// SP/Mag = FUnit. Clamp to int16 range; out-of-range heights mean "very
+	// tall" → use the last kern step, which is the engine's intent anyway.
+	hFU := int32(height) / int32(f.Mag)
+	if hFU > 32767 {
+		hFU = 32767
+	} else if hFU < -32768 {
+		hFU = -32768
+	}
+	k := int32(m.MathKern(ot.GlyphID(gid), corner, int16(hFU)))
+	if k == 0 {
+		return 0
+	}
+	return bag.ScaledPoint(k * int32(f.Mag))
+}

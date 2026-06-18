@@ -1,0 +1,5 @@
+# Test math fonts are not checked in — fetch them per testdata/README.md.
+*.otf
+*.ttf
+*.otc
+*.ttc

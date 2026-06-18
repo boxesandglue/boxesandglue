@@ -4,8 +4,8 @@ github.com/boxesandglue/gofpdi v1.0.23 h1:1dDjmFC97QDrGi3whCX2qCG03bkFXY+dLk85+Z
 github.com/boxesandglue/gofpdi v1.0.23/go.mod h1:4wg4byd8re5WDzpSp9F4ODu5UjbeBc0sXXx15HTK4OI=
 github.com/boxesandglue/svgreader v0.0.4 h1:q3hGxqpwUUHByfM3NoinB+vWbH18v1TmVnCJKCo8VWU=
 github.com/boxesandglue/svgreader v0.0.4/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
-github.com/boxesandglue/textshape v0.0.12 h1:mCLPggl5BNNqK5wgV33T2ZNl3d3DupJOL3NHgirSetg=
-github.com/boxesandglue/textshape v0.0.12/go.mod h1:DdRw4tpKs6xFaulvBfut/ICZGXgZeibMhoLrQycmVh8=
+github.com/boxesandglue/textshape v0.0.13 h1:uBp7mzc2qNq7BNOZ4QgW2zWPAiQXVsw+NIsU4QdrnxU=
+github.com/boxesandglue/textshape v0.0.13/go.mod h1:DdRw4tpKs6xFaulvBfut/ICZGXgZeibMhoLrQycmVh8=
 github.com/clipperhouse/stringish v0.1.1 h1:+NSqMOr3GR6k1FdRhhnXrLfztGzuG+VuFDfatpWHKCs=
 github.com/clipperhouse/stringish v0.1.1/go.mod h1:v/WhFtE1q0ovMta2+m+UbpZ+2/HEXNWYXQgCt4hdOzA=
 github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w94cO8U=

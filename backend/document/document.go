@@ -205,6 +205,8 @@ type objectContext struct {
 	pageObjectnumber pdf.Objectnumber
 	currentExpand    int
 	currentVShift    bag.ScaledPoint
+	currentTmY       bag.ScaledPoint // last y written via Tm; used to detect Y changes inside an open TJ
+	currentTmYValid  bool            // false until the first Tm in a content stream
 	shiftX           bag.ScaledPoint
 	textmode         TextScope
 	hasNewline       bool
@@ -255,6 +257,8 @@ func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
 	}
 	oc.newline()
 	oc.writef("1 0 0 1 %s %s Tm ", x, y)
+	oc.currentTmY = y
+	oc.currentTmYValid = true
 }
 
 // emitColorGlyph writes one COLRv0 base glyph as a sequence of layer
@@ -659,13 +663,25 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					continue
 				}
 			}
-			if oc.textmode > ScopeArray {
+			{
 				yPos := y
 				if hlist.VAlign == node.VAlignTop {
 					yPos -= v.Height
 				}
-				oc.moveto(x+oc.shiftX+sumX, yPos)
-				oc.shiftX = 0
+				// Tm is needed either when we just (re-)entered text
+				// mode OR when the effective Y differs from the last
+				// Tm. The latter catches the case where a sub/sup
+				// nested HList shifted Y via inner-HList.Shift; the
+				// next glyph back at the outer baseline still sits
+				// inside the same TJ array and would silently inherit
+				// the shifted Y without a Tm refresh.
+				needTm := oc.textmode > ScopeArray ||
+					!oc.currentTmYValid ||
+					oc.currentTmY != yPos
+				if needTm {
+					oc.moveto(x+oc.shiftX+sumX, yPos)
+					oc.shiftX = 0
+				}
 			}
 			v.Font.Face.RegisterGlyph(v.Codepoint, v.Components)
 			// Handle GPOS XOffset for mark positioning (visual shift without affecting text flow)
@@ -894,6 +910,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 							pageIndex:    oc.p.pageIndex,
 							annotObjNum:  a.Objectnumber,
 							structParent: sp.id,
+							seq:          oc.p.document.nextReadingSeq(),
 						})
 					}
 
@@ -993,9 +1010,28 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		case *node.Disc:
 			// ignore
 		case *node.HList:
-			moveY := y
+			moveY := y + v.Shift
 			if hlist.VAlign == node.VAlignTop {
 				moveY -= v.Height
+			}
+			// A non-zero Shift means the child renders at a different
+			// Y than the run we're currently inside of. PDF text state
+			// only emits Tm (move-to) when textmode dips below
+			// ScopeArray, so a sub/sup-style shift would otherwise be
+			// silently dropped — the glyph would inherit the previous
+			// Y. Force a page-mode break so the next Glyph case
+			// re-issues moveto with the shifted Y.
+			//
+			// We also break AFTER the recursive call when v.Shift != 0,
+			// because the next sibling of a shifted child needs a
+			// fresh Tm at the OUTER y — without this, a glyph
+			// following a sub/sup-shifted nested HList would inherit
+			// the shifted Y inside the still-open TJ array (bug
+			// surfaced by ∑_k=0^n k²: the `k` of `k²` was rendered
+			// at the sub-y of the trailing `0`).
+			needReset := v.Shift != 0
+			if needReset && oc.textmode < ScopePage {
+				oc.gotoTextMode(ScopePage)
 			}
 			// CSS list-style-position: outside — paint the marker
 			// at a fixed offset inside the line, decoupled from the
@@ -1026,15 +1062,66 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					break
 				}
 			}
+			// PDF/UA: an inline <math> formula carries its own Formula
+			// structure element on the HList's "tag" attribute. Split the
+			// surrounding paragraph's marked content so the formula glyphs
+			// sit in their own marked-content sequence tagged to the Formula
+			// element, then resume the paragraph text under a fresh MCID. The
+			// reading-order /K sort then places the Formula element between
+			// the two text runs (see serializeStructureElement). A formula
+			// only splits when it has a parent tag to interrupt; in non-tagged
+			// output it renders inline like any other box.
+			if v.Attributes != nil && oc.p.document.Format.IsPDFUA() && oc.tag != nil && !oc.inArtifact {
+				if formulaTag, ok := v.Attributes["tag"].(*StructureElement); ok {
+					parentTag := oc.tag
+					// Close the parent's open marked-content run.
+					oc.gotoTextMode(ScopePage)
+					oc.writef("EMC\n")
+					// Open the Formula run. The StructureElements append puts
+					// formulaTag at page-index == fmcid, which is exactly what
+					// the page ParentTree expects (index == MCID).
+					fmcid := oc.p.nextMCID
+					oc.p.nextMCID++
+					formulaTag.mcids = append(formulaTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: fmcid, seq: oc.p.document.nextReadingSeq()})
+					formulaTag.ID = fmcid
+					oc.p.StructureElements = append(oc.p.StructureElements, formulaTag)
+					oc.emitBDC(formulaTag, fmcid)
+					// Render the formula glyphs inside the Formula run.
+					oc.tag = formulaTag
+					oc.outputHorizontalItems(x+sumX, moveY, v)
+					oc.tag = parentTag
+					// Close the Formula run.
+					oc.gotoTextMode(ScopePage)
+					oc.writef("EMC\n")
+					// Reopen the parent's marked content with a fresh MCID so
+					// the remaining paragraph text reads under the parent. The
+					// parent appears at a second ParentTree index — both map to
+					// the same structure element (PDF 1.7 §14.7.5.1 lets one
+					// element own several marked-content sequences).
+					pmcid := oc.p.nextMCID
+					oc.p.nextMCID++
+					parentTag.mcids = append(parentTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: pmcid, seq: oc.p.document.nextReadingSeq()})
+					oc.p.StructureElements = append(oc.p.StructureElements, parentTag)
+					oc.emitBDC(parentTag, pmcid)
+					if needReset && oc.textmode < ScopePage {
+						oc.gotoTextMode(ScopePage)
+					}
+					sumX += v.Width
+					break
+				}
+			}
 			oc.outputHorizontalItems(x+sumX, moveY, v)
+			if needReset && oc.textmode < ScopePage {
+				oc.gotoTextMode(ScopePage)
+			}
 			sumX += v.Width
 		case *node.VList:
 			oc.gotoTextMode(ScopePage)
 			saveX := x
 			saveY := y
-			moveY := y + hlist.Height
+			moveY := y + hlist.Height + v.Shift
 			if hlist.VAlign == node.VAlignTop {
-				moveY = y
+				moveY = y + v.Shift
 			}
 			x += sumX
 
@@ -1071,7 +1158,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					sp := oc.p.document.AllocateXObjectStructParent(childTag)
 					img.ImageFile.SetStructParent(sp)
 					if obj := img.ImageFile.ImageObject(); obj != nil {
-						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp)
+						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
 					}
 					// Figure BBox is still required by PDF/UA even when
 					// the structure attachment goes via OBJR.
@@ -1092,7 +1179,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			case childTag != nil:
 				mcid := oc.p.nextMCID
 				oc.p.nextMCID++
-				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
+				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
 				childTag.ID = mcid
 				oc.p.StructureElements = append(oc.p.StructureElements, childTag)
 				oc.emitBDC(childTag, mcid)
@@ -1169,9 +1256,17 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 	for vItem := vlist.List; vItem != nil; vItem = vItem.Next() {
 		switch v := vItem.(type) {
 		case *node.HList:
-			shiftDown := y - sumY - v.Height
+			shiftDown := y - sumY - v.Height + v.Shift
 			if v.VAlign == node.VAlignTop {
-				shiftDown = y - sumY
+				shiftDown = y - sumY + v.Shift
+			}
+			// Same Tm-reset reason as in outputHorizontalItems' HList
+			// case: a Shifted child needs a fresh moveto so the PDF
+			// text state picks up the new Y. Without this the inner
+			// glyph silently inherits the running Y from the previous
+			// glyph.
+			if v.Shift != 0 && oc.textmode < ScopePage {
+				oc.gotoTextMode(ScopePage)
 			}
 			if oc.p.document.IsTrace(VTraceHBoxes) {
 				r := node.NewRule()
@@ -1378,6 +1473,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							pageIndex:    oc.p.pageIndex,
 							annotObjNum:  a.Objectnumber,
 							structParent: sp.id,
+							seq:          oc.p.document.nextReadingSeq(),
 						})
 					}
 
@@ -1483,7 +1579,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					sp := oc.p.document.AllocateXObjectStructParent(childTag)
 					img.ImageFile.SetStructParent(sp)
 					if obj := img.ImageFile.ImageObject(); obj != nil {
-						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp)
+						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
 					}
 					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
 					posX := (x + v.ShiftX).ToPT()
@@ -1508,7 +1604,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				// Save and swap the current tag
 				mcid := oc.p.nextMCID
 				oc.p.nextMCID++
-				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
+				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
 				childTag.ID = mcid
 				oc.p.StructureElements = append(oc.p.StructureElements, childTag)
 				oc.emitBDC(childTag, mcid)
@@ -1537,7 +1633,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.inArtifact = true
 			}
 
-			oc.outputVerticalItems(x+v.ShiftX, y-sumY, v)
+			oc.outputVerticalItems(x+v.ShiftX, y-sumY+v.Shift, v)
 
 			if (childTag != nil && !childXObjectFigure) || childArtifact {
 				oc.gotoTextMode(ScopePage)
@@ -1712,7 +1808,7 @@ func (p *Page) Shipout() {
 		} else if oc.tag != nil {
 			mcid := oc.p.nextMCID
 			oc.p.nextMCID++
-			oc.tag.mcids = append(oc.tag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid})
+			oc.tag.mcids = append(oc.tag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
 			oc.tag.ID = mcid
 			oc.p.StructureElements = append(oc.p.StructureElements, oc.tag)
 			oc.emitBDC(oc.tag, mcid)
@@ -1870,10 +1966,14 @@ const (
 	ArtifactBackground ArtifactType = "Background"
 )
 
-// mcidEntry records a marked-content identifier on a specific page.
+// mcidEntry records a marked-content identifier on a specific page. seq is
+// the document-wide reading-order stamp (see PDFDocument.nextReadingSeq),
+// used to interleave this MCR with sibling object references and child
+// structure elements in the owning element's /K array in document order.
 type mcidEntry struct {
 	pageIndex int
 	mcid      int
+	seq       int
 }
 
 // objRefEntry records an object reference (OBJR) emitted as a /K child of
@@ -1886,6 +1986,7 @@ type objRefEntry struct {
 	pageIndex    int
 	annotObjNum  pdf.Objectnumber
 	structParent int // StructParents index of the referenced object
+	seq          int // document-wide reading-order stamp (see nextReadingSeq)
 }
 
 // AddXObjectRef attaches a Form XObject to this structure element via an
@@ -1893,12 +1994,15 @@ type objRefEntry struct {
 // /StructParent N entry on the XObject (where N is what
 // PDFDocument.AllocateXObjectStructParent returned), this makes the
 // XObject the single, atomic content of the structure element — without
-// needing a marked-content sequence on the parent page.
-func (se *StructureElement) AddXObjectRef(xobjOnum pdf.Objectnumber, pageIndex int, structParent int) {
+// needing a marked-content sequence on the parent page. seq is the
+// document-wide reading-order stamp (PDFDocument.nextReadingSeq) that places
+// this XObject relative to its sibling /K entries.
+func (se *StructureElement) AddXObjectRef(xobjOnum pdf.Objectnumber, pageIndex int, structParent int, seq int) {
 	se.objRefs = append(se.objRefs, objRefEntry{
 		pageIndex:    pageIndex,
 		annotObjNum:  xobjOnum,
 		structParent: structParent,
+		seq:          seq,
 	})
 }
 
@@ -1923,7 +2027,27 @@ type StructureElement struct {
 	children   []*StructureElement
 	mcids      []mcidEntry
 	objRefs    []objRefEntry
+	afs        []associatedFile
 	ID         int
+}
+
+// associatedFile is a file to embed and reference from a structure element's
+// /AF array (PDF 2.0 §14.13 Associated Files). The canonical use is a MathML
+// representation attached to a Formula element so assistive technology can
+// read the formula's semantics rather than the rendered glyphs.
+type associatedFile struct {
+	attachment     Attachment
+	afRelationship string // /AFRelationship value, e.g. "Supplement"
+}
+
+// AddAssociatedFile registers a file to be embedded and referenced from this
+// structure element's /AF array. afRelationship sets /AFRelationship (PDF 2.0
+// Table 45: Source, Data, Alternative, Supplement, Unspecified). For a MathML
+// representation of a Formula, "Supplement" is the conventional choice. The
+// file is embedded lazily during Finish, when the structure tree is
+// serialized.
+func (se *StructureElement) AddAssociatedFile(a Attachment, afRelationship string) {
+	se.afs = append(se.afs, associatedFile{attachment: a, afRelationship: afRelationship})
 }
 
 // AddChild adds a child element (such as a span in a paragraph) to the element
@@ -2024,6 +2148,33 @@ type NamespaceRoleEntry struct {
 	TargetNS   string // namespace URI; empty = same namespace as the source
 }
 
+// readingKey returns the reading-order position of se for sorting it among
+// its siblings in a parent's /K array. It is the smallest reading-order
+// stamp (see PDFDocument.nextReadingSeq) found anywhere in se's subtree:
+// its own marked-content and object references, plus those of all
+// descendants. An element with no positioned content yet (no MCR/OBJR in
+// its subtree) returns the maximum int so it sorts after positioned
+// siblings; a stable sort then preserves its relative order.
+func readingKey(se *StructureElement) int {
+	best := int(^uint(0) >> 1) // max int
+	for _, m := range se.mcids {
+		if m.seq < best {
+			best = m.seq
+		}
+	}
+	for _, o := range se.objRefs {
+		if o.seq < best {
+			best = o.seq
+		}
+	}
+	for _, c := range se.children {
+		if k := readingKey(c); k < best {
+			best = k
+		}
+	}
+	return best
+}
+
 // serializeStructureElement recursively creates PDF objects for the structure
 // tree. parentObjnum is the object number of the parent (either StructTreeRoot
 // or a parent StructElem). pageObjnums maps page indices to page object numbers.
@@ -2079,26 +2230,45 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 		se.Obj.Dictionary["A"] = "[ " + strings.Join(attrDicts, " ") + " ]"
 	}
 
-	// Build /K array: MCR dicts for marked content, OBJR dicts for
-	// annotations, and child SE refs
-	var kItems []string
+	// Build the /K array in document reading order. An element's children
+	// come in three kinds — marked-content references (MCR), object
+	// references (OBJR, for link annotations and Form XObjects), and child
+	// structure elements — and PDF/UA requires the /K order to match the
+	// logical reading order (ISO 14289 §7.2). Each MCR/OBJR carries a
+	// document-wide reading-order stamp (see nextReadingSeq); a child element
+	// inherits the smallest stamp in its subtree (readingKey). Sorting all
+	// three kinds together by that stamp interleaves them correctly — e.g. a
+	// Formula element that sits mid-sentence lands between the two text MCRs
+	// of its surrounding paragraph rather than after both. A stable sort
+	// keeps the historical grouping (all MCRs, then OBJRs, then children) for
+	// the common case where no kind interleaves with another, so existing
+	// output is byte-for-byte unchanged.
+	type kEntry struct {
+		key int
+		str string
+	}
+	var kentries []kEntry
 
-	// Add marked content references
 	for _, m := range se.mcids {
 		pgRef := pageObjnums[m.pageIndex].Ref()
-		kItems = append(kItems, fmt.Sprintf("<< /Type /MCR /Pg %s /MCID %d >>", pgRef, m.mcid))
+		kentries = append(kentries, kEntry{m.seq, fmt.Sprintf("<< /Type /MCR /Pg %s /MCID %d >>", pgRef, m.mcid)})
 	}
 
-	// Add object references (for link annotations etc.)
 	for _, o := range se.objRefs {
 		pgRef := pageObjnums[o.pageIndex].Ref()
-		kItems = append(kItems, fmt.Sprintf("<< /Type /OBJR /Obj %s /Pg %s >>", o.annotObjNum.Ref(), pgRef))
+		kentries = append(kentries, kEntry{o.seq, fmt.Sprintf("<< /Type /OBJR /Obj %s /Pg %s >>", o.annotObjNum.Ref(), pgRef)})
 	}
 
-	// Recursively serialize children
 	for _, child := range se.children {
 		d.serializeStructureElement(child, se.Obj.ObjectNumber, pageObjnums)
-		kItems = append(kItems, child.Obj.ObjectNumber.Ref())
+		kentries = append(kentries, kEntry{readingKey(child), child.Obj.ObjectNumber.Ref()})
+	}
+
+	sort.SliceStable(kentries, func(i, j int) bool { return kentries[i].key < kentries[j].key })
+
+	kItems := make([]string, len(kentries))
+	for i, e := range kentries {
+		kItems[i] = e.str
 	}
 
 	switch len(kItems) {
@@ -2108,6 +2278,26 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 		se.Obj.Dictionary["K"] = kItems[0]
 	default:
 		se.Obj.Dictionary["K"] = fmt.Sprintf("[ %s ]", strings.Join(kItems, " "))
+	}
+
+	// Associated files (PDF 2.0 §14.13): embed each registered file and
+	// reference its Filespec from this element's /AF array. Used for the
+	// MathML representation of a Formula element. Embedding here — inside the
+	// structure-tree walk — means the Filespec object exists by the time we
+	// write the /AF reference, without a separate pre-pass.
+	if len(se.afs) > 0 {
+		afRefs := make([]string, 0, len(se.afs))
+		for _, af := range se.afs {
+			filespec, ferr := d.embedFilespec(af.attachment, af.afRelationship)
+			if ferr != nil {
+				bag.Logger.Error("failed to embed associated file", "name", af.attachment.Name, "error", ferr)
+				continue
+			}
+			afRefs = append(afRefs, filespec.ObjectNumber.Ref())
+		}
+		if len(afRefs) > 0 {
+			se.Obj.Dictionary["AF"] = "[ " + strings.Join(afRefs, " ") + " ]"
+		}
 	}
 
 	se.Obj.Save()
@@ -2159,6 +2349,22 @@ type PDFDocument struct {
 	// /Pattern resource dict can refer back to it. Names are document-wide
 	// so the same SVG re-rendered on multiple pages does not collide.
 	shadingCounter int
+	// readingSeq is a document-wide monotonic counter stamped on every
+	// marked-content reference and object reference as it is emitted during
+	// shipout. It records reading order across page boundaries (unlike MCID,
+	// which resets per page) so serializeStructureElement can interleave a
+	// structure element's /K children — MCRs, OBJRs, and child elements — in
+	// document order. See nextReadingSeq.
+	readingSeq int
+}
+
+// nextReadingSeq returns the next document-wide reading-order stamp. It is
+// strictly increasing and never resets, so the value of an MCR or OBJR
+// emitted earlier in shipout is always smaller than one emitted later —
+// which is exactly the order a screen reader should follow.
+func (d *PDFDocument) nextReadingSeq() int {
+	d.readingSeq++
+	return d.readingSeq
 }
 
 // NewDocument creates an empty document.
@@ -2642,39 +2848,11 @@ func (d *PDFDocument) Finish() error {
 	af := pdf.Array{}
 	nameTreeData := pdf.NameTreeData{}
 	for _, attachment := range d.Attachments {
-		pdfAttachment := d.PDFWriter.NewObject()
-		pdfAttachment.Dictionary = pdf.Dict{
-			"Type":    "/EmbeddedFile",
-			"Length":  fmt.Sprintf("%d", len(attachment.Data)),
-			"Subtype": pdf.Name(attachment.MimeType),
-			"Params": pdf.Dict{
-				"Size": fmt.Sprintf("%d", len(attachment.Data)),
-			},
-		}
-		if !attachment.ModDate.IsZero() {
-			pdfAttachment.Dictionary["Params"].(pdf.Dict)["ModDate"] = formatDate(attachment.ModDate.UTC())
-		}
-		pdfAttachment.SetCompression(9)
-		pdfAttachment.Data.Write(attachment.Data)
-		if err = pdfAttachment.Save(); err != nil {
-			return err
-		}
-		filespec := d.PDFWriter.NewObject()
-		filespec.Dictionary = pdf.Dict{
-			"Type":           "/Filespec",
-			"AFRelationship": pdf.Name("Alternative"),
-			"F":              pdf.String(attachment.Name),
-			"UF":             pdf.String(attachment.Name),
-			"EF": pdf.Dict{
-				"F":  pdfAttachment.ObjectNumber.Ref(),
-				"UF": pdfAttachment.ObjectNumber.Ref(),
-			},
-			"Desc": pdf.String(attachment.Description),
+		filespec, ferr := d.embedFilespec(attachment, "Alternative")
+		if ferr != nil {
+			return ferr
 		}
 		nameTreeData[pdf.String(attachment.Name)] = filespec.ObjectNumber
-		if err = filespec.Save(); err != nil {
-			return err
-		}
 		af = append(af, filespec.ObjectNumber)
 	}
 	if len(af) > 0 {

@@ -213,6 +213,79 @@ func TestSetNamespaceRoleMapEmitsRoleMapNS(t *testing.T) {
 	}
 }
 
+// TestKArrayDocumentOrder guards the reading-order contract of the /K array
+// (ISO 14289 §7.2): when a structure element interleaves its own marked
+// content with a child element — the canonical case being an inline Formula
+// that sits between two runs of paragraph text — the /K entries must appear
+// in document order, not grouped by kind (all MCRs, then all children).
+//
+// We hand-build the tree a renderer would produce for "<p>text Formula
+// text</p>": the P owns two marked-content runs (reading-order stamps 1 and
+// 3) with a Formula child stamped 2 in between. The Formula ref must land
+// between the two MCRs in P's /K array.
+func TestKArrayDocumentOrder(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.Format = FormatPDFUA
+	d.SuppressInfo = true
+	d.DefaultLanguageTag = "en"
+	d.Title = "K-order smoke test"
+
+	root := &StructureElement{Role: "Document"}
+	para := &StructureElement{Role: "P"}
+	formula := &StructureElement{Role: "Formula", Alt: "a squared"}
+	root.AddChild(para)
+	para.AddChild(formula)
+	d.RootStructureElement = root
+
+	// Reading order: text run (mcid 0, seq 1) → formula glyphs (mcid 1,
+	// seq 2) → trailing text run (mcid 2, seq 3). All on page index 0.
+	para.mcids = []mcidEntry{{pageIndex: 0, mcid: 0, seq: 1}, {pageIndex: 0, mcid: 2, seq: 3}}
+	formula.mcids = []mcidEntry{{pageIndex: 0, mcid: 1, seq: 2}}
+
+	d.NewPage().Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	if err := d.PDFWriter.FinishAndClose(); err != nil {
+		t.Fatalf("FinishAndClose: %v", err)
+	}
+
+	kStr, ok := para.Obj.Dictionary["K"].(string)
+	if !ok {
+		t.Fatalf("P /K entry is not a string: %T", para.Obj.Dictionary["K"])
+	}
+	formulaRef := formula.Obj.ObjectNumber.Ref()
+	posMCID0 := strings.Index(kStr, "/MCID 0")
+	posFormula := strings.Index(kStr, formulaRef)
+	posMCID2 := strings.Index(kStr, "/MCID 2")
+	if posMCID0 < 0 || posFormula < 0 || posMCID2 < 0 {
+		t.Fatalf("P /K missing an expected entry: %q (formula ref %q)", kStr, formulaRef)
+	}
+	if !(posMCID0 < posFormula && posFormula < posMCID2) {
+		t.Errorf("P /K not in document reading order: want MCID0 < Formula < MCID2, got positions %d, %d, %d in %q",
+			posMCID0, posFormula, posMCID2, kStr)
+	}
+}
+
+// TestReadingKey verifies that a structure element's reading-order key is the
+// smallest reading-order stamp anywhere in its subtree, so a parent can sort
+// it correctly even when its content is nested several levels deep.
+func TestReadingKey(t *testing.T) {
+	leaf := &StructureElement{Role: "Span"}
+	leaf.mcids = []mcidEntry{{seq: 7}, {seq: 4}}
+	mid := &StructureElement{Role: "P"}
+	mid.objRefs = []objRefEntry{{seq: 9}}
+	mid.AddChild(leaf)
+	if got := readingKey(mid); got != 4 {
+		t.Errorf("readingKey(mid) = %d, want 4 (smallest stamp in subtree)", got)
+	}
+	empty := &StructureElement{Role: "Div"}
+	if got := readingKey(empty); got != int(^uint(0)>>1) {
+		t.Errorf("readingKey(empty) = %d, want max int (sorts last)", got)
+	}
+}
+
 func TestScopeHierarchy(t *testing.T) {
 	// The code relies on the scope constants being ordered from innermost to outermost.
 	// This test ensures that invariant is maintained.

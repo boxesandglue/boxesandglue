@@ -18,8 +18,15 @@ type HList struct {
 	Depth     bag.ScaledPoint
 	Badness   int
 	GlueSet   float64         // The ratio of the glue. Positive means stretching, negative shrinking.
-	GlueOrder GlueOrder       // The level of infinity
-	Shift     bag.ScaledPoint // The displacement perpendicular to the progressing direction. Not used.
+	GlueOrder GlueOrder // The level of infinity
+	// Shift moves the HList's outer baseline vertically when its parent
+	// renders it. Positive shifts toward the top of the page (PDF +Y,
+	// matching Glyph.YOffset). Symmetric with VList.Shift. Note: the box's
+	// declared Height / Depth are NOT adjusted by Shift — callers that
+	// need the outer container to "see" the shifted box must pre-compute
+	// the right Height / Depth values, the way the math engine does in
+	// frontend/math. Mirrors TeX's `box.shift_amount` (TeXbook S. 64).
+	Shift bag.ScaledPoint
 	// ShiftX shifts the HList's outer origin to the right when its
 	// parent renders it. Symmetric with VList.ShiftX — every box-like
 	// node can be moved, regardless of progressing direction (TeX's
