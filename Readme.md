@@ -1,4 +1,4 @@
-[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/boxesandglue/boxesandglue)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)
+[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/boxesandglue/boxesandglue)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de)
 
 
 # Boxes and Glue
@@ -150,5 +150,11 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 		"tag": para,
 	}
 ```
+
+## Ecosystem
+
+Boxes and Glue is part of a broader ecosystem of PDF, typesetting and publishing technologies.
+
+**[Explore the constellation →](https://constellation.speedata.de)**
 
 
