@@ -2070,7 +2070,20 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 					t.Settings[k] = v
 				}
 			}
-			// we don't want to inherit hyperlinks, prepend (list markers), or destinations
+			// We must not let the child re-emit its own hyperlink,
+			// prepend (list marker) or destination during the recursive
+			// Mknodes/BuildNodelistFromString call below: the surrounding
+			// start/stop already brackets it. Deleting them outright,
+			// however, would destructively consume the caller's Text.
+			// Table layout calls FormatParagraph several times on the
+			// same cell Text (minWidth + maxWidth measurement passes, then
+			// the real build); after the first pass the child would have
+			// lost its hyperlink, so no Link annotation reaches the page.
+			// Snapshot the three settings here and restore them right
+			// after the recursion so the Text stays re-formattable.
+			savedHyperlink, hadHyperlink := t.Settings[SettingHyperlink]
+			savedPrepend, hadPrepend := t.Settings[SettingPrepend]
+			savedDest, hadDest := t.Settings[SettingDest]
 			delete(t.Settings, SettingHyperlink)
 			delete(t.Settings, SettingPrepend)
 			delete(t.Settings, SettingDest)
@@ -2094,6 +2107,18 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			}
 
 			nl, end, err = fe.Mknodes(t)
+			// Restore the settings consumed above so a later
+			// re-formatting of the same Text (table measurement passes)
+			// still sees them.
+			if hadHyperlink {
+				t.Settings[SettingHyperlink] = savedHyperlink
+			}
+			if hadPrepend {
+				t.Settings[SettingPrepend] = savedPrepend
+			}
+			if hadDest {
+				t.Settings[SettingDest] = savedDest
+			}
 			if err != nil {
 				return nil, nil, err
 			}
