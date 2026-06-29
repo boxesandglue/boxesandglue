@@ -20,8 +20,8 @@ var opClasses = map[rune]math.MathClass{
 	'∧': math.ClassBin, '∨': math.ClassBin, // ∧, ∨
 	'∩': math.ClassBin, '∪': math.ClassBin, // ∩, ∪
 	'⊕': math.ClassBin, '⊗': math.ClassBin, // ⊕, ⊗
-	'∘': math.ClassBin,                           // ∘
-	'∖': math.ClassBin,                           // ∖ set-minus
+	'∘': math.ClassBin, // ∘
+	'∖': math.ClassBin, // ∖ set-minus
 
 	// relations
 	'=': math.ClassRel,
@@ -33,24 +33,24 @@ var opClasses = map[rune]math.MathClass{
 	'⊂': math.ClassRel, '⊃': math.ClassRel, // ⊂, ⊃
 	'⊆': math.ClassRel, '⊇': math.ClassRel, // ⊆, ⊇
 	'→': math.ClassRel, '←': math.ClassRel, // →, ←
-	'↔': math.ClassRel,                            // ↔
+	'↔': math.ClassRel,                     // ↔
 	'⇒': math.ClassRel, '⇐': math.ClassRel, // ⇒, ⇐
-	'⇔': math.ClassRel,                            // ⇔
+	'⇔': math.ClassRel,                     // ⇔
 	'⊢': math.ClassRel, '⊣': math.ClassRel, // ⊢, ⊣
-	'⊨': math.ClassRel,                            // ⊨
+	'⊨': math.ClassRel, // ⊨
 
 	// openers
-	'(':       math.ClassOpen,
-	'[':       math.ClassOpen,
-	'{':       math.ClassOpen,
-	'⟨':  math.ClassOpen, // ⟨
-	'⌈':  math.ClassOpen, // ⌈
-	'⌊':  math.ClassOpen, // ⌊
+	'(': math.ClassOpen,
+	'[': math.ClassOpen,
+	'{': math.ClassOpen,
+	'⟨': math.ClassOpen, // ⟨
+	'⌈': math.ClassOpen, // ⌈
+	'⌊': math.ClassOpen, // ⌊
 
 	// closers
-	')':      math.ClassClose,
-	']':      math.ClassClose,
-	'}':      math.ClassClose,
+	')': math.ClassClose,
+	']': math.ClassClose,
+	'}': math.ClassClose,
 	'⟩': math.ClassClose, // ⟩
 	'⌉': math.ClassClose, // ⌉
 	'⌋': math.ClassClose, // ⌋

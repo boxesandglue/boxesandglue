@@ -41,10 +41,10 @@ func crampify(s MathStyle) MathStyle { return s | 1 }
 // subStyle is the style used inside a subscript. TeXbook Appendix G
 // (page 442) gives:
 //
-//	  D, D' → S, S'
-//	  T, T' → S, S'
-//	  S, S' → S', S'
-//	  S', S' → S', S'
+//	D, D' → S, S'
+//	T, T' → S, S'
+//	S, S' → S', S'
+//	S', S' → S', S'
 //
 // In other words: Display AND Text both step *directly* to Script
 // (NOT sequentially through Text). That's why `k^2` in display mode

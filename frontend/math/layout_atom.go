@@ -264,7 +264,6 @@ func buildGlyph(ctx *engineCtx, gid ot.GlyphID, style MathStyle) *node.Glyph {
 	return g
 }
 
-
 // wrapGlyphInHList builds a one-glyph HList whose declared width / height /
 // depth match the glyph's. The HList is the lowest-common-denominator for
 // the rest of the engine (every layout helper returns one).

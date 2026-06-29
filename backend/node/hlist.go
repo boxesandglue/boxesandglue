@@ -17,7 +17,7 @@ type HList struct {
 	Height    bag.ScaledPoint
 	Depth     bag.ScaledPoint
 	Badness   int
-	GlueSet   float64         // The ratio of the glue. Positive means stretching, negative shrinking.
+	GlueSet   float64   // The ratio of the glue. Positive means stretching, negative shrinking.
 	GlueOrder GlueOrder // The level of infinity
 	// Shift moves the HList's outer baseline vertically when its parent
 	// renders it. Positive shifts toward the top of the page (PDF +Y,

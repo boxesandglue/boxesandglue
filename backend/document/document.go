@@ -1071,12 +1071,22 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// the two text runs (see serializeStructureElement). A formula
 			// only splits when it has a parent tag to interrupt; in non-tagged
 			// output it renders inline like any other box.
-			if v.Attributes != nil && oc.p.document.Format.IsPDFUA() && oc.tag != nil && !oc.inArtifact {
+			if v.Attributes != nil && oc.p.document.Format.IsPDFUA() && !oc.inArtifact {
 				if formulaTag, ok := v.Attributes["tag"].(*StructureElement); ok {
+					// parentTag is the surrounding paragraph's run, if any. For
+					// an inline formula it is non-nil and we split its marked
+					// content around the formula glyphs (closing it, emitting
+					// the Formula run, then reopening the parent under a fresh
+					// MCID). For a block-level formula (a display <math> that is
+					// its own block) there is no parent run: parentTag is nil and
+					// the Formula run stands alone as a child of the current
+					// structure element.
 					parentTag := oc.tag
-					// Close the parent's open marked-content run.
-					oc.gotoTextMode(ScopePage)
-					oc.writef("EMC\n")
+					if parentTag != nil {
+						// Close the parent's open marked-content run.
+						oc.gotoTextMode(ScopePage)
+						oc.writef("EMC\n")
+					}
 					// Open the Formula run. The StructureElements append puts
 					// formulaTag at page-index == fmcid, which is exactly what
 					// the page ParentTree expects (index == MCID).
@@ -1093,16 +1103,18 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					// Close the Formula run.
 					oc.gotoTextMode(ScopePage)
 					oc.writef("EMC\n")
-					// Reopen the parent's marked content with a fresh MCID so
-					// the remaining paragraph text reads under the parent. The
-					// parent appears at a second ParentTree index — both map to
-					// the same structure element (PDF 1.7 §14.7.5.1 lets one
-					// element own several marked-content sequences).
-					pmcid := oc.p.nextMCID
-					oc.p.nextMCID++
-					parentTag.mcids = append(parentTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: pmcid, seq: oc.p.document.nextReadingSeq()})
-					oc.p.StructureElements = append(oc.p.StructureElements, parentTag)
-					oc.emitBDC(parentTag, pmcid)
+					if parentTag != nil {
+						// Reopen the parent's marked content with a fresh MCID so
+						// the remaining paragraph text reads under the parent. The
+						// parent appears at a second ParentTree index — both map to
+						// the same structure element (PDF 1.7 §14.7.5.1 lets one
+						// element own several marked-content sequences).
+						pmcid := oc.p.nextMCID
+						oc.p.nextMCID++
+						parentTag.mcids = append(parentTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: pmcid, seq: oc.p.document.nextReadingSeq()})
+						oc.p.StructureElements = append(oc.p.StructureElements, parentTag)
+						oc.emitBDC(parentTag, pmcid)
+					}
 					if needReset && oc.textmode < ScopePage {
 						oc.gotoTextMode(ScopePage)
 					}
@@ -1910,6 +1922,11 @@ func vlistHasTaggedDescendant(vl *node.VList) bool {
 				return true
 			}
 		case *node.HList:
+			if n.Attributes != nil {
+				if _, ok := n.Attributes["tag"]; ok {
+					return true
+				}
+			}
 			if hlistHasTaggedDescendant(n) {
 				return true
 			}
@@ -1928,6 +1945,18 @@ func hlistHasTaggedDescendant(hl *node.HList) bool {
 				}
 			}
 			if vlistHasTaggedDescendant(n) {
+				return true
+			}
+		case *node.HList:
+			// A block-level <math> is an HList carrying a Formula "tag"
+			// (mathml.Render returns *node.HList). Detect it so the
+			// enclosing anonymous box is not pre-classified as an Artifact.
+			if n.Attributes != nil {
+				if _, ok := n.Attributes["tag"]; ok {
+					return true
+				}
+			}
+			if hlistHasTaggedDescendant(n) {
 				return true
 			}
 		}
@@ -2013,9 +2042,9 @@ type StructureElement struct {
 	Role       string
 	NS         string // namespace URI for Role (PDF 2.0 §14.7.4); empty = default
 	ActualText string
-	Alt        string     // alternative text (for Figure, Formula etc.)
-	Lang       string     // BCP 47 language tag for this element
-	Scope      string     // for TH: "Row", "Column", "Both"
+	Alt        string // alternative text (for Figure, Formula etc.)
+	Lang       string // BCP 47 language tag for this element
+	Scope      string // for TH: "Row", "Column", "Both"
 	// ListNumbering is the PDF 1.7 §14.8.5.4 ListNumbering attribute on
 	// an L element. Allowed values: None, Disc, Circle, Square, Decimal,
 	// UpperRoman, LowerRoman, UpperAlpha, LowerAlpha, Ordered, Unordered.
@@ -2024,11 +2053,11 @@ type StructureElement struct {
 	ListNumbering string
 	BBox          [4]float64 // bounding box [x, y, width, height] in PDF points; set during shipout
 	HasBBox       bool
-	children   []*StructureElement
-	mcids      []mcidEntry
-	objRefs    []objRefEntry
-	afs        []associatedFile
-	ID         int
+	children      []*StructureElement
+	mcids         []mcidEntry
+	objRefs       []objRefEntry
+	afs           []associatedFile
+	ID            int
 }
 
 // associatedFile is a file to embed and reference from a structure element's
@@ -2638,9 +2667,17 @@ func (d *PDFDocument) Finish() error {
 	d.PDFWriter.SetVersion(d.Format.pdfVersion())
 	d.PDFWriter.Catalog = pdf.Dict{}
 
-	// Automatically create root structure element for PDF/UA if not set
+	// Automatically create root structure element for PDF/UA if not set.
+	// PDF/UA-2 requires the Document element to carry the PDF 2.0 standard
+	// structure namespace; without it veraPDF/pdfa11y flag UA-01-008. This
+	// fallback fires when the caller never set a RootStructureElement, e.g.
+	// xts builds htmlbag before the format is known, so htmlbag's own
+	// namespaced root (newSE) is skipped and only this path runs.
 	if d.Format.IsPDFUA() && d.RootStructureElement == nil {
 		d.RootStructureElement = &StructureElement{Role: "Document"}
+		if d.Format.IsPDFUA2() {
+			d.RootStructureElement.NS = NamespacePDF20SSN
+		}
 	}
 
 	if d.Format.NeedsColorProfile() {
@@ -2796,6 +2833,16 @@ func (d *PDFDocument) Finish() error {
 		d.PDFWriter.Catalog["Lang"] = fmt.Sprintf("(%s)", langStr)
 		d.PDFWriter.Catalog["MarkInfo"] = pdf.Dict{"Marked": true}
 
+	}
+
+	// PDF/UA requires a document title (dc:title in XMP and a non-empty
+	// Info /Title, surfaced via DisplayDocTitle). If the caller never set
+	// one by the time metadata is written, fall back to a placeholder so the
+	// file stays conformant, but warn: a real, meaningful title should be set
+	// for accessibility.
+	if d.Format.IsPDFUA() && d.Title == "" {
+		bag.Logger.Warn("PDF/UA: no document title set; using a default placeholder. Set a real title for accessibility.")
+		d.Title = "Untitled"
 	}
 
 	rdf := d.PDFWriter.NewObject()
