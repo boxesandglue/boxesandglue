@@ -313,6 +313,17 @@ func (lb *linebreaker) mainLoop(n Node) {
 	active := lb.activeNodesA
 	lb.preva = nil
 
+	// Best anchor for the emergency overfull-line fallback below: the latest
+	// (max sumW = closest to n, so the forced overfull line is as short as
+	// possible) breakpoint that gets deactivated *because its line is
+	// overfull*, ties broken toward the fewest demerits. Accumulated across
+	// all line-group iterations of this mainLoop call, because the emergency
+	// only fires once the active list is fully drained. Only overfull
+	// deactivations qualify — a forced break (HardBreak) that deactivates an
+	// underfull line must keep the LIFO anchor so stacked blank lines from
+	// consecutive forced breaks are preserved.
+	var bestOverfull *Breakpoint
+
 	// The outer loop calculates dmin for each of the four fitness classes c.
 	for active != nil {
 		dmin := math.MaxInt
@@ -340,6 +351,12 @@ func (lb *linebreaker) mainLoop(n Node) {
 			if r < -1 || overfullNoShrink || isForcedBreak(n) {
 				// If line is too wide or a forced break, we can remove the node
 				// from the active list.
+				if r < -1 || overfullNoShrink {
+					if bestOverfull == nil || active.sumW > bestOverfull.sumW ||
+						(active.sumW == bestOverfull.sumW && active.Demerits < bestOverfull.Demerits) {
+						bestOverfull = active
+					}
+				}
 				lb.removeActiveNode(active)
 			} else {
 				lb.preva = active
@@ -384,7 +401,20 @@ func (lb *linebreaker) mainLoop(n Node) {
 		}
 		if dmin == math.MaxInt && lb.activeNodesA == nil {
 			W, E, Y, Z := lb.computeSum(n)
+			// Anchor the forced overfull line. Prefer the best overfull
+			// breakpoint found this round (latest position, fewest demerits)
+			// so an unbreakable run wider than HSize — e.g. a long URL, or
+			// the mailmerge company block where dropped <br/> glued several
+			// fields into one ~220pt token — does not drag every preceding
+			// word onto its own line. With ragged alignment every word break
+			// is feasible (r=0), so the plain LIFO inactiveNodesP would be the
+			// deepest single-word chain. Fall back to LIFO when nothing was
+			// deactivated for being overfull (e.g. stacked blank lines from
+			// consecutive forced breaks), where the most recent node is right.
 			lastInactive := lb.inactiveNodesP
+			if bestOverfull != nil {
+				lastInactive = bestOverfull
+			}
 			width := lb.sumW
 			var pre Node
 			switch v := n.(type) {
