@@ -126,5 +126,6 @@ func (d *StartStop) Copy() Node {
 	n.Position = d.Position
 	n.ShipoutCallback = d.ShipoutCallback
 	n.Value = d.Value
+	n.Attributes = cloneAttributes(d.Attributes)
 	return n
 }

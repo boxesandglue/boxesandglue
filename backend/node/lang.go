@@ -30,6 +30,7 @@ func (l *Lang) DebugAttributes() ([]kv, H) {
 func (l *Lang) Copy() Node {
 	n := NewLang()
 	n.Lang = l.Lang
+	n.Attributes = cloneAttributes(l.Attributes)
 	return n
 }
 

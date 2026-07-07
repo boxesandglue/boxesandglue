@@ -55,6 +55,7 @@ func (v *VList) Copy() Node {
 	n.ShiftX = v.ShiftX
 	n.Shift = v.Shift
 	n.List = CopyList(v.List)
+	n.Attributes = cloneAttributes(v.Attributes)
 	return n
 }
 

@@ -29,6 +29,7 @@ func (d *Disc) Copy() Node {
 	n.Post = CopyList(d.Post)
 	n.Replace = CopyList(d.Replace)
 	n.Penalty = d.Penalty
+	n.Attributes = cloneAttributes(d.Attributes)
 	return n
 }
 

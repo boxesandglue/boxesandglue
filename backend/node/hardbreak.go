@@ -15,7 +15,9 @@ func (hb *HardBreak) String() string {
 
 // Copy creates a deep copy of the node.
 func (hb *HardBreak) Copy() Node {
-	return NewHardBreak()
+	n := NewHardBreak()
+	n.Attributes = cloneAttributes(hb.Attributes)
+	return n
 }
 
 // NewHardBreak creates an initialized HardBreak node.

@@ -71,6 +71,7 @@ func (g *Glyph) Copy() Node {
 	n.Hyphenate = g.Hyphenate
 	n.YOffset = g.YOffset
 	n.Hyphenate = g.Hyphenate
+	n.Attributes = cloneAttributes(g.Attributes)
 	return n
 }
 

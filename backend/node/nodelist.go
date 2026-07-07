@@ -1,6 +1,7 @@
 package node
 
 import (
+	"maps"
 	"math"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -164,6 +165,18 @@ func Tail(nl Node) Node {
 	for e = nl; e.Next() != nil; e = e.Next() {
 	}
 	return e
+}
+
+// cloneAttributes returns a shallow clone of an Attributes map, or nil if
+// there is nothing to copy. Every Copy() method uses this so a copied node
+// carries the same metadata (origin markers, hyperlink/dest info, structure
+// tags) as its source — the Attributes field lives in the embedded basenode
+// and would otherwise be silently dropped.
+func cloneAttributes(a H) H {
+	if a == nil {
+		return nil
+	}
+	return maps.Clone(a)
 }
 
 // CopyList makes a deep copy of the list starting at nl.

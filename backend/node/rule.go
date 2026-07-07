@@ -44,6 +44,7 @@ func (r *Rule) Copy() Node {
 	n.Width = r.Width
 	n.Height = r.Height
 	n.Depth = r.Depth
+	n.Attributes = cloneAttributes(r.Attributes)
 	return n
 }
 

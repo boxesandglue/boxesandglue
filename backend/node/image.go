@@ -55,6 +55,7 @@ func (img *Image) Copy() Node {
 	n.ImageFile = img.ImageFile
 	n.PageNumber = img.PageNumber
 	n.Used = img.Used
+	n.Attributes = cloneAttributes(img.Attributes)
 	return n
 }
 

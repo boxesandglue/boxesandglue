@@ -38,6 +38,7 @@ func (p *Penalty) Copy() Node {
 	n := NewPenalty()
 	n.Penalty = p.Penalty
 	n.Width = p.Width
+	n.Attributes = cloneAttributes(p.Attributes)
 	return n
 }
 

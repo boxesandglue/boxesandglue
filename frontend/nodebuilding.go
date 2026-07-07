@@ -2144,8 +2144,18 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				}
 			}
 		case node.Node:
-			head = node.InsertAfter(head, tail, t)
-			tail = t
+			// Insert a fresh copy, never the shared node object from
+			// te.Items. Table layout formats each cell's Text several times
+			// (min-width, max-width, build); reusing the identical node
+			// pointer let InsertAfter drag the previous pass's stale
+			// Prev/Next chain back into the list, which duplicated the first
+			// glyph after a <br> and truncated the rest. Copying per pass is
+			// consistent with the string and *Text branches, which also
+			// build fresh nodes every pass. Copy() clones the node's
+			// Attributes, so origin markers / structure tags survive.
+			c := t.Copy()
+			head = node.InsertAfter(head, tail, c)
+			tail = c
 		case *Table:
 			s := node.NewStartStop()
 			s.Attributes = node.H{"table": t}

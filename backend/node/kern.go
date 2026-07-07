@@ -32,6 +32,7 @@ func (k *Kern) DebugAttributes() ([]kv, H) {
 func (k *Kern) Copy() Node {
 	n := NewKern()
 	n.Kern = k.Kern
+	n.Attributes = cloneAttributes(k.Attributes)
 	return n
 }
 
