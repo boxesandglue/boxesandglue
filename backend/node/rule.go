@@ -41,6 +41,9 @@ func (r *Rule) DebugAttributes() ([]kv, H) {
 // Copy creates a deep copy of the node.
 func (r *Rule) Copy() Node {
 	n := NewRule()
+	n.Pre = r.Pre
+	n.Post = r.Post
+	n.Hide = r.Hide
 	n.Width = r.Width
 	n.Height = r.Height
 	n.Depth = r.Depth
