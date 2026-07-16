@@ -899,14 +899,196 @@ func isLineStartForbidden(s string) bool {
 	return false
 }
 
+// paragraphPrep carries the output of prepareParagraph: the hyphenated
+// horizontal node list of a paragraph plus the linebreak settings derived
+// from the Text settings. When the paragraph resolves without line breaking
+// (empty content, a single StartStop node, or a table), done is true and
+// early holds the finished VList.
+type paragraphPrep struct {
+	hlist          node.Node
+	ls             *node.LinebreakSettings
+	pi             *ParagraphInfo
+	paragraphLevel uint8
+	done           bool
+	early          *node.VList
+}
+
 // FormatParagraph creates a rectangular text from the data stored in the
 // Paragraph. It applies hyphenation to the node list.
 func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
 	bag.Logger.Log(context.Background(), -8, "FormatParagraph")
+	prep, err := fe.prepareParagraph(te, hsize, opts...)
+	if err != nil {
+		return nil, prep.pi, err
+	}
+	if prep.done {
+		return prep.early, prep.pi, nil
+	}
+	pi := prep.pi
+	vlist, info := node.Linebreak(prep.hlist, prep.ls)
+	for _, inf := range info {
+		pi.Widths = append(pi.Widths, inf.Width)
+	}
+	// UAX#9 L1 (trailing-whitespace reset) and L2-L4 (visual reorder) per
+	// line. Pure-LTR paragraphs are handled by the helper as a fast no-op.
+	bidiReorderVList(vlist, prep.paragraphLevel)
+
+	for _, cb := range fe.postLinebreakCallback {
+		vlist = cb(vlist)
+	}
+	if htt, ok := te.Settings[SettingHeight]; ok {
+		if ht, ok := htt.(bag.ScaledPoint); ok {
+			moreHeight := ht - vlist.Height - vlist.Depth
+			topGlue := node.NewGlue()
+			bottomGlue := node.NewGlue()
+			valign := VAlignMiddle
+			if vat, ok := te.Settings[SettingVAlign]; ok {
+				if va, ok := vat.(VerticalAlignment); ok {
+					valign = va
+				}
+			}
+			switch valign {
+			case VAlignTop:
+				bottomGlue.Width = moreHeight
+			case VAlignBottom:
+				topGlue.Width = moreHeight
+			default:
+				bottomGlue.Width = moreHeight / 2
+				topGlue.Width = moreHeight / 2
+			}
+			var head node.Node
+			if topGlue.Width != 0 {
+				head = topGlue
+			}
+			head = node.InsertAfter(head, head, vlist)
+			if bottomGlue.Width != 0 {
+				head = node.InsertAfter(head, vlist, bottomGlue)
+			}
+			vlist = node.Vpack(head)
+			vlist.Attributes = node.H{"origin": "FormatParagraph, setHeight"}
+		}
+	}
+	return vlist, pi, nil
+}
+
+// ParagraphTailStep describes an already-consumed prefix of a paragraph from
+// a previous formatting pass: the paragraph was broken at Width and the first
+// Lines of the resulting lines were placed.
+type ParagraphTailStep struct {
+	Width bag.ScaledPoint
+	Lines int
+}
+
+// nodeSequence collects the nodes of a horizontal list in order. The slice
+// preserves the pre-linebreak order even after node.Linebreak has re-linked
+// the nodes into lines.
+func nodeSequence(head node.Node) []node.Node {
+	var seq []node.Node
+	for n := head; n != nil; n = n.Next() {
+		seq = append(seq, n)
+	}
+	return seq
+}
+
+// FormatParagraphTail reformats the not-yet-placed remainder of a paragraph
+// whose leading lines were already placed at one or more other widths. Each
+// step reproduces the deterministic line break of an earlier pass to locate
+// the text position after its consumed lines; the text from that position on
+// is then broken at hsize. Used by pagination when an automatic page break
+// switches to a page with a different content width, so the rest of a
+// straddling paragraph can flow at the new width.
+//
+// The reproduction relies on FormatParagraph being deterministic and on the
+// prepared node list having the same length in every pass (Mknodes restores
+// consumed settings after recursing). If the paragraph resolves without line
+// breaking or a position cannot be located, an error is returned and the
+// caller should keep the lines from the previous pass.
+func (fe *Document) FormatParagraphTail(te *Text, steps []ParagraphTailStep, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, error) {
+	// prepareParagraph consumes SettingPaddingLeft (it becomes the paragraph
+	// indent). Restore it after every pass so each pass sees the same input.
+	paddingLeft, hasPaddingLeft := te.Settings[SettingPaddingLeft]
+	restorePadding := func() {
+		if hasPaddingLeft {
+			te.Settings[SettingPaddingLeft] = paddingLeft
+		}
+	}
+
+	startIdx := 0
+	for _, step := range steps {
+		if step.Lines <= 0 {
+			continue
+		}
+		prep, err := fe.prepareParagraph(te, step.Width, opts...)
+		restorePadding()
+		if err != nil {
+			return nil, err
+		}
+		if prep.done {
+			return nil, fmt.Errorf("FormatParagraphTail: paragraph has no line-broken content")
+		}
+		order := nodeSequence(prep.hlist)
+		if startIdx >= len(order) {
+			return nil, fmt.Errorf("FormatParagraphTail: start position %d beyond node list", startIdx)
+		}
+		start := order[startIdx]
+		start.SetPrev(nil)
+		_, bps := node.Linebreak(start, prep.ls)
+		if step.Lines >= len(bps) {
+			return nil, fmt.Errorf("FormatParagraphTail: %d lines consumed but pass has only %d lines", step.Lines, len(bps))
+		}
+		pos := bps[step.Lines-1].Position
+		idx := -1
+		for i := startIdx; i < len(order); i++ {
+			if order[i] == pos {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return nil, fmt.Errorf("FormatParagraphTail: breakpoint not found in node sequence")
+		}
+		// The next line starts after the break node. Mirror node.Linebreak's
+		// line-start rule: when the break happened at a Disc that is followed
+		// by a Glue (a word boundary), the Glue is skipped as well.
+		next := idx + 1
+		if _, isDisc := pos.(*node.Disc); isDisc && next < len(order) {
+			if _, isGlue := order[next].(*node.Glue); isGlue {
+				next++
+			}
+		}
+		startIdx = next
+	}
+
+	prep, err := fe.prepareParagraph(te, hsize, opts...)
+	restorePadding()
+	if err != nil {
+		return nil, err
+	}
+	if prep.done {
+		return nil, fmt.Errorf("FormatParagraphTail: paragraph has no line-broken content")
+	}
+	order := nodeSequence(prep.hlist)
+	if startIdx >= len(order) {
+		return nil, fmt.Errorf("FormatParagraphTail: start position %d beyond node list", startIdx)
+	}
+	start := order[startIdx]
+	start.SetPrev(nil)
+	vlist, _ := node.Linebreak(start, prep.ls)
+	bidiReorderVList(vlist, prep.paragraphLevel)
+	for _, cb := range fe.postLinebreakCallback {
+		vlist = cb(vlist)
+	}
+	return vlist, nil
+}
+
+// prepareParagraph runs the paragraph pipeline up to (but not including) the
+// line breaker: settings resolution, Mknodes, hyphenation and the linebreak
+// settings assembly. FormatParagraph and FormatParagraphTail share it.
+func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) (*paragraphPrep, error) {
 	if len(te.Items) == 0 {
 		g := node.NewGlue()
 		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
-		return node.Vpack(g), nil, nil
+		return &paragraphPrep{done: true, early: node.Vpack(g)}, nil
 	}
 	p := &Options{
 		Language: fe.Doc.DefaultLanguage,
@@ -992,10 +1174,10 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 				pi.Height += vl.Height
 			}
 			if err != nil {
-				return nil, &pi, err
+				return &paragraphPrep{pi: &pi}, err
 			}
 			vl := vls[0]
-			return vl, &pi, nil
+			return &paragraphPrep{done: true, early: vl, pi: &pi}, nil
 		}
 	}
 	// CSS list-style-position: outside. A marker hbox carrying
@@ -1033,22 +1215,22 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 
 	hlist, tail, err = fe.Mknodes(te)
 	if err != nil {
-		return nil, nil, err
+		return &paragraphPrep{}, err
 	}
 	if hlist == nil {
-		return node.NewVList(), nil, nil
+		return &paragraphPrep{done: true, early: node.NewVList()}, nil
 	}
 
 	// A single start stop node (like a PDF dest)
 	if _, ok := hlist.(*node.StartStop); ok && hlist.Next() == nil {
-		return node.Vpack(hlist), nil, nil
+		return &paragraphPrep{done: true, early: node.Vpack(hlist)}, nil
 	}
 
 	// Strip leading and trailing whitespace (Glue/Kern) for CSS-conformant
 	// behavior: spaces at the start/end of a paragraph should not appear.
 	hlist, tail = stripLeadingTrailingGlue(hlist, tail)
 	if hlist == nil {
-		return node.NewVList(), nil, nil
+		return &paragraphPrep{done: true, early: node.NewVList()}, nil
 	}
 
 	Hyphenate(hlist, p.Language)
@@ -1125,56 +1307,15 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		lg.Subtype = node.GlueLineStart
 		ls.LineStartGlue = lg
 	}
-	vlist, info := node.Linebreak(hlist, ls)
-	for _, inf := range info {
-		pi.Widths = append(pi.Widths, inf.Width)
-	}
-	// UAX#9 L1 (trailing-whitespace reset) and L2-L4 (visual reorder) per
-	// line. Pure-LTR paragraphs are handled by the helper as a fast no-op.
+	// The UAX#9 paragraph embedding level (0 = LTR, 1 = RTL) drives the
+	// per-line bidi reorder after line breaking.
 	var paragraphLevel uint8
 	if dir, ok := te.Settings[SettingDirection]; ok {
 		if d, ok := dir.(Direction); ok && d == DirectionRTL {
 			paragraphLevel = 1
 		}
 	}
-	bidiReorderVList(vlist, paragraphLevel)
-
-	for _, cb := range fe.postLinebreakCallback {
-		vlist = cb(vlist)
-	}
-	if htt, ok := te.Settings[SettingHeight]; ok {
-		if ht, ok := htt.(bag.ScaledPoint); ok {
-			moreHeight := ht - vlist.Height - vlist.Depth
-			topGlue := node.NewGlue()
-			bottomGlue := node.NewGlue()
-			valign := VAlignMiddle
-			if vat, ok := te.Settings[SettingVAlign]; ok {
-				if va, ok := vat.(VerticalAlignment); ok {
-					valign = va
-				}
-			}
-			switch valign {
-			case VAlignTop:
-				bottomGlue.Width = moreHeight
-			case VAlignBottom:
-				topGlue.Width = moreHeight
-			default:
-				bottomGlue.Width = moreHeight / 2
-				topGlue.Width = moreHeight / 2
-			}
-			var head node.Node
-			if topGlue.Width != 0 {
-				head = topGlue
-			}
-			head = node.InsertAfter(head, head, vlist)
-			if bottomGlue.Width != 0 {
-				head = node.InsertAfter(head, vlist, bottomGlue)
-			}
-			vlist = node.Vpack(head)
-			vlist.Attributes = node.H{"origin": "FormatParagraph, setHeight"}
-		}
-	}
-	return vlist, &pi, nil
+	return &paragraphPrep{hlist: hlist, ls: ls, pi: &pi, paragraphLevel: paragraphLevel}, nil
 }
 
 // collectParagraphText recursively concatenates the string content of a Text
