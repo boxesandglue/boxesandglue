@@ -429,7 +429,7 @@ func (row *TableRow) setHeight() ([]span, error) {
 				maxht = ht
 			}
 		} else {
-			rowspans = append(rowspans, span{start: cell.rowStart, end: cell.rowStart + cell.ExtraColspan, size: ht})
+			rowspans = append(rowspans, span{start: cell.rowStart, end: cell.rowStart + cell.ExtraRowspan, size: ht})
 		}
 	}
 	row.table.rowHeights[row.row] = maxht
