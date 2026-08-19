@@ -20,6 +20,27 @@ func fuToSP(fu int16, size bag.ScaledPoint, upem int) bag.ScaledPoint {
 	return bag.ScaledPoint(int64(fu) * int64(size) / int64(upem))
 }
 
+// spToFU converts a scaled-point span back to font units at the given
+// style's body size — the inverse of fuToSP, used when a layout-derived
+// target (e.g. "stretch this fence to the body's span") must be handed to
+// the MATH-table variant machinery, which speaks font units. The result
+// is clamped to [1, 65535] so it always fits the uint16 the OT layer
+// expects; the fallback warning in the stretch pipeline fires when the
+// clamp truncates a pathologically large request.
+func spToFU(sp, size bag.ScaledPoint, upem int) uint16 {
+	if upem == 0 || size == 0 || sp <= 0 {
+		return 1
+	}
+	fu := int64(sp) * int64(upem) / int64(size)
+	if fu < 1 {
+		return 1
+	}
+	if fu > 65535 {
+		return 65535
+	}
+	return uint16(fu)
+}
+
 // mu computes 1 math-unit in scaled points at the given body size: by TeX
 // convention 1 mu = 1/18 em. The em is the unscaled body size, NOT the
 // style-scaled size — TeX's `\thinmuskip` etc. use the surrounding text size,

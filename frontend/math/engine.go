@@ -145,6 +145,9 @@ func layoutItem(it MathItem, style MathStyle, ctx *engineCtx) *laidPart {
 	case *Fraction:
 		hl := layoutFraction(i, style, ctx)
 		return &laidPart{hl: hl, class: ClassInner}
+	case *Fenced:
+		hl := layoutFenced(i, style, ctx)
+		return &laidPart{hl: hl, class: ClassInner}
 	case *Radical:
 		hl := layoutRadical(i, style, ctx)
 		return &laidPart{hl: hl, class: ClassOrd}

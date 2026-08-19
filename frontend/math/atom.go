@@ -121,6 +121,24 @@ type Radical struct {
 
 func (*Radical) isMathItem() {}
 
+// Fenced is a \left…\right group: a body flanked by delimiters that
+// stretch vertically to cover the body's span (pre-built MathVariants
+// first, GlyphAssembly when the variants run out). Left or Right may be 0
+// for an invisible delimiter (TeX \left. / \right.). The group spaces as
+// a single Inner atom, like TeX's \mathinner.
+type Fenced struct {
+	Left, Right ot.GlyphID
+	Body        []MathItem
+}
+
+func (*Fenced) isMathItem() {}
+
+// Fence wraps body in stretchy left/right delimiters. Chainable-free
+// convenience mirroring the other constructors.
+func Fence(left, right ot.GlyphID, body ...MathItem) *Fenced {
+	return &Fenced{Left: left, Right: right, Body: body}
+}
+
 // Accent is a single-glyph accent attached above or below the body. The body
 // must collapse to a single glyph; multi-glyph bodies are rejected at
 // construction time (see ErrAccentBodyMultiglyph).

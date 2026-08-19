@@ -80,6 +80,8 @@ func classOf(item MathItem) MathClass {
 		return i.Class
 	case *Fraction:
 		return ClassInner
+	case *Fenced:
+		return ClassInner
 	case *Radical:
 		return ClassOrd
 	case *Accent:

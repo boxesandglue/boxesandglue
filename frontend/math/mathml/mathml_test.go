@@ -542,3 +542,48 @@ func TestMoStretchyAttribute(t *testing.T) {
 		}
 	}
 }
+
+// TestMrowFenceDetection — an mrow delimited by stretchy fence operators
+// parses into one Fenced item; a plain paren mrow stays flat.
+func TestMrowFenceDetection(t *testing.T) {
+	fnt := loadMathFont(t)
+
+	atoms, _, err := Parse([]byte(`<math><mrow><mo stretchy="true" fence="true">(</mo><mfrac><mi>a</mi><mi>b</mi></mfrac><mo stretchy="true" fence="true">)</mo></mrow></math>`), fnt)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(atoms) != 1 {
+		t.Fatalf("want 1 item, got %d", len(atoms))
+	}
+	fenced, ok := atoms[0].(*math.Fenced)
+	if !ok {
+		t.Fatalf("want *math.Fenced, got %T", atoms[0])
+	}
+	if fenced.Left == 0 || fenced.Right == 0 {
+		t.Errorf("both delimiters should be set: %+v", fenced)
+	}
+	if len(fenced.Body) != 1 {
+		t.Errorf("body should hold the fraction, got %d items", len(fenced.Body))
+	}
+
+	// Without stretchy, the mrow stays flat (three atoms).
+	atoms, _, err = Parse([]byte(`<math><mrow><mo>(</mo><mi>x</mi><mo>)</mo></mrow></math>`), fnt)
+	if err != nil {
+		t.Fatalf("Parse (plain): %v", err)
+	}
+	if len(atoms) != 3 {
+		t.Errorf("plain paren mrow must stay flat: want 3 items, got %d", len(atoms))
+	}
+
+	// One-sided: only a trailing stretchy close fence.
+	atoms, _, err = Parse([]byte(`<math><mrow><mi>x</mi><mo stretchy="true">)</mo></mrow></math>`), fnt)
+	if err != nil {
+		t.Fatalf("Parse (one-sided): %v", err)
+	}
+	if len(atoms) != 1 {
+		t.Fatalf("one-sided fence: want 1 item, got %d", len(atoms))
+	}
+	if f, ok := atoms[0].(*math.Fenced); !ok || f.Left != 0 || f.Right == 0 {
+		t.Errorf("one-sided fence mis-parsed: %#v", atoms[0])
+	}
+}

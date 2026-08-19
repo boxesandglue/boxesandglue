@@ -222,29 +222,12 @@ func wrapFractionDelimiters(f *Fraction, hl *node.HList, style MathStyle, ctx *e
 			// Inline: just emit the base glyph, no stretching.
 			delim = wrapGlyphInHList(buildGlyph(ctx, gid, style))
 		}
-		if delim.Height == 0 && delim.Depth == 0 {
-			return delim
-		}
 		// Center the delimiter on the math axis. With real glyph
 		// extents in place, the glyph's vertical mid-point is at
-		// (Height − Depth)/2 above the baseline — NOT at Height/2,
-		// which only held when we treated all glyphs as
-		// baseline-anchored (the phase-2 convention before df7c4b75
-		// brought in real CFF extents). Using Height/2 made the
-		// centered delimiter sit roughly half its depth too low —
-		// visible as parens hanging below 'a'/'b' in the demo's
-		// (a/b) render.
-		currentCenter := (delim.Height - delim.Depth) / 2
-		shift := axis - currentCenter
-		delim.Shift = shift
-		delim.Height += shift
-		delim.Depth -= shift
-		if delim.Depth < 0 {
-			delim.Depth = 0
-		}
-		if delim.Height < 0 {
-			delim.Height = 0
-		}
+		// (Height − Depth)/2 above the baseline — NOT at Height/2
+		// (see df7c4b75). Using Height/2 made the centered delimiter
+		// sit roughly half its depth too low.
+		centerOnAxis(delim, axis)
 		return delim
 	}
 

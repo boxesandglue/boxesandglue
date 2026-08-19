@@ -231,3 +231,28 @@ func assemblyAdvanceFU(parts []ot.MathGlyphPart, repeats int, minOverlap uint16)
 	}
 	return total
 }
+
+// centerOnAxis shifts hl vertically so its visual midpoint — at
+// (Height − Depth)/2 above the baseline, using real per-glyph extents —
+// lands on the math axis. Height/Depth are adjusted to the shifted
+// geometry and clamped at zero so the surrounding box union stays sane.
+// Shared by display big-op nuclei, fraction delimiters and fences.
+func centerOnAxis(hl *node.HList, axis bag.ScaledPoint) {
+	if hl.Height == 0 && hl.Depth == 0 {
+		return
+	}
+	currentCenter := (hl.Height - hl.Depth) / 2
+	shift := axis - currentCenter
+	if shift == 0 {
+		return
+	}
+	hl.Shift = shift
+	hl.Height += shift
+	hl.Depth -= shift
+	if hl.Depth < 0 {
+		hl.Depth = 0
+	}
+	if hl.Height < 0 {
+		hl.Height = 0
+	}
+}

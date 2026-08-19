@@ -187,27 +187,11 @@ func displayOpNucleus(gid ot.GlyphID, style MathStyle, ctx *engineCtx) *node.HLi
 	}
 	hl := stretchedVertical(ctx, gid, minSizeFU, style)
 
-	// Center on math axis. The glyph's vertical midpoint sits at
-	// (Height − Depth)/2 above the baseline (uses real per-glyph
-	// extents from df7c4b75; the old "Depth=0 after stretch"
-	// assumption no longer holds). Shift by (AxisHeight − midpoint)
-	// so the visual center lands on +AxisHeight.
-	axis := fuToSP(c.AxisHeight, fnt.Size, upem)
-	half := (hl.Height + hl.Depth) / 2
-	desiredCenter := axis
-	currentCenter := hl.Height - half // = (Height − Depth)/2
-	delta := desiredCenter - currentCenter
-	if delta != 0 {
-		hl.Shift = delta
-		hl.Height += delta
-		hl.Depth -= delta
-		if hl.Depth < 0 {
-			hl.Depth = 0
-		}
-		if hl.Height < 0 {
-			hl.Height = 0
-		}
-	}
+	// Center on math axis so the operator's "middle" lines up with the
+	// surrounding inline math (uses real per-glyph extents from
+	// df7c4b75; the old "Depth=0 after stretch" assumption no longer
+	// holds).
+	centerOnAxis(hl, fuToSP(c.AxisHeight, fnt.Size, upem))
 	return hl
 }
 

@@ -266,7 +266,9 @@ func (p *parser) parseElement(start xml.StartElement) ([]math.MathItem, error) {
 		return p.parseMn(start)
 	case "mo":
 		return p.parseMo(start)
-	case "mrow", "mstyle", "mpadded", "mphantom":
+	case "mrow":
+		return p.parseMrow(start)
+	case "mstyle", "mpadded", "mphantom":
 		// transparent grouping containers — emit the children flat
 		return p.parseChildren(start)
 	case "mfrac":
@@ -531,6 +533,54 @@ func (p *parser) parseMunderover(start xml.StartElement) ([]math.MathItem, error
 	a.Sub = math.MathField{Sublist: kids[1]}
 	a.Sup = math.MathField{Sublist: kids[2]}
 	return []math.MathItem{a}, nil
+}
+
+// parseMrow reads a grouping row. Children are emitted flat unless the
+// row is delimited by stretchy fence operators, in which case the whole
+// row becomes one Fenced item so the delimiters stretch over the row's
+// content.
+func (p *parser) parseMrow(start xml.StartElement) ([]math.MathItem, error) {
+	items, err := p.parseChildren(start)
+	if err != nil {
+		return nil, err
+	}
+	return maybeFence(items), nil
+}
+
+// maybeFence rewrites a parsed mrow child list into a single Fenced item
+// when it is delimited by stretchy fence operators: a leading stretchy
+// Open atom and/or a trailing stretchy Close atom (MathML Core: a
+// stretchy mo stretches to cover its mrow siblings). v1 recognizes the
+// leading/trailing positions with dictionary Open/Close classes only —
+// a mid-row stretchy bar (TeX \middle) and stretchy Ord characters such
+// as | are out of scope and stay plain atoms.
+func maybeFence(items []math.MathItem) []math.MathItem {
+	if len(items) < 2 {
+		return items
+	}
+	stretchyFence := func(it math.MathItem, class math.MathClass) ot.GlyphID {
+		a, ok := it.(*math.MathAtom)
+		if !ok || !a.Stretchy || a.Class != class {
+			return 0
+		}
+		if a.Nucleus.Glyph == 0 || !a.Sub.IsEmpty() || !a.Sup.IsEmpty() {
+			return 0
+		}
+		return a.Nucleus.Glyph
+	}
+	left := stretchyFence(items[0], math.ClassOpen)
+	right := stretchyFence(items[len(items)-1], math.ClassClose)
+	if left == 0 && right == 0 {
+		return items
+	}
+	body := items
+	if left != 0 {
+		body = body[1:]
+	}
+	if right != 0 {
+		body = body[:len(body)-1]
+	}
+	return []math.MathItem{&math.Fenced{Left: left, Right: right, Body: body}}
 }
 
 // gid resolves a single rune to its glyph id via the text shaper. Errors
