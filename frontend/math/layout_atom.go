@@ -27,6 +27,13 @@ func layoutAtom(a *MathAtom, style MathStyle, ctx *engineCtx) *node.HList {
 		nuc = layoutField(a.Nucleus, style, ctx)
 	}
 	if a.Sub.IsEmpty() && a.Sup.IsEmpty() {
+		// TeX appends the italic correction of a character nucleus as a
+		// kern when the atom carries no subscript (tex.web,
+		// mlist_to_hlist): a slanted glyph's ink overhangs its advance,
+		// so without the kern an italic f runs into a following
+		// parenthesis or prime. Atoms with scripts get the correction
+		// inside placeSubSup instead.
+		appendNucleusItalicCorrection(a, nuc, style, ctx)
 		return nuc
 	}
 	// Script placement and nucleus enlargement are independent choices:
@@ -622,4 +629,25 @@ func stretchyGlyphField(f MathField) (ot.GlyphID, bool) {
 		return 0, false
 	}
 	return a.Nucleus.Glyph, true
+}
+
+// appendNucleusItalicCorrection adds the OT-MATH italics correction of a
+// single-glyph nucleus as a trailing kern to the laid-out atom box.
+func appendNucleusItalicCorrection(a *MathAtom, nuc *node.HList, style MathStyle, ctx *engineCtx) {
+	if a.Nucleus.Glyph == 0 {
+		return
+	}
+	fnt := ctx.at(style)
+	delta := fnt.ItalicCorrection(int(a.Nucleus.Glyph))
+	if delta == 0 {
+		return
+	}
+	k := node.NewKern()
+	k.Kern = delta
+	if tail := node.Tail(nuc.List); tail != nil {
+		node.InsertAfter(nuc.List, tail, k)
+	} else {
+		nuc.List = k
+	}
+	nuc.Width += delta
 }

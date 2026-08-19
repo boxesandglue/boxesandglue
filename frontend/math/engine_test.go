@@ -53,8 +53,10 @@ func glyphWidth(fnt *font.Font, gid ot.GlyphID) bag.ScaledPoint {
 	return bag.ScaledPoint(advFU * int64(fnt.Size) / upem)
 }
 
-// TestSimpleOrdOrd — `x y`: width must be exactly the sum of the two
-// glyph advances; no kern is inserted (Ord/Ord = 0 in the spacing table).
+// TestSimpleOrdOrd — `x y`: width must be the sum of the two glyph
+// advances plus each glyph's italic correction (TeX appends it as a kern
+// after a scriptless character nucleus); the spacing table itself adds
+// nothing between Ord and Ord.
 func TestSimpleOrdOrd(t *testing.T) {
 	fnt := loadMathFont(t)
 	xGid := glyphFor(t, fnt, 'x')
@@ -63,15 +65,10 @@ func TestSimpleOrdOrd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InlineMath: %v", err)
 	}
-	want := glyphWidth(fnt, xGid) + glyphWidth(fnt, yGid)
+	want := glyphWidth(fnt, xGid) + fnt.ItalicCorrection(int(xGid)) +
+		glyphWidth(fnt, yGid) + fnt.ItalicCorrection(int(yGid))
 	if hl.Width != want {
-		t.Errorf("HList.Width = %d sp, want %d sp (x+y, no kern)", hl.Width, want)
-	}
-	// Walk the list to confirm no Kern between the two glyphs.
-	for n := hl.List; n != nil; n = n.Next() {
-		if _, isKern := n.(*node.Kern); isKern {
-			t.Errorf("unexpected Kern in Ord/Ord list — table says 0 between Ord and Ord")
-		}
+		t.Errorf("HList.Width = %d sp, want %d sp (x+ic+y+ic)", hl.Width, want)
 	}
 }
 
@@ -85,8 +82,10 @@ func TestBinRewriteFirstPos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InlineMath: %v", err)
 	}
-	// Total width should be plus + x advance with no Med-Space between.
-	want := glyphWidth(fnt, plusGid) + glyphWidth(fnt, xGid)
+	// Total width should be plus + x advance (each plus its italic
+	// correction kern) with no Med-Space between.
+	want := glyphWidth(fnt, plusGid) + fnt.ItalicCorrection(int(plusGid)) +
+		glyphWidth(fnt, xGid) + fnt.ItalicCorrection(int(xGid))
 	if hl.Width != want {
 		t.Errorf("Width = %d, want %d (no med-space because leading Bin → Ord)", hl.Width, want)
 	}
@@ -106,7 +105,9 @@ func TestOrdBinOrd(t *testing.T) {
 	// Engine computes 4mu as int64(size) * 4 / 18 (single division). Do the
 	// same in the test — `mu(size) * 4` would round twice and miss by 1-3 sp.
 	med := bag.ScaledPoint(int64(fnt.Size) * 4 / 18)
-	want := glyphWidth(fnt, xGid) + med + glyphWidth(fnt, plusGid) + med + glyphWidth(fnt, yGid)
+	want := glyphWidth(fnt, xGid) + fnt.ItalicCorrection(int(xGid)) + med +
+		glyphWidth(fnt, plusGid) + fnt.ItalicCorrection(int(plusGid)) + med +
+		glyphWidth(fnt, yGid) + fnt.ItalicCorrection(int(yGid))
 	if hl.Width != want {
 		t.Errorf("Width = %d, want %d (x + medkern + plus + medkern + y)", hl.Width, want)
 	}
