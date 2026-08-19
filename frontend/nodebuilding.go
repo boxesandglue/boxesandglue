@@ -295,6 +295,9 @@ const (
 	// long words in narrow columns). Default 0 disables it. Typical values
 	// are 1–3em of the body font size.
 	SettingLinebreakEmergencyStretch
+	// SettingItalicCorrection enables the heuristic kern between directly
+	// adjacent glyph runs of a slanted and an upright font (bool).
+	SettingItalicCorrection
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -455,6 +458,8 @@ func (st SettingType) String() string {
 		settingName = "SettingLinebreakTolerance"
 	case SettingLinebreakEmergencyStretch:
 		settingName = "SettingLinebreakEmergencyStretch"
+	case SettingItalicCorrection:
+		settingName = "SettingItalicCorrection"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -1233,6 +1238,10 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 		return &paragraphPrep{done: true, early: node.NewVList()}, nil
 	}
 
+	if ic, ok := te.Settings[SettingItalicCorrection].(bool); ok && ic {
+		applyItalicCorrection(hlist)
+	}
+
 	Hyphenate(hlist, p.Language)
 	hlist = preventBreakBeforeClosingPunctuation(hlist)
 	node.AppendLineEndAfter(hlist, tail)
@@ -1774,7 +1783,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if s, ok := v.(string); ok {
 				hyphensMode = s
 			}
-		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch:
+		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingItalicCorrection:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
 		default:
