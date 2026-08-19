@@ -126,56 +126,67 @@ func buildVerticalAssembly(ctx *engineCtx, assembly *ot.MathGlyphAssembly, minSi
 		return nil, false
 	}
 
-	// Build the linked list of part glyphs top-to-bottom with negative
-	// kerns realizing the overlaps. Each kern carries a negative height
-	// equal to the overlap — by convention in our VList builder we add
-	// vertical kerns as Kern nodes (which are horizontal advance only,
-	// but inside a VList they advance vertically — see node.Vpack).
+	// Build the linked list of parts top-to-bottom with negative kerns
+	// realizing the overlaps (Kern nodes advance vertically inside a
+	// VList). OT-MATH lists vertical assembly parts in visual order
+	// BOTTOM to top (spec §6.5), so the emission order is reversed for
+	// the top-down VList. Each part glyph is wrapped in its own HList:
+	// the page output routine positions boxes inside a VList — a bare
+	// Glyph child would be skipped silently.
 	var head, tail node.Node
-	prevEndConn := uint16(0)
+	prevStartConn := uint16(0)
 	hasPrevious := false
 	totalAdvanceFU := 0
-	for _, p := range assembly.Parts {
+	emit := func(p ot.MathGlyphPart) {
+		if hasPrevious {
+			// The previously emitted piece sits ABOVE this one: its
+			// bottom connector (StartConnector, "start" = growth
+			// direction = bottom) overlaps this piece's top connector
+			// (EndConnector).
+			overlap := minOverlapFU
+			smaller := prevStartConn
+			if p.EndConnectorLengthFU < smaller {
+				smaller = p.EndConnectorLengthFU
+			}
+			if smaller > overlap {
+				overlap = smaller
+			}
+			if overlap > 0 {
+				k := node.NewKern()
+				k.Kern = -bag.ScaledPoint(int64(overlap) * int64(fnt.Size) / int64(upem))
+				head, tail = appendNode(head, tail, k)
+				totalAdvanceFU -= int(overlap)
+			}
+		}
+		g := node.NewGlyph()
+		g.Font = fnt
+		g.Codepoint = int(p.GlyphID)
+		advSP := bag.ScaledPoint(int64(p.FullAdvanceFU) * int64(fnt.Size) / int64(upem))
+		// For the parts of a vertical assembly we use FullAdvance as
+		// the vertical extent and the horizontal advance of the
+		// glyph itself for width. Look the latter up via the shaper.
+		hAdv := int64(fnt.Face.Shaper.GetGlyphHAdvanceVar(p.GlyphID))
+		g.Width = bag.ScaledPoint(hAdv * int64(fnt.Size) / int64(upem))
+		g.Height = advSP
+		g.Depth = 0
+		box := node.NewHList()
+		box.List = g
+		box.Width = g.Width
+		box.Height = g.Height
+		box.Depth = 0
+		head, tail = appendNode(head, tail, box)
+		totalAdvanceFU += int(p.FullAdvanceFU)
+		prevStartConn = p.StartConnectorLengthFU
+		hasPrevious = true
+	}
+	for idx := len(assembly.Parts) - 1; idx >= 0; idx-- {
+		p := assembly.Parts[idx]
 		n := 1
 		if p.IsExtender {
 			n = repeats
 		}
 		for i := 0; i < n; i++ {
-			if hasPrevious {
-				overlap := minOverlapFU
-				thisStart := p.StartConnectorLengthFU
-				smaller := prevEndConn
-				if thisStart < smaller {
-					smaller = thisStart
-				}
-				if smaller > overlap {
-					overlap = smaller
-				}
-				if overlap > 0 {
-					k := node.NewKern()
-					k.Kern = -bag.ScaledPoint(int64(overlap) * int64(fnt.Size) / int64(upem))
-					head, tail = appendNode(head, tail, k)
-					totalAdvanceFU -= int(overlap)
-				}
-			}
-			g := node.NewGlyph()
-			g.Font = fnt
-			g.Codepoint = int(p.GlyphID)
-			advFU := int64(p.FullAdvanceFU)
-			advSP := bag.ScaledPoint(advFU * int64(fnt.Size) / int64(upem))
-			// For the parts of a vertical assembly we use FullAdvance as
-			// the vertical extent and the horizontal advance of the
-			// glyph itself for width. Look the latter up via the shaper.
-			hAdv := int64(fnt.Face.Shaper.GetGlyphHAdvanceVar(p.GlyphID))
-			g.Width = bag.ScaledPoint(hAdv * int64(fnt.Size) / int64(upem))
-			// Each part takes its full advance vertically (height); depth
-			// 0 by convention so the next piece starts immediately below.
-			g.Height = advSP
-			g.Depth = 0
-			head, tail = appendNode(head, tail, g)
-			totalAdvanceFU += int(p.FullAdvanceFU)
-			prevEndConn = p.EndConnectorLengthFU
-			hasPrevious = true
+			emit(p)
 		}
 	}
 	_ = tail
@@ -188,9 +199,9 @@ func buildVerticalAssembly(ctx *engineCtx, assembly *ot.MathGlyphAssembly, minSi
 	vl.Depth = 0
 	// Width: max child width.
 	for n := head; n != nil; n = n.Next() {
-		if g, ok := n.(*node.Glyph); ok {
-			if g.Width > vl.Width {
-				vl.Width = g.Width
+		if hb, ok := n.(*node.HList); ok {
+			if hb.Width > vl.Width {
+				vl.Width = hb.Width
 			}
 		}
 	}
@@ -254,5 +265,13 @@ func centerOnAxis(hl *node.HList, axis bag.ScaledPoint) {
 	}
 	if hl.Height < 0 {
 		hl.Height = 0
+	}
+	// Anchoring asymmetry in the page output: a Glyph child of an HList
+	// renders at the (Shift-adjusted) baseline, but a VList child hangs
+	// its top edge from the DECLARED hlist.Height — which now includes
+	// the shift, so a glyph-assembly VList would move twice. Compensate
+	// on the child's own Shift.
+	if vl, ok := hl.List.(*node.VList); ok && vl.Next() == nil {
+		vl.Shift -= shift
 	}
 }
