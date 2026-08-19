@@ -75,8 +75,28 @@ func placeLimits(a *MathAtom, nuc *node.HList, style MathStyle, ctx *engineCtx) 
 		lower = layoutField(a.Sub, subStyle(style), ctx)
 	}
 
-	// Compute the widest box; everything centers on it.
+	// Compute the widest box; everything centers on it. Stretchy
+	// single-glyph limits (MathML <mo stretchy> arrows/braces under or
+	// over a base) do not vote on the width — they are stretched to the
+	// width the other participants establish, then the maximum is
+	// re-taken because a pre-built variant may overshoot the request.
+	supGid, supStretchy := stretchyGlyphField(a.Sup)
+	subGid, subStretchy := stretchyGlyphField(a.Sub)
 	W := nuc.Width
+	if hasUpper && !supStretchy && upper.Width > W {
+		W = upper.Width
+	}
+	if hasLower && !subStretchy && lower.Width > W {
+		W = lower.Width
+	}
+	if supStretchy {
+		sSty := supStyle(style)
+		upper = stretchedHorizontal(ctx, supGid, spToFU(W, ctx.at(sSty).Size, upem), sSty)
+	}
+	if subStretchy {
+		sSty := subStyle(style)
+		lower = stretchedHorizontal(ctx, subGid, spToFU(W, ctx.at(sSty).Size, upem), sSty)
+	}
 	if hasUpper && upper.Width > W {
 		W = upper.Width
 	}
@@ -587,4 +607,19 @@ func firstGlyphIn(start node.Node) *node.Glyph {
 		}
 	}
 	return nil
+}
+
+// stretchyGlyphField reports the glyph id when the field consists of
+// exactly one single-glyph, script-free atom flagged Stretchy — the shape
+// the MathML reader produces for <mo stretchy="true">←</mo> inside
+// munder/mover.
+func stretchyGlyphField(f MathField) (ot.GlyphID, bool) {
+	if len(f.Sublist) != 1 {
+		return 0, false
+	}
+	a, ok := f.Sublist[0].(*MathAtom)
+	if !ok || !a.Stretchy || a.Nucleus.Glyph == 0 || !a.Sub.IsEmpty() || !a.Sup.IsEmpty() {
+		return 0, false
+	}
+	return a.Nucleus.Glyph, true
 }
