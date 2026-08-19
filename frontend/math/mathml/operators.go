@@ -82,3 +82,28 @@ func operatorClass(r rune) math.MathClass {
 	}
 	return math.ClassOrd
 }
+
+// horizStretchy lists operators that stretch horizontally by dictionary
+// default (MathML Core operator dictionary, stretchy axis = inline):
+// arrows and over/under braces/bars. An explicit stretchy attribute on
+// the <mo> element overrides the table in both directions.
+var horizStretchy = map[rune]bool{
+	'←': true,
+	'→': true,
+	'↔': true,
+	'⇐': true,
+	'⇒': true,
+	'⇔': true,
+	'↦': true,
+	'⟵': true,
+	'⟶': true,
+	'⟷': true,
+	'⏞': true,
+	'⏟': true,
+	'⏠': true,
+	'⏡': true,
+	'‾': true,
+	'_': true,
+	'︷': true,
+	'︸': true,
+}

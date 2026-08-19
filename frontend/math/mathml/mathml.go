@@ -381,6 +381,20 @@ func (p *parser) parseMo(start xml.StartElement) ([]math.MathItem, error) {
 			Class:   operatorClass(r),
 			Nucleus: math.MathField{Glyph: gid},
 		}
+		// The stretchy attribute wins; without it, horizontally
+		// stretchable operators (arrows, over/under braces) default to
+		// stretchy per the dictionary. Vertical fence characters get no
+		// dictionary default in v1 — authors opt in via
+		// stretchy="true", which keeps plain (x) parenthesis runs
+		// byte-identical to earlier releases.
+		switch attr(start, "stretchy") {
+		case "true":
+			atom.Stretchy = true
+		case "false":
+			// explicit opt-out
+		default:
+			atom.Stretchy = horizStretchy[r]
+		}
 		items = append(items, atom)
 	}
 	return items, nil
@@ -435,6 +449,7 @@ func (p *parser) parseMsup(start xml.StartElement) ([]math.MathItem, error) {
 		return nil, err
 	}
 	a := atomFromBase(kids[0])
+	a.Scripts = math.ScriptsSide
 	a.Sup = math.MathField{Sublist: kids[1]}
 	return []math.MathItem{a}, nil
 }
@@ -446,6 +461,7 @@ func (p *parser) parseMsub(start xml.StartElement) ([]math.MathItem, error) {
 		return nil, err
 	}
 	a := atomFromBase(kids[0])
+	a.Scripts = math.ScriptsSide
 	a.Sub = math.MathField{Sublist: kids[1]}
 	return []math.MathItem{a}, nil
 }
@@ -457,6 +473,7 @@ func (p *parser) parseMsubsup(start xml.StartElement) ([]math.MathItem, error) {
 		return nil, err
 	}
 	a := atomFromBase(kids[0])
+	a.Scripts = math.ScriptsSide
 	a.Sub = math.MathField{Sublist: kids[1]}
 	a.Sup = math.MathField{Sublist: kids[2]}
 	return []math.MathItem{a}, nil
@@ -478,6 +495,7 @@ func (p *parser) parseMunder(start xml.StartElement) ([]math.MathItem, error) {
 		return []math.MathItem{math.AccentBottom(accGid, kids[0]...)}, nil
 	}
 	a := atomFromBase(kids[0])
+	a.Scripts = math.ScriptsLimits
 	a.Sub = math.MathField{Sublist: kids[1]}
 	return []math.MathItem{a}, nil
 }
@@ -496,6 +514,7 @@ func (p *parser) parseMover(start xml.StartElement) ([]math.MathItem, error) {
 		return []math.MathItem{math.AccentTop(accGid, kids[0]...)}, nil
 	}
 	a := atomFromBase(kids[0])
+	a.Scripts = math.ScriptsLimits
 	a.Sup = math.MathField{Sublist: kids[1]}
 	return []math.MathItem{a}, nil
 }
@@ -508,6 +527,7 @@ func (p *parser) parseMunderover(start xml.StartElement) ([]math.MathItem, error
 		return nil, err
 	}
 	a := atomFromBase(kids[0])
+	a.Scripts = math.ScriptsLimits
 	a.Sub = math.MathField{Sublist: kids[1]}
 	a.Sup = math.MathField{Sublist: kids[2]}
 	return []math.MathItem{a}, nil

@@ -481,3 +481,64 @@ func TestAltText(t *testing.T) {
 		})
 	}
 }
+
+// TestScriptElementPlacement — msub/msup/msubsup map to ScriptsSide,
+// non-accent munder/mover/munderover map to ScriptsLimits.
+func TestScriptElementPlacement(t *testing.T) {
+	fnt := loadMathFont(t)
+	testdata := []struct {
+		src  string
+		want math.ScriptsPlacement
+	}{
+		{`<math><msub><mi>x</mi><mi>i</mi></msub></math>`, math.ScriptsSide},
+		{`<math><msup><mi>x</mi><mn>2</mn></msup></math>`, math.ScriptsSide},
+		{`<math><msubsup><mo>∫</mo><mn>0</mn><mn>1</mn></msubsup></math>`, math.ScriptsSide},
+		{`<math><munder><mi>lim</mi><mo>←</mo></munder></math>`, math.ScriptsLimits},
+		{`<math><mover><mi>lim</mi><mo>→</mo></mover></math>`, math.ScriptsLimits},
+		{`<math><munderover><mo>∑</mo><mn>0</mn><mi>n</mi></munderover></math>`, math.ScriptsLimits},
+	}
+	for _, td := range testdata {
+		atoms, _, err := Parse([]byte(td.src), fnt)
+		if err != nil {
+			t.Fatalf("Parse(%s): %v", td.src, err)
+		}
+		if len(atoms) != 1 {
+			t.Fatalf("Parse(%s): want 1 atom, got %d", td.src, len(atoms))
+		}
+		a, ok := atoms[0].(*math.MathAtom)
+		if !ok {
+			t.Fatalf("Parse(%s): not a MathAtom", td.src)
+		}
+		if a.Scripts != td.want {
+			t.Errorf("Parse(%s): Scripts = %d, want %d", td.src, a.Scripts, td.want)
+		}
+	}
+}
+
+// TestMoStretchyAttribute — the stretchy attribute and the dictionary
+// defaults produce the Stretchy flag on operator atoms.
+func TestMoStretchyAttribute(t *testing.T) {
+	fnt := loadMathFont(t)
+	testdata := []struct {
+		src  string
+		want bool
+	}{
+		{`<math><mo stretchy="true">(</mo></math>`, true},
+		{`<math><mo>(</mo></math>`, false},
+		{`<math><mo>→</mo></math>`, true},
+		{`<math><mo stretchy="false">→</mo></math>`, false},
+	}
+	for _, td := range testdata {
+		atoms, _, err := Parse([]byte(td.src), fnt)
+		if err != nil {
+			t.Fatalf("Parse(%s): %v", td.src, err)
+		}
+		if len(atoms) != 1 {
+			t.Fatalf("Parse(%s): want 1 atom, got %d", td.src, len(atoms))
+		}
+		a := atoms[0].(*math.MathAtom)
+		if a.Stretchy != td.want {
+			t.Errorf("Parse(%s): Stretchy = %v, want %v", td.src, a.Stretchy, td.want)
+		}
+	}
+}
