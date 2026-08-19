@@ -57,11 +57,34 @@ type MathField struct {
 // IsEmpty reports whether the field is absent (no glyph and no sublist).
 func (f MathField) IsEmpty() bool { return f.Glyph == 0 && f.Sublist == nil }
 
+// ScriptsPlacement controls where an atom's Sub/Sup attach. The zero
+// value ScriptsAuto keeps the TeX default: stacked limits for a big
+// operator in display style, side scripts otherwise. The MathML reader
+// maps msub/msup/msubsup to ScriptsSide and the non-accent munder/mover/
+// munderover forms to ScriptsLimits, per MathML Core semantics.
+type ScriptsPlacement uint8
+
+const (
+	// ScriptsAuto lets the layouter decide (TeX big-op rule).
+	ScriptsAuto ScriptsPlacement = iota
+	// ScriptsSide forces sub/sup to the right of the nucleus.
+	ScriptsSide
+	// ScriptsLimits forces sub/sup to stack below/above the nucleus.
+	ScriptsLimits
+)
+
 // MathAtom is the workhorse: a class plus a nucleus and optional scripts.
-// All three fields are values, not pointers — keeps allocations down and
+// The field block is values, not pointers — keeps allocations down and
 // matches the LuaTeX `simple_noad` layout.
 type MathAtom struct {
-	Class             MathClass
+	Class MathClass
+	// Scripts selects side-script vs. stacked-limit placement; the zero
+	// value keeps the automatic TeX behavior.
+	Scripts ScriptsPlacement
+	// Stretchy marks the nucleus as a stretchy operator (MathML
+	// <mo stretchy="true">): as an under/over limit it is stretched
+	// horizontally to the width of its base.
+	Stretchy          bool
 	Nucleus, Sub, Sup MathField
 }
 
@@ -156,6 +179,13 @@ func Punct(gid ot.GlyphID) *MathAtom {
 // parenthesized group, when the caller wants explicit inner spacing).
 func Inner(items ...MathItem) *MathAtom {
 	return &MathAtom{Class: ClassInner, Nucleus: MathField{Sublist: items}}
+}
+
+// WithScripts sets the scripts placement mode and returns the atom.
+// Chainable.
+func (a *MathAtom) WithScripts(p ScriptsPlacement) *MathAtom {
+	a.Scripts = p
+	return a
 }
 
 // WithSub attaches a subscript to an atom and returns it. Chainable.

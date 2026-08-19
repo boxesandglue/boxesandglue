@@ -19,9 +19,9 @@ import (
 // to sit centered on the math axis so sub/sup-script placement still
 // works with the existing Atom-Geometry code.
 func layoutAtom(a *MathAtom, style MathStyle, ctx *engineCtx) *node.HList {
-	isDisplayBigOp := a.Class == ClassOp && style.IsDisplay() && a.Nucleus.Glyph != 0
+	bigOpNucleus := a.Class == ClassOp && style.IsDisplay() && a.Nucleus.Glyph != 0
 	var nuc *node.HList
-	if isDisplayBigOp {
+	if bigOpNucleus {
 		nuc = displayOpNucleus(a.Nucleus.Glyph, style, ctx)
 	} else {
 		nuc = layoutField(a.Nucleus, style, ctx)
@@ -29,11 +29,20 @@ func layoutAtom(a *MathAtom, style MathStyle, ctx *engineCtx) *node.HList {
 	if a.Sub.IsEmpty() && a.Sup.IsEmpty() {
 		return nuc
 	}
-	// Big-op in display style: render sub/sup as LIMITS (centered above
-	// and below the operator), not as scripts (to the right). This is
-	// the visual convention `\sum_{i=0}^{n}` shows in LaTeX: i=0 below
-	// the ∑ and n above, both centered on the ∑'s axis.
-	if isDisplayBigOp {
+	// Script placement and nucleus enlargement are independent choices:
+	// a display ∫ keeps its big display variant even when its scripts sit
+	// to the side (TeX nolimits convention, MathML msubsup), and an <mi>
+	// base like "lim" stacks its limits when munder/mover ask for it.
+	// ScriptsAuto keeps the TeX default: limits exactly for display
+	// big-ops (`\sum_{i=0}^{n}` centers i=0 below and n above the ∑).
+	useLimits := bigOpNucleus
+	switch a.Scripts {
+	case ScriptsLimits:
+		useLimits = true
+	case ScriptsSide:
+		useLimits = false
+	}
+	if useLimits {
 		return placeLimits(a, nuc, style, ctx)
 	}
 	return placeSubSup(a, nuc, style, ctx)
@@ -352,7 +361,20 @@ func placeSubSup(a *MathAtom, nuc *node.HList, style MathStyle, ctx *engineCtx) 
 
 	// Assemble the outer HList. Layout:
 	//   nucleus  italicCorr  [sup-box]  -W_sup  [sub-box]  finalKern  SpaceAfterScript
+	//
+	// TeX nolimits asymmetry (Appendix G rule 18a/18b): the superscript
+	// is shifted right by the nucleus italic correction, the subscript
+	// hugs the nucleus edge. Scoped to Op atoms (a slanted display ∫
+	// with side scripts) so letter-script layouts keep their symmetric
+	// pre-kern.
+	subBackExtra := bag.ScaledPoint(0)
+	if a.Class == ClassOp {
+		subBackExtra = italicCorr
+	}
 	scriptStartKern := italicCorr // applied before the first script
+	if a.Class == ClassOp && !hasSup {
+		scriptStartKern = 0
+	}
 	out := node.NewHList()
 	var head, tail node.Node
 	width := bag.ScaledPoint(0)
@@ -403,9 +425,9 @@ func placeSubSup(a *MathAtom, nuc *node.HList, style MathStyle, ctx *engineCtx) 
 		// and sup share an x origin.
 		if hasSup {
 			back := node.NewKern()
-			back.Kern = -supW
+			back.Kern = -supW - subBackExtra
 			head, tail = appendNode(head, tail, back)
-			width -= supW
+			width -= supW + subBackExtra
 		}
 		head, tail = appendNode(head, tail, subBox)
 		width += subW
@@ -416,7 +438,10 @@ func placeSubSup(a *MathAtom, nuc *node.HList, style MathStyle, ctx *engineCtx) 
 	if !hasSup && hasSub {
 		emittedScriptW = subW
 	} else if hasSup && hasSub {
-		emittedScriptW = subW // we ended at the sub box's right edge
+		// We ended at the sub box's right edge, which sits subBackExtra
+		// left of the shared script origin when the nolimits asymmetry
+		// applies.
+		emittedScriptW = subW - subBackExtra
 	}
 	if scriptW > emittedScriptW {
 		k := node.NewKern()
