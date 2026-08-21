@@ -57,6 +57,13 @@ type TableCell struct {
 	BorderRightWidth            bag.ScaledPoint
 	CalculatedWidth             bag.ScaledPoint
 	CalculatedHeight            bag.ScaledPoint
+	// SpecifiedWidth is the cell's declared width (CSS `width` on a
+	// <td>/<th>, percentages already resolved against the table width).
+	// Zero means "not specified". CSS 2.1 §17.5.2.2 folds it into the
+	// automatic layout as a lower bound for the column, so a cell can
+	// widen its column beyond the content but never clips content that
+	// needs more room. Cells spanning several columns are ignored.
+	SpecifiedWidth              bag.ScaledPoint
 	HAlign                      HorizontalAlignment
 	VAlign                      VerticalAlignment
 	ExtraColspan                int
@@ -769,6 +776,51 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 				for r := cs.start; r <= cs.end; r++ {
 					colmin[r] += stretch
 				}
+			}
+		}
+
+		// CSS 2.1 §17.5.2.2: a cell's specified width raises the
+		// containing column's minimum and maximum content width. Applying
+		// it to both means a column asked for 50% keeps that share even
+		// when its content is narrow (colmax alone would let the shrink
+		// pass below squeeze it back to the text, since colmin is the
+		// shrink floor). Cells spanning several columns carry no
+		// unambiguous per-column width and are skipped.
+		colspec := make([]bag.ScaledPoint, tbl.nCol)
+		sumSpec := bag.ScaledPoint(0)
+		for _, r := range tbl.Rows {
+			for _, cell := range r.Cells {
+				if cell.ExtraColspan != 0 || cell.SpecifiedWidth <= 0 {
+					continue
+				}
+				// colStart was resolved by analyzeTable and already
+				// accounts for cells carried over by a rowspan above.
+				col := cell.colStart
+				if col < 0 || col >= tbl.nCol {
+					continue
+				}
+				if cell.SpecifiedWidth > colspec[col] {
+					sumSpec += cell.SpecifiedWidth - colspec[col]
+					colspec[col] = cell.SpecifiedWidth
+				}
+			}
+		}
+		// Over-constrained tables (widths adding up to more than the table
+		// width, e.g. two cells asking for 80% each) are scaled back to
+		// fit. Without this the raised minimums become a floor the shrink
+		// pass cannot undercut and the table runs off the page.
+		if sumSpec > tbl.MaxWidth && sumSpec > 0 {
+			r := tbl.MaxWidth.ToPT() / sumSpec.ToPT()
+			for i := range colspec {
+				colspec[i] = bag.ScaledPointFromFloat(colspec[i].ToPT() * r)
+			}
+		}
+		for i, wd := range colspec {
+			if wd > colmax[i] {
+				colmax[i] = wd
+			}
+			if wd > colmin[i] {
+				colmin[i] = wd
 			}
 		}
 
