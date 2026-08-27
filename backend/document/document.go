@@ -17,6 +17,7 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
+	"github.com/boxesandglue/boxesandglue/internal/nodearena"
 	"github.com/boxesandglue/svgreader"
 	"github.com/boxesandglue/textshape/ot"
 )
@@ -2660,6 +2661,13 @@ func formatDate(t time.Time) string {
 // Finish writes all objects to the PDF and writes the XRef section. Finish does
 // not close the writer.
 func (d *PDFDocument) Finish() error {
+	// Finish ends the document's lifecycle (also when it fails), so no new
+	// nodes are needed for it: release the node allocator's retained chunks,
+	// otherwise their stale nodes keep pinning fonts, images and node graphs
+	// of this document in long-running processes (issue #21). Nodes of other
+	// documents being built in parallel remain valid.
+	defer nodearena.Release()
+
 	var err error
 	// Resolve Format-driven PDF version now (Format may have been set after
 	// NewDocument by the caller). The PDF header is written lazily on the
