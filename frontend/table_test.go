@@ -59,3 +59,35 @@ func TestRowspanHeightDistribution(t *testing.T) {
 			tbl.rowHeights[0], tbl.rowHeights[1])
 	}
 }
+
+// TestCellStacksBlockContents checks that a cell holding more than one
+// block-level item stacks them. They used to be HpackTo'd, which laid them out
+// side by side: the cell stayed one item tall and everything after the first
+// was pushed past the cell's width, where the next row drew over it. The
+// content vanished with no warning and no overflow diagnostic.
+func TestCellStacksBlockContents(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const blockHeight = "30pt"
+	cell := &TableCell{Contents: []any{
+		fixedBox(bag.MustSP("20pt"), bag.MustSP(blockHeight)),
+		fixedBox(bag.MustSP("20pt"), bag.MustSP(blockHeight)),
+	}}
+
+	tbl := &Table{
+		MaxWidth: bag.MustSP("200pt"),
+		Rows:     TableRows{&TableRow{Cells: []*TableCell{cell}}},
+	}
+	if _, err = fe.BuildTable(tbl); err != nil {
+		t.Fatal(err)
+	}
+
+	want := 2 * bag.MustSP(blockHeight)
+	if tbl.rowHeights[0] < want {
+		t.Errorf("row height = %s, want at least %s: the second block was not stacked",
+			tbl.rowHeights[0], want)
+	}
+}

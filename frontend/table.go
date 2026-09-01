@@ -217,6 +217,20 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	return maxwd + cell.BorderLeftWidth + cell.BorderRightWidth + cell.PaddingLeft + cell.PaddingRight, nil
 }
 
+// allVLists reports whether every item in the list is block-level, and so has to
+// be stacked rather than packed horizontally.
+func allVLists(head node.Node) bool {
+	if head == nil {
+		return false
+	}
+	for n := head; n != nil; n = n.Next() {
+		if _, ok := n.(*node.VList); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (cell *TableCell) build() (*node.VList, error) {
 	fe := cell.row.table.doc
 	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
@@ -268,6 +282,14 @@ func (cell *TableCell) build() (*node.VList, error) {
 	// If head is already a single VList, use it directly; otherwise pack horizontally first
 	if existingVL, ok := head.(*node.VList); ok && head.Next() == nil {
 		vl = existingVL
+	} else if allVLists(head) {
+		// Several block-level items — one paragraph per line of a multi-line
+		// value, say — have to STACK. HpackTo lays them out side by side, which
+		// leaves the cell one line tall and pushes everything after the first
+		// past the cell's width, where the next row overdraws it: the content
+		// disappears with no warning and no overflow diagnostic.
+		vl = node.Vpack(head)
+		vl.Attributes = node.H{"origin": "vpack cell"}
 	} else {
 		hl := node.HpackTo(head, paraWidth)
 		hl.Attributes = node.H{"origin": "hpack cell"}
