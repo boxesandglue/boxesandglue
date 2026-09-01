@@ -55,14 +55,17 @@ func encodeAttributes(enc *xml.Encoder, start *xml.StartElement, attributes []kv
 			Value: fmt.Sprint(attr.value),
 		})
 	}
-	keys := make([]string, len(extraAttributes))
+	keys := make([]string, 0, len(extraAttributes))
 	for k := range extraAttributes {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		// The H map is an open namespace (callers may set any key, e.g.
+		// "id"), so prefix its entries to keep them from clashing with
+		// the typed attributes above.
 		start.Attr = append(start.Attr, xml.Attr{
-			Name:  xml.Name{Local: k},
+			Name:  xml.Name{Local: "attr-" + k},
 			Value: fmt.Sprintf("%v", extraAttributes[k]),
 		})
 	}
