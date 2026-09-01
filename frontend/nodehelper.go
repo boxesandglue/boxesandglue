@@ -28,19 +28,29 @@ func maxWidthWithoutStretch(vl *node.VList) bag.ScaledPoint {
 }
 
 func getMaxWidthHlistWithoutStretch(hl *node.HList) bag.ScaledPoint {
-	var start, stop node.Node
-	start = hl.List
-	stop = node.Tail(hl.List)
+	return naturalWidthWithoutStretch(hl)
+}
+
+// naturalWidthWithoutStretch sums a line's horizontal extent, ignoring glue that
+// carries infinite stretch. That glue is alignment filler: rightskip for ragged
+// right, leftskip for text-align:right, and both for center.
+//
+// This scan used to stop at the first such glue, which is only correct when the
+// filler trails the content. With text-align:right or :center the filler comes
+// first, so the scan measured nothing and the line reported a natural width of
+// zero — and a table cell containing a centred or right-aligned paragraph
+// collapsed the whole table to min-content.
+func naturalWidthWithoutStretch(hl *node.HList) bag.ScaledPoint {
+	var wd bag.ScaledPoint
 	for e := hl.List; e != nil; e = e.Next() {
-		stop = e
 		if e.Type() == node.TypeGlue {
 			if gl := e.(*node.Glue); gl.StretchOrder > 0 {
-				break
+				continue
 			}
 		}
+		w, _, _ := node.Dimensions(e, e, node.Horizontal)
+		wd += w
 	}
-
-	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
 	return wd
 }
 
@@ -62,18 +72,5 @@ func minWidthWithoutStretch(vl *node.VList) bag.ScaledPoint {
 }
 
 func getMinWidthHlistWithoutStretch(hl *node.HList) bag.ScaledPoint {
-	var start, stop node.Node
-	start = hl.List
-	stop = node.Tail(hl.List)
-	for e := hl.List; e != nil; e = e.Next() {
-		stop = e
-		if e.Type() == node.TypeGlue {
-			if gl := e.(*node.Glue); gl.StretchOrder > 0 {
-				break
-			}
-		}
-	}
-
-	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
-	return wd
+	return naturalWidthWithoutStretch(hl)
 }
