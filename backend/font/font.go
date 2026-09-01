@@ -70,6 +70,17 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 	spacechar := fnt.Shape(" ", nil, nil)
 	if len(spacechar) == 1 {
 		fnt.SpaceChar = spacechar[0]
+		// Interword glue is the font's own space advance. The defaults set
+		// above are cmr10's fontdimen2/3/4, which are right for that font
+		// and wrong for every other one: TeX Gyre Heros designs its space
+		// at 0.278em and Crimson Pro at 0.1875em, against the 0.333em
+		// assumed here. Stretch and shrink keep the 1 : 1/2 : 1/3 ratios
+		// those same defaults encode.
+		if adv := spacechar[0].Advance; adv > 0 {
+			fnt.Space = adv
+			fnt.SpaceStretch = adv / 2
+			fnt.SpaceShrink = adv / 3
+		}
 	}
 	return fnt
 }
