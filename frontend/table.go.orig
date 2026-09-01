@@ -869,42 +869,10 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 			// equal size
 			copy(tbl.columnWidths, colmax)
 		} else if tbl.MaxWidth > sumCols {
-			// Stretch. The slack goes to the columns that did not declare
-			// a width, so a column whose cell specified one keeps it. That
-			// is CSS 2.1 §17.5.2.2 and it is what a layout built from
-			// fixed-width cells expects. Scaling every column by the same
-			// ratio instead widened a declared width along with the rest.
-			// Only when no column is auto is the slack shared out by ratio.
-			extra := tbl.MaxWidth - sumCols
-			autoSum := bag.ScaledPoint(0)
-			autoCount := 0
-			for i := range colmax {
-				if colspec[i] <= 0 {
-					autoSum += colmax[i]
-					autoCount++
-				}
-			}
-			copy(tbl.columnWidths, colmax)
-			switch {
-			case autoSum > 0:
-				for i := range colmax {
-					if colspec[i] <= 0 {
-						tbl.columnWidths[i] += bag.ScaledPointFromFloat(colmax[i].ToPT() / autoSum.ToPT() * extra.ToPT())
-					}
-				}
-			case autoCount > 0:
-				// Auto columns exist but are all empty; share equally.
-				share := extra / bag.ScaledPoint(autoCount)
-				for i := range colmax {
-					if colspec[i] <= 0 {
-						tbl.columnWidths[i] += share
-					}
-				}
-			default:
-				r := tbl.MaxWidth.ToPT() / sumCols.ToPT()
-				for i, colwd := range colmax {
-					tbl.columnWidths[i] = bag.ScaledPointFromFloat(colwd.ToPT() * r)
-				}
+			// stretch
+			r := tbl.MaxWidth.ToPT() / sumCols.ToPT()
+			for i, colwd := range colmax {
+				tbl.columnWidths[i] = bag.ScaledPointFromFloat(colwd.ToPT() * r)
 			}
 		}
 	} else {
