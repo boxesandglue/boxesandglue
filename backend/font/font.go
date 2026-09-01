@@ -76,7 +76,11 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		// at 0.278em and Crimson Pro at 0.1875em, against the 0.333em
 		// assumed here. Stretch and shrink keep the 1 : 1/2 : 1/3 ratios
 		// those same defaults encode.
-		if adv := spacechar[0].Advance; adv > 0 {
+		//
+		// A font without a space glyph shapes U+0020 to .notdef, whose
+		// advance is arbitrary (Twemoji: 1em, a NotoColorEmoji subset:
+		// 1.24em), so require a real glyph and keep the defaults otherwise.
+		if adv := spacechar[0].Advance; adv > 0 && spacechar[0].Codepoint != 0 {
 			fnt.Space = adv
 			fnt.SpaceStretch = adv / 2
 			fnt.SpaceShrink = adv / 3
