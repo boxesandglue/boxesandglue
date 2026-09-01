@@ -115,6 +115,55 @@ const (
 	TextDecorationLineThrough
 )
 
+// TextDecorationStyle is the CSS text-decoration-style property: how the
+// decoration line is drawn.
+type TextDecorationStyle int
+
+const (
+	// TextDecorationStyleSolid is a single unbroken line, the CSS default.
+	TextDecorationStyleSolid TextDecorationStyle = iota
+	// TextDecorationStyleDouble is two parallel lines.
+	TextDecorationStyleDouble
+	// TextDecorationStyleDotted is a dotted line.
+	TextDecorationStyleDotted
+	// TextDecorationStyleDashed is a dashed line.
+	TextDecorationStyleDashed
+	// TextDecorationStyleWavy is a wavy line.
+	TextDecorationStyleWavy
+)
+
+// WhiteSpace is the CSS white-space property (CSS Text 3 §3). It controls two
+// independent things at this level: whether a space keeps its exact glyph
+// advance, and whether a line may break at one. Whether runs of whitespace
+// collapse at all is decided earlier, when the text is extracted from the
+// markup.
+type WhiteSpace int
+
+const (
+	// WhiteSpaceNormal collapses whitespace and breaks lines at spaces.
+	WhiteSpaceNormal WhiteSpace = iota
+	// WhiteSpaceNowrap collapses whitespace but never breaks at a space.
+	WhiteSpaceNowrap
+	// WhiteSpacePre keeps every space at its own width and never breaks at one.
+	WhiteSpacePre
+	// WhiteSpacePreWrap keeps every space at its own width but may break at one.
+	WhiteSpacePreWrap
+	// WhiteSpacePreLine collapses spaces but keeps newlines as forced breaks.
+	WhiteSpacePreLine
+)
+
+// keepsSpaceWidth reports whether a space renders at its own glyph advance
+// rather than the font's inter-word default.
+func (ws WhiteSpace) keepsSpaceWidth() bool {
+	return ws == WhiteSpacePre || ws == WhiteSpacePreWrap
+}
+
+// breaksAtSpace reports whether a line may break at a space. `pre` and
+// `nowrap` do not wrap at all, which also means no hyphenation break.
+func (ws WhiteSpace) breaksAtSpace() bool {
+	return ws != WhiteSpacePre && ws != WhiteSpaceNowrap
+}
+
 // BorderStyle represents the HTML border styles such as solid, dashed, ...
 type BorderStyle uint
 
@@ -298,6 +347,16 @@ const (
 	// SettingItalicCorrection enables the heuristic kern between directly
 	// adjacent glyph runs of a slanted and an upright font (bool).
 	SettingItalicCorrection
+	// SettingWhiteSpace is the CSS white-space property (a WhiteSpace value).
+	// It decides two things about a space: whether it keeps its exact glyph
+	// advance, and whether a line may break there.
+	SettingWhiteSpace
+	// SettingTextDecorationStyle is how a decoration line is drawn (a
+	// TextDecorationStyle value).
+	SettingTextDecorationStyle
+	// SettingTextDecorationColor is the decoration line's colour. Unset means
+	// CSS's `currentColor`: the line takes the text colour.
+	SettingTextDecorationColor
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -428,6 +487,12 @@ func (st SettingType) String() string {
 		settingName = "SettingPrepend"
 	case SettingPreserveWhitespace:
 		settingName = "SettingPreserveWhitespace"
+	case SettingWhiteSpace:
+		settingName = "SettingWhiteSpace"
+	case SettingTextDecorationStyle:
+		settingName = "SettingTextDecorationStyle"
+	case SettingTextDecorationColor:
+		settingName = "SettingTextDecorationColor"
 	case SettingRowspan:
 		settingName = "SettingRowspan"
 	case SettingSize:
@@ -576,6 +641,10 @@ func debugText(ts *Text, enc *xml.Encoder) {
 			v = node.StringValue(v.(node.Node))
 		case SettingPreserveWhitespace:
 			if v == false {
+				showSetting = false
+			}
+		case SettingWhiteSpace:
+			if v == WhiteSpaceNormal {
 				showSetting = false
 			}
 		case SettingTabSizeSpaces:
@@ -1686,12 +1755,16 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var col *color.Color
 	var hyperlink document.Hyperlink
 	var hasHyperlink bool
-	var hasUnderline bool
+	// The text-decoration line to draw, or TextDecorationLineNone, and how.
+	decorationLine := TextDecorationLineNone
+	decorationStyle := TextDecorationStyleSolid
+	var decorationColor *color.Color
 	fontfeatures := make([]ot.Feature, 0, len(fe.DefaultFeatures))
 	for _, f := range fe.DefaultFeatures {
 		fontfeatures = append(fontfeatures, f)
 	}
 	preserveWhitespace := false
+	whiteSpace := WhiteSpaceNormal
 	letterSpacing := bag.ScaledPoint(0)
 	yoffset := bag.ScaledPoint(0)
 	direction := DirectionLTR
@@ -1739,8 +1812,18 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingDest:
 			// handled after node list is built
 		case SettingTextDecorationLine:
-			if underlineType, ok := v.(TextDecorationLine); ok && underlineType == TextDecorationUnderline {
-				hasUnderline = true
+			// Underline, overline and line-through differ only in where the
+			// rule sits; DecorationOffset knows the offsets.
+			if line, ok := v.(TextDecorationLine); ok {
+				decorationLine = line
+			}
+		case SettingTextDecorationStyle:
+			if st, ok := v.(TextDecorationStyle); ok {
+				decorationStyle = st
+			}
+		case SettingTextDecorationColor:
+			if col, ok := v.(*color.Color); ok {
+				decorationColor = col
 			}
 		case SettingFontExpansion:
 			// ignore
@@ -1770,6 +1853,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingPreserveWhitespace:
 			preserveWhitespace = v.(bool)
+		case SettingWhiteSpace:
+			if ws, ok := v.(WhiteSpace); ok {
+				whiteSpace = ws
+			}
 		case SettingYOffset:
 			yoffset = v.(bag.ScaledPoint)
 		case SettingDirection:
@@ -1835,19 +1922,23 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			head = hyperlinkStart
 		}
 	}
-	var underlineStart *node.StartStop
-	if hasUnderline {
-		underlineStart = node.NewStartStop()
-		underlineStart.SetAttribute("underline", true)
-		underlineStart.SetAttribute("underlinepos", -fontsize/6)
-		underlineStart.SetAttribute("underlinelw", fontsize/20)
-		underlineStart.SetAttribute("SettingTextDecorationLine", TextDecorationUnderline)
-		if head != nil {
-			head = node.InsertAfter(head, head, underlineStart)
-		} else {
-			head = underlineStart
+	var decorationStart *node.StartStop
+	if decorationLine != TextDecorationLineNone {
+		decorationStart = node.NewStartStop()
+		decorationStart.SetAttribute("decoration", decorationLine)
+		decorationStart.SetAttribute("decorationpos", DecorationOffset(decorationLine, fontsize))
+		decorationStart.SetAttribute("decorationlw", fontsize/20)
+		decorationStart.SetAttribute("decorationstyle", decorationStyle)
+		if decorationColor != nil {
+			decorationStart.SetAttribute("decorationcolor", decorationColor)
 		}
-		underlineStart.Action = node.ActionUserSetting
+		decorationStart.SetAttribute("SettingTextDecorationLine", decorationLine)
+		if head != nil {
+			head = node.InsertAfter(head, head, decorationStart)
+		} else {
+			head = decorationStart
+		}
+		decorationStart.Action = node.ActionUserSetting
 	}
 	if col != nil {
 		colStart := node.NewStartStop()
@@ -1860,6 +1951,23 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 		head = colStart
 	}
+	// Reconcile the white-space mode with the older SettingPreserveWhitespace
+	// boolean. The boolean is still set directly — the leader-pattern builder
+	// uses it to keep a thin space thin — and means the same as `pre`. Done
+	// here rather than in the settings loop because a map has no order.
+	switch {
+	case whiteSpace.keepsSpaceWidth():
+		preserveWhitespace = true
+	case preserveWhitespace:
+		whiteSpace = WhiteSpacePre
+	}
+	// `pre` and `nowrap` do not wrap, so a soft hyphen must not offer a break
+	// either. Pattern hyphenation is suppressed a layer up, where the run's
+	// hyphenator is chosen.
+	if !whiteSpace.breaksAtSpace() {
+		hyphensMode = "none"
+	}
+
 	cur = head
 	var lastglue node.Node
 	// When a CSS prioritised font-family list resolves to two or more
@@ -1878,11 +1986,21 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if preserveWhitespace {
 				switch r.Components {
 				case " ", "\u00A0":
-					g := node.NewRule()
 					// Real glyph advance, not fnt.Space (TeX inter-word
 					// glue default of size*333/1000), so monospace ASCII
 					// art and code blocks line up column-for-column.
-					g.Width = fnt.SpaceChar.Advance
+					var g node.Node
+					if whiteSpace.breaksAtSpace() {
+						// pre-wrap: the width is fixed but the position is
+						// still a legal breakpoint, which a Rule is not.
+						gl := node.NewGlue()
+						gl.Width = fnt.SpaceChar.Advance
+						g = gl
+					} else {
+						r := node.NewRule()
+						r.Width = fnt.SpaceChar.Advance
+						g = r
+					}
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
@@ -1962,8 +2080,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 						// consumes adjacent whitespace — do not insert
 						// the default-space glue.
 					default:
-						if r.NoBreak {
-							// NBSP: insert Penalty(10000) to prevent line break
+						if r.NoBreak || !whiteSpace.breaksAtSpace() {
+							// NBSP, or white-space: nowrap — the space keeps its
+							// normal elastic width but must not offer a break, so
+							// it gets the same infinite penalty in front of it.
 							p := node.NewPenalty()
 							p.Penalty = 10000
 							head = node.InsertAfter(head, cur, p)
@@ -2064,12 +2184,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		node.InsertAfter(head, cur, stop)
 		cur = stop
 	}
-	if hasUnderline {
-		underlineStop := node.NewStartStop()
-		underlineStop.StartNode = underlineStart
-		underlineStop.SetAttribute("underline", false)
-		head = node.InsertAfter(head, cur, underlineStop)
-		cur = underlineStop
+	if decorationLine != TextDecorationLineNone {
+		decorationStop := node.NewStartStop()
+		decorationStop.StartNode = decorationStart
+		decorationStop.SetAttribute("decoration", TextDecorationLineNone)
+		head = node.InsertAfter(head, cur, decorationStop)
+		cur = decorationStop
 	}
 	if hasHyperlink {
 		hyperlinkStop = node.NewStartStop()

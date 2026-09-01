@@ -2,29 +2,117 @@ package frontend
 
 import (
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 )
 
 type styles struct {
-	isUnderline bool
-	ulpos       bag.ScaledPoint
-	linewidth   bag.ScaledPoint
+	// decoration is the line currently open, or TextDecorationLineNone.
+	decoration TextDecorationLine
+	// style is how that line is drawn.
+	style TextDecorationStyle
+	// col overrides the text colour; nil means CSS's `currentColor`.
+	col *color.Color
+	// pos is the line's offset from the baseline, negative below it.
+	pos       bag.ScaledPoint
+	linewidth bag.ScaledPoint
 }
 
-func doUnderline(head, start, stop node.Node, st *styles) node.Node {
+// DecorationOffset returns where a text-decoration line sits relative to the
+// baseline, as a fraction of the font size. The fractions match the underline
+// offset this package has always used; no font exposes its post/OS-2
+// underline or strikeout metrics here yet, so all three lines are derived the
+// same way.
+func DecorationOffset(line TextDecorationLine, fontsize bag.ScaledPoint) bag.ScaledPoint {
+	switch line {
+	case TextDecorationUnderline:
+		return -fontsize / 6
+	case TextDecorationLineThrough:
+		// Roughly a quarter of the em above the baseline, which puts the line
+		// through the middle of lowercase letters.
+		return fontsize / 4
+	case TextDecorationOverline:
+		// Just clear of the ascender.
+		return fontsize * 4 / 5
+	}
+	return 0
+}
+
+func drawDecoration(head, start, stop node.Node, st *styles) node.Node {
 	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
-	pdfUL := pdfdraw.NewStandalone().LineWidth(st.linewidth).Moveto(0, st.ulpos).Lineto(wd, st.ulpos).Stroke().String()
+	pd := pdfdraw.NewStandalone().LineWidth(st.linewidth)
+	if st.col != nil {
+		// CSS text-decoration-color; without it the line inherits the text
+		// colour from the graphics state, which is `currentColor`.
+		pd = pd.ColorStroking(*st.col)
+	}
+	lw := st.linewidth
+	switch st.style {
+	case TextDecorationStyleDouble:
+		// Two lines, the pair centred on where the single line would sit.
+		gap := lw * 2
+		pd = pd.Moveto(0, st.pos+gap).Lineto(wd, st.pos+gap).
+			Moveto(0, st.pos-gap).Lineto(wd, st.pos-gap)
+	case TextDecorationStyleDotted:
+		// SetDash takes whole PDF units, so the pattern cannot be finer than a
+		// point however thin the line is.
+		u := dashUnit(lw)
+		pd = pd.SetDash([]uint{u, 2 * u}, 0).Moveto(0, st.pos).Lineto(wd, st.pos)
+	case TextDecorationStyleDashed:
+		u := dashUnit(lw)
+		pd = pd.SetDash([]uint{3 * u, 2 * u}, 0).Moveto(0, st.pos).Lineto(wd, st.pos)
+	case TextDecorationStyleWavy:
+		pd = wave(pd, wd, st.pos, lw)
+	default:
+		pd = pd.Moveto(0, st.pos).Lineto(wd, st.pos)
+	}
 	r := node.NewRule()
 	r.Hide = true
-	r.Pre = pdfUL
+	r.Pre = pd.Stroke().String()
 	head = node.InsertBefore(head, start, r)
 	return head
 }
 
+// dashUnit scales the dash pattern with the line width, with a floor of one
+// PDF unit because SetDash takes integers.
+func dashUnit(lw bag.ScaledPoint) uint {
+	u := uint(lw.ToPT() * 2)
+	if u < 1 {
+		u = 1
+	}
+	return u
+}
+
+// wave draws the wavy decoration as a run of half-period Bézier arcs,
+// alternating above and below the line position.
+func wave(pd *pdfdraw.Object, wd, pos, lw bag.ScaledPoint) *pdfdraw.Object {
+	period := lw * 6
+	if period <= 0 {
+		return pd.Moveto(0, pos).Lineto(wd, pos)
+	}
+	amp := lw * 2
+	pd = pd.Moveto(0, pos)
+	up := true
+	for x := bag.ScaledPoint(0); x < wd; x += period {
+		next := x + period
+		if next > wd {
+			next = wd
+		}
+		y := pos + amp
+		if !up {
+			y = pos - amp
+		}
+		// One half period: rise to the crest and return to the line.
+		pd = pd.Curveto(x+(next-x)/3, y, x+2*(next-x)/3, y, next, pos)
+		up = !up
+	}
+	return pd
+}
+
 func postLinebreakHL(n node.Node, st *styles) node.Node {
-	underlineFromStart := st.isUnderline
-	var underlineStart, underlineStop node.Node
+	decoratedFromStart := st.decoration != TextDecorationLineNone
+	var decorationStart, decorationStop node.Node
 	var head, tail node.Node
 	head = n
 	for e := n; e != nil; e = e.Next() {
@@ -34,43 +122,55 @@ func postLinebreakHL(n node.Node, st *styles) node.Node {
 		} else if vl, ok := e.(*node.VList); ok {
 			vl.List = postLinebreakHL(vl.List, st)
 		} else if ss, ok := e.(*node.StartStop); ok {
-			if val, ok := ss.GetAttribute("underline"); ok {
-				if val.(bool) {
-					st.isUnderline = true
-					underlineStart = ss
-					if ulpos, ok := ss.GetAttribute("underlinepos"); ok {
-						if ulpos != nil {
-							st.ulpos = ulpos.(bag.ScaledPoint)
+			if val, ok := ss.GetAttribute("decoration"); ok {
+				if line, _ := val.(TextDecorationLine); line != TextDecorationLineNone {
+					st.decoration = line
+					decorationStart = ss
+					if pos, ok := ss.GetAttribute("decorationpos"); ok {
+						if pos != nil {
+							st.pos = pos.(bag.ScaledPoint)
 						}
 					}
-					if lw, ok := ss.GetAttribute("underlinelw"); ok {
+					if lw, ok := ss.GetAttribute("decorationlw"); ok {
 						if lw != nil {
 							st.linewidth = lw.(bag.ScaledPoint)
 						}
 					}
-				} else {
-					if underlineFromStart {
-						head = doUnderline(head, head, e, st)
+					st.style = TextDecorationStyleSolid
+					if v, ok := ss.GetAttribute("decorationstyle"); ok {
+						if style, ok := v.(TextDecorationStyle); ok {
+							st.style = style
+						}
 					}
-					st.isUnderline = false
-					underlineStop = ss
+					st.col = nil
+					if v, ok := ss.GetAttribute("decorationcolor"); ok {
+						if col, ok := v.(*color.Color); ok {
+							st.col = col
+						}
+					}
+				} else {
+					if decoratedFromStart {
+						head = drawDecoration(head, head, e, st)
+					}
+					st.decoration = TextDecorationLineNone
+					decorationStop = ss
 				}
 			}
 		}
-		if underlineStart != nil && underlineStop != nil {
-			head = doUnderline(head, underlineStart, underlineStop, st)
-			underlineStart = nil
-			underlineStop = nil
+		if decorationStart != nil && decorationStop != nil {
+			head = drawDecoration(head, decorationStart, decorationStop, st)
+			decorationStart = nil
+			decorationStop = nil
 		}
 	}
-	if st.isUnderline {
-		if underlineStart == nil && underlineStop == nil {
+	if st.decoration != TextDecorationLineNone {
+		if decorationStart == nil && decorationStop == nil {
 			// whole line
-			head = doUnderline(head, head, tail, st)
+			head = drawDecoration(head, head, tail, st)
 		}
-		if underlineStart != nil {
+		if decorationStart != nil {
 			// up to the end
-			head = doUnderline(head, underlineStart, tail, st)
+			head = drawDecoration(head, decorationStart, tail, st)
 		}
 	}
 	return head
