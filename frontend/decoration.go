@@ -39,6 +39,26 @@ func DecorationOffset(line TextDecorationLine, fontsize bag.ScaledPoint) bag.Sca
 	return 0
 }
 
+// lastInked walks back from stop to the last node that puts ink on the line, so
+// a decoration still open at a line break stops at the text. The nodes at the
+// end of a broken line are the break's own glue and the alignment filler, and
+// including them drew the underline out to the margin: a wrapped underlined
+// heading was underlined across the gap after its last word.
+func lastInked(start, stop node.Node) node.Node {
+	for e := stop; e != nil; e = e.Prev() {
+		switch e.(type) {
+		case *node.Glue, *node.Penalty:
+			// Not ink; keep walking back, unless there is nothing before it.
+			if e == start {
+				return stop
+			}
+		default:
+			return e
+		}
+	}
+	return stop
+}
+
 func drawDecoration(head, start, stop node.Node, st *styles) node.Node {
 	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
 	pd := pdfdraw.NewStandalone().LineWidth(st.linewidth)
@@ -166,11 +186,11 @@ func postLinebreakHL(n node.Node, st *styles) node.Node {
 	if st.decoration != TextDecorationLineNone {
 		if decorationStart == nil && decorationStop == nil {
 			// whole line
-			head = drawDecoration(head, head, tail, st)
+			head = drawDecoration(head, head, lastInked(head, tail), st)
 		}
 		if decorationStart != nil {
 			// up to the end
-			head = drawDecoration(head, decorationStart, tail, st)
+			head = drawDecoration(head, decorationStart, lastInked(decorationStart, tail), st)
 		}
 	}
 	return head
