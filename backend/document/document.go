@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -446,6 +447,31 @@ type outputDebug struct {
 	Items      []any
 }
 
+// copyNodeAttributes copies the caller-facing entries of a node's attribute
+// map onto the dump entry. Every key is prefixed with "attr-" unconditionally,
+// so the map entries can never collide with the typed dump attributes and the
+// mapping stays reversible (a literal "attr-x" key emits as "attr-attr-x").
+// Keys starting with "_" are internal and skipped. A value is emitted only
+// when it is a string or deliberately defines a textual form via fmt.Stringer;
+// anything else (closures, struct pointers) would serialize through fmt's
+// fallback formatting, which is not stable across runs.
+func (od *outputDebug) copyNodeAttributes(attrs node.H) {
+	for key, value := range attrs {
+		if strings.HasPrefix(key, "_") || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			od.Attributes["attr-"+key] = v
+		case fmt.Stringer:
+			if rv := reflect.ValueOf(v); rv.Kind() == reflect.Pointer && rv.IsNil() {
+				continue
+			}
+			od.Attributes["attr-"+key] = v.String()
+		}
+	}
+}
+
 func (od outputDebug) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	startElt := xml.StartElement{
 		Name: xml.Name{Local: od.Name},
@@ -542,9 +568,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				"y":      y,
 			},
 		}
-		if origin, ok := hlist.Attributes["origin"]; ok {
-			od.Attributes["origin"] = origin
-		}
+		od.copyNodeAttributes(hlist.Attributes)
 		saveCurOutputDebug = oc.curOutputDebug
 		oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 		oc.curOutputDebug = od
@@ -563,6 +587,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						"components": v.Components,
 					},
 				}
+				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			if v.Font != oc.currentFont {
@@ -714,9 +739,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					},
 				}
 
-				if origin, ok := v.Attributes["origin"]; ok {
-					od.Attributes["origin"] = origin
-				}
+				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			if v.Leader != nil && v.Leader.Width > 0 && v.Width > 0 {
@@ -776,9 +799,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						"depth":  v.Depth,
 					},
 				}
-				if origin, ok := v.Attributes["origin"]; ok {
-					od.Attributes["origin"] = origin
-				}
+				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			oc.gotoTextMode(ScopePage)
@@ -988,9 +1009,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						"kern": v.Kern,
 					},
 				}
-				if origin, ok := v.Attributes["origin"]; ok {
-					od.Attributes["origin"] = origin
-				}
+				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			if oc.textmode > ScopeArray {
@@ -1256,6 +1275,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				"y":      y,
 			},
 		}
+		od.copyNodeAttributes(vlist.Attributes)
 		saveCurOutputDebug = oc.curOutputDebug
 		oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 		oc.curOutputDebug = od
@@ -1340,6 +1360,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							"shrink":  v.Shrink,
 						},
 					}
+					od.copyNodeAttributes(v.Attributes)
 					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 				}
 			}
@@ -1355,6 +1376,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							"kern": v.Kern,
 						},
 					}
+					od.copyNodeAttributes(v.Attributes)
 					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 				}
 			}
@@ -1370,9 +1392,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							"depth":  v.Depth,
 						},
 					}
-					if origin, ok := v.Attributes["origin"]; ok {
-						od.Attributes["origin"] = origin
-					}
+					od.copyNodeAttributes(v.Attributes)
 					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 				}
 			}
