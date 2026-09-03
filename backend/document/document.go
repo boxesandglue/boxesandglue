@@ -904,7 +904,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					if hyperlink.Local != "" {
 						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(hyperlink.Local)))
 					} else if hyperlink.URI != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
+						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(pdf.String(hyperlink.URI)))
 					}
 					// PDF/UA: link annotations need Contents and StructParent
 					if oc.p.document.Format.IsPDFUA() {
@@ -1478,7 +1478,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					if hyperlink.Local != "" {
 						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(hyperlink.Local)))
 					} else if hyperlink.URI != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(hyperlink.URI))
+						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(pdf.String(hyperlink.URI)))
 					}
 					// PDF/UA: link annotations need Contents and StructParent
 					if oc.p.document.Format.IsPDFUA() {
