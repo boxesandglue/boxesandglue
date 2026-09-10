@@ -344,6 +344,13 @@ const (
 	// long words in narrow columns). Default 0 disables it. Typical values
 	// are 1–3em of the body font size.
 	SettingLinebreakEmergencyStretch
+	// SettingHalfLeading selects the leading model for a paragraph (bool).
+	// When true, the leading (line height minus the line's natural
+	// Height+Depth) is distributed into each line box, half above and half
+	// below (CSS 2.1 section 10.8.1). When false or unset, the extra space
+	// is emitted as glue after each line (the TeX-flavored default).
+	// Routed through htmlbag's CSS property -bag-leading-model.
+	SettingHalfLeading
 	// SettingItalicCorrection enables the heuristic kern between directly
 	// adjacent glyph runs of a slanted and an upright font (bool).
 	SettingItalicCorrection
@@ -523,6 +530,8 @@ func (st SettingType) String() string {
 		settingName = "SettingLinebreakTolerance"
 	case SettingLinebreakEmergencyStretch:
 		settingName = "SettingLinebreakEmergencyStretch"
+	case SettingHalfLeading:
+		settingName = "SettingHalfLeading"
 	case SettingItalicCorrection:
 		settingName = "SettingItalicCorrection"
 	default:
@@ -1348,6 +1357,11 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 			ls.Hyphenpenalty = hp
 		}
 	}
+	if v, ok := te.Settings[SettingHalfLeading]; ok {
+		if hlead, ok := v.(bool); ok {
+			ls.HalfLeading = hlead
+		}
+	}
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
@@ -1870,7 +1884,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if s, ok := v.(string); ok {
 				hyphensMode = s
 			}
-		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingItalicCorrection:
+		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
 		default:

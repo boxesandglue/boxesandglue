@@ -665,15 +665,31 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			} else {
 				hl.Attributes["origin"] = "line"
 			}
+			if settings.HalfLeading {
+				// CSS half-leading: grow the line box symmetrically to
+				// LineHeight instead of emitting lineskip glue below. The
+				// output positions each line by its Height, so the baseline
+				// moves down automatically; baseline-to-baseline distances
+				// and the total paragraph height are unchanged. Lines taller
+				// than LineHeight keep their natural size (no negative
+				// leading).
+				if extra := settings.LineHeight - hl.Height - hl.Depth; extra > 0 {
+					half := extra / 2
+					hl.Height += half
+					hl.Depth += extra - half
+				}
+			}
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {
-				lineskip := NewGlue()
-				lineskip.Attributes = H{"origin": "lineskip"}
-				if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
-					lineskip.Width = settings.LineHeight - totalHeightHL
+				if !settings.HalfLeading {
+					lineskip := NewGlue()
+					lineskip.Attributes = H{"origin": "lineskip"}
+					if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
+						lineskip.Width = settings.LineHeight - totalHeightHL
+					}
+					vert = InsertBefore(vert, vert, lineskip)
 				}
-				vert = InsertBefore(vert, vert, lineskip)
 				endNode = e.Position
 				bps = append(bps, e)
 			}
@@ -683,7 +699,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	for i, j := 0, len(bps)-1; i < j; i, j = i+1, j-1 {
 		bps[i], bps[j] = bps[j], bps[i]
 	}
-	if !settings.OmitLastLeading {
+	// In half-leading mode there is no trailing glue to omit: half the
+	// leading sits in the last line's depth by construction, so
+	// OmitLastLeading has no meaning there.
+	if !settings.OmitLastLeading && !settings.HalfLeading {
 		lineskip := NewGlue()
 		lineskip.Attributes = H{"origin": "last lineskip"}
 		hl := Tail(vert).(*HList)

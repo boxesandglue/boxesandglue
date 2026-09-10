@@ -35,6 +35,16 @@ type LinebreakSettings struct {
 	SqueezeOverfullBoxes  bool
 	HangingPunctuationEnd bool
 	OmitLastLeading       bool
+	// HalfLeading distributes the leading (LineHeight minus the line's
+	// natural Height+Depth) into the line box itself, half above and half
+	// below (CSS 2.1 section 10.8.1), instead of emitting lineskip glue
+	// after each line (the TeX-flavored default). Baseline-to-baseline
+	// distances and the total paragraph height stay the same; only the
+	// box edges and the first baseline (down by half the leading) move.
+	// Lines taller than LineHeight keep their natural size. In this mode
+	// OmitLastLeading has no meaning: half the leading sits in the last
+	// line's depth by construction.
+	HalfLeading bool
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.
