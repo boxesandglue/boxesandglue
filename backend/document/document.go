@@ -143,6 +143,20 @@ func (f Format) IsPDFX4() bool { return f.PDFX != nil && f.PDFX.Variant == "X-4"
 // output-intent ICC profile. True for PDF/A and PDF/X.
 func (f Format) NeedsColorProfile() bool { return f.IsPDFA() || f.IsPDFX() }
 
+// AllowsTransparency reports whether the claimed conformances permit PDF
+// transparency (ExtGState constant alpha, blend modes, soft masks).
+// PDF/A-1 (ISO 19005-1 section 6.4) and PDF/X-3 (PDF 1.3 imaging model)
+// forbid it; the other supported conformances allow it.
+func (f Format) AllowsTransparency() bool {
+	if f.PDFA != nil && f.PDFA.Part == 1 {
+		return false
+	}
+	if f.IsPDFX3() {
+		return false
+	}
+	return true
+}
+
 // pdfVersion returns the PDF specification version this format requires.
 // When sub-conformances disagree on the minimum version (e.g. PDF/A-3
 // prefers 1.7, PDF/UA-2 requires 2.0), the higher version wins. PDF 2.0
@@ -193,26 +207,27 @@ const (
 // objectContext contains information about the current position of the cursor
 // and about the images and faces used in the object.
 type objectContext struct {
-	s                io.Writer
-	p                *Page
-	currentFont      *font.Font
-	usedFaces        map[*pdf.Face]bool
-	usedImages       map[*pdf.Imagefile]bool
-	pendingShadings  []pendingShading
-	colorBitmapCache map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
-	tag              *StructureElement
-	artifactType     ArtifactType
-	outputDebug      *outputDebug
-	curOutputDebug   *outputDebug
-	pageObjectnumber pdf.Objectnumber
-	currentExpand    int
-	currentVShift    bag.ScaledPoint
-	currentTmY       bag.ScaledPoint // last y written via Tm; used to detect Y changes inside an open TJ
-	currentTmYValid  bool            // false until the first Tm in a content stream
-	shiftX           bag.ScaledPoint
-	textmode         TextScope
-	hasNewline       bool
-	inArtifact       bool
+	s                 io.Writer
+	p                 *Page
+	currentFont       *font.Font
+	usedFaces         map[*pdf.Face]bool
+	usedImages        map[*pdf.Imagefile]bool
+	pendingShadings   []pendingShading
+	pendingExtGStates []pdf.ExtGState
+	colorBitmapCache  map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
+	tag               *StructureElement
+	artifactType      ArtifactType
+	outputDebug       *outputDebug
+	curOutputDebug    *outputDebug
+	pageObjectnumber  pdf.Objectnumber
+	currentExpand     int
+	currentVShift     bag.ScaledPoint
+	currentTmY        bag.ScaledPoint // last y written via Tm; used to detect Y changes inside an open TJ
+	currentTmYValid   bool            // false until the first Tm in a content stream
+	shiftX            bag.ScaledPoint
+	textmode          TextScope
+	hasNewline        bool
+	inArtifact        bool
 }
 
 // colorBitmapKey identifies one (face, glyph, strike) tuple. Multiple
@@ -835,6 +850,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 							composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
 					}
 				}
+				if gss, ok := v.Attributes["extgstates"]; ok {
+					if list, ok := gss.([]pdf.ExtGState); ok {
+						oc.pendingExtGStates = append(oc.pendingExtGStates, list...)
+					}
+				}
 			}
 			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
@@ -1426,6 +1446,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 							composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
 					}
 				}
+				if gss, ok := v.Attributes["extgstates"]; ok {
+					if list, ok := gss.([]pdf.ExtGState); ok {
+						oc.pendingExtGStates = append(oc.pendingExtGStates, list...)
+					}
+				}
 			}
 			if v.Post != "" {
 				pdfinstructions = append(pdfinstructions, v.Post)
@@ -1783,6 +1808,7 @@ func (p *Page) Shipout() {
 	usedFaces := make(map[*pdf.Face]bool)
 	usedImages := make(map[*pdf.Imagefile]bool)
 	var allShadings []pendingShading
+	var allExtGStates []pdf.ExtGState
 	if p.document.DumpOutput {
 		p.outputDebug = &outputDebug{
 			Name: "page",
@@ -1867,6 +1893,9 @@ func (p *Page) Shipout() {
 		if len(oc.pendingShadings) > 0 {
 			allShadings = append(allShadings, oc.pendingShadings...)
 		}
+		if len(oc.pendingExtGStates) > 0 {
+			allExtGStates = append(allExtGStates, oc.pendingExtGStates...)
+		}
 		oc.gotoTextMode(ScopePage)
 
 		// Close the object-level BDC
@@ -1896,6 +1925,9 @@ func (p *Page) Shipout() {
 	}
 	if err := materializeShadingsOnPage(page, p.document, allShadings); err != nil {
 		bag.Logger.Error("write shading pattern", "err", err)
+	}
+	if err := materializeExtGStatesOnPage(page, p.document, allExtGStates); err != nil {
+		bag.Logger.Error("write extgstate", "err", err)
 	}
 
 	// annotations are hyperlinks and structure elements

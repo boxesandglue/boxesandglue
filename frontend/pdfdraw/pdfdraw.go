@@ -151,6 +151,21 @@ func (pd *Object) Fill() *Object {
 	return pd
 }
 
+// FillEvenOdd fills the current path using the even-odd rule. With two
+// nested rectangle subpaths this fills the ring between them.
+func (pd *Object) FillEvenOdd() *Object {
+	pd.pdfstring = append(pd.pdfstring, "f*")
+	return pd
+}
+
+// GState activates the named graphics state parameter dictionary
+// ("/name gs"). The name must be registered in the page's
+// /Resources/ExtGState dictionary, e.g. via baseline-pdf's WriteExtGState.
+func (pd *Object) GState(name string) *Object {
+	pd.pdfstring = append(pd.pdfstring, "/"+name+" gs")
+	return pd
+}
+
 // Stroke paints the current object without filling it.
 func (pd *Object) Stroke() *Object {
 	pd.pdfstring = append(pd.pdfstring, "S")
