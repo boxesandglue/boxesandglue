@@ -1954,16 +1954,22 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 		decorationStart.Action = node.ActionUserSetting
 	}
+	// The colour operator has to precede the glyphs, so it is the node the
+	// glyph loop starts inserting after. Keep it separate from head: head is
+	// the front of the list, which may already be a decoration or hyperlink
+	// marker that must stay there.
+	var colStart *node.StartStop
 	if col != nil {
-		colStart := node.NewStartStop()
+		colStart = node.NewStartStop()
 		colStart.Position = node.PDFOutputPage
 		colStart.ShipoutCallback = func(n node.Node) string {
 			return col.PDFStringNonStroking() + " "
 		}
 		if head != nil {
 			head = node.InsertAfter(head, head, colStart)
+		} else {
+			head = colStart
 		}
-		head = colStart
 	}
 	// Reconcile the white-space mode with the older SettingPreserveWhitespace
 	// boolean. The boolean is still set directly — the leader-pattern builder
@@ -1983,6 +1989,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 
 	cur = head
+	if colStart != nil {
+		cur = colStart
+	}
 	var lastglue node.Node
 	// When a CSS prioritised font-family list resolves to two or more
 	// families, the input is segmented along grapheme-cluster boundaries
