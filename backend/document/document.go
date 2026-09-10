@@ -905,10 +905,15 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					hyperlink.startposX = posX
 					hyperlink.startposY = posY
 				} else {
-					rectHT := posY - hyperlink.startposY + hlist.Height + hlist.Depth
+					// startposY/posY are baseline coordinates. The link area
+					// hangs below the baseline by the line's depth and
+					// reaches up to its height; anchoring the bottom at the
+					// baseline instead would shift the area up by the depth.
+					rectLLY := posY - hlist.Depth
+					rectURY := hyperlink.startposY + hlist.Height
 					rectWD := posX - hyperlink.startposX
 					a := pdf.Annotation{
-						Rect:    [4]float64{hyperlink.startposX.ToPT(), hyperlink.startposY.ToPT(), posX.ToPT(), (posY + rectHT).ToPT()},
+						Rect:    [4]float64{hyperlink.startposX.ToPT(), rectLLY.ToPT(), posX.ToPT(), rectURY.ToPT()},
 						Subtype: "Link",
 					}
 					if oc.p.document.ShowHyperlinks {
@@ -959,7 +964,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.p.Annotations = append(oc.p.Annotations, a)
 					if oc.p.document.IsTrace(VTraceHyperlinks) {
 						oc.gotoTextMode(ScopeText)
-						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, hyperlink.startposY, rectWD, rectHT)
+						oc.writef("q 0.4 w %s %s %s %s re S Q ", hyperlink.startposX, rectLLY, rectWD, rectURY-rectLLY)
 					}
 				}
 			case node.ActionDest:
