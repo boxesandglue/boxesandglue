@@ -1321,11 +1321,8 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if v.Shift != 0 && oc.textmode < ScopePage {
 				oc.gotoTextMode(ScopePage)
 			}
-			if oc.p.document.IsTrace(VTraceHBoxes) {
-				r := node.NewRule()
-				r.Hide = true
-				p := pdfdraw.NewStandalone().LineWidth(bag.MustSP("0.4pt")).Rect(0, -v.Depth, v.Width, v.Height+v.Depth).Stroke()
-				r.Pre = p.String()
+			if oc.p.document.IsTrace(VTraceHBoxes) && isLineBox(v) {
+				r := hboxTraceRule(v, oc.p.document.Format.AllowsTransparency())
 				v.List = node.InsertBefore(v.List, v.List, r)
 			}
 			// PDF/UA: HList inside untagged container needs Artifact wrapping
