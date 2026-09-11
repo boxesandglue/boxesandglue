@@ -635,6 +635,43 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if oc.textmode > ScopeText {
 				oc.gotoTextMode(ScopeText)
 			}
+			// Glyph 0 here means no font in the stack had the character.
+			// PDF/UA forbids text-showing operators that reference .notdef
+			// (Matterhorn 10-004), so show the font's space glyph instead
+			// and carry the original character in an /ActualText span so
+			// extraction and AT read the real text. Layout keeps the
+			// .notdef advance from shaping; the position after the span is
+			// re-established absolutely (Tm), so nothing drifts when the
+			// space advance differs. The span wraps a real text-showing
+			// operator on purpose: ActualText on an empty marked-content
+			// sequence is unreliably honoured by extractors.
+			if v.Codepoint == 0 {
+				yPos := y
+				if hlist.VAlign == node.VAlignTop {
+					yPos -= v.Height
+				}
+				oc.gotoTextMode(ScopeText)
+				oc.newline()
+				if v.Components != "" {
+					oc.writef("/Span <</ActualText %s>> BDC", pdf.Serialize(pdf.String(v.Components)))
+					oc.newline()
+				}
+				if spaceGID := v.Font.Face.Codepoint(' '); spaceGID != 0 {
+					v.Font.Face.RegisterCodepoint(spaceGID)
+					oc.moveto(x+oc.shiftX+sumX, yPos)
+					oc.shiftX = 0
+					oc.gotoTextMode(ScopeGlyph)
+					oc.writef("%04x", spaceGID)
+					oc.gotoTextMode(ScopeText)
+				}
+				if v.Components != "" {
+					oc.newline()
+					oc.writef("EMC")
+					oc.newline()
+				}
+				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+				continue
+			}
 			// Bitmap-color path (sbix or CBDT). Tried first because a
 			// font that ships both BITMAP and COLRv0 (rare; Apple Color
 			// Emoji at one point did) renders better from bitmaps —
