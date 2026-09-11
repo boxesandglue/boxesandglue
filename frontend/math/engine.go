@@ -93,6 +93,7 @@ func (ctx *engineCtx) at(style MathStyle) *font.Font {
 	}
 	size := scaledSize(ctx.base.Size, style, ctx.cons)
 	f := font.NewFont(ctx.base.Face, size)
+	f.MissingGlyphFunc = ctx.base.MissingGlyphFunc
 	ctx.cache[style] = f
 	return f
 }

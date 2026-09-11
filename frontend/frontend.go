@@ -1,9 +1,11 @@
 package frontend
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
@@ -32,6 +34,13 @@ type Document struct {
 	suppressInfo          bool
 }
 
+// missingGlyphKey deduplicates missing-glyph warnings: the same character
+// missing from the same face fails on every occurrence, one report is enough.
+type missingGlyphKey struct {
+	face *pdf.Face
+	r    rune
+}
+
 func initDocument(w io.Writer) (*Document, error) {
 	d := &Document{
 		usedSpotcolors: make(map[*color.Color]bool),
@@ -41,6 +50,24 @@ func initDocument(w io.Writer) (*Document, error) {
 		FontFamilies:   make(map[string]*FontFamily),
 		fontlocal:      make(map[string]*FontSource),
 		Doc:            document.NewDocument(w),
+	}
+	// A character without a glyph is rendered as .notdef (the tofu box) and
+	// makes the PDF fail PDF/UA (Matterhorn 10-004), so it should never stay
+	// silent. Warn once per face and rune: a code block full of box-drawing
+	// characters would otherwise flood the log. This is only a default;
+	// callers may replace MissingGlyphFunc or set it to nil for the previous
+	// silent behaviour.
+	var missingMu sync.Mutex
+	missingSeen := make(map[missingGlyphKey]bool)
+	d.MissingGlyphFunc = func(face *pdf.Face, r rune) {
+		missingMu.Lock()
+		defer missingMu.Unlock()
+		key := missingGlyphKey{face: face, r: r}
+		if missingSeen[key] {
+			return
+		}
+		missingSeen[key] = true
+		bag.Logger.Warn("Font has no glyph for character, shown as .notdef", "char", string(r), "codepoint", fmt.Sprintf("U+%04X", r), "font", face.PostscriptName)
 	}
 	// Honour the reproducible-builds.org SOURCE_DATE_EPOCH convention
 	// at library level so every consumer (bagme, glu/markdown,

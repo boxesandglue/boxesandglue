@@ -68,6 +68,7 @@ func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontF
 	features = append(features, parseOpenTypeFeatures(fs.FontFeatures)...)
 
 	fnt := font.NewFont(face, bag.ScaledPointFromFloat(fontSize))
+	fnt.MissingGlyphFunc = tr.doc.MissingGlyphFunc
 	atoms := fnt.Shape(text, features, nil)
 
 	// Calculate total text width for text-anchor adjustment
