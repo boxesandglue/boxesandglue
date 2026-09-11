@@ -109,8 +109,9 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 			}
 		}
 	}
-	// subtract left glue setting
-	maxwd := lb.settings.HSize - lb.getIndent(a.Line)
+	// subtract the per-row insets: the measure a line has to fit into is the
+	// hsize less whatever is taken off either end for this row.
+	maxwd := lb.settings.HSize - lb.getIndent(a.Line) - lb.getIndentRight(a.Line)
 	sumExpand = lb.sumExpand - a.sumExpand
 	if thisLineWidth < maxwd {
 		// needs to stretch. EmergencyStretch (TeX \emergencystretch) is added
@@ -290,19 +291,29 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 }
 
 func (lb *linebreaker) getIndent(row int) bag.ScaledPoint {
-	rows := lb.settings.IndentRows
+	return indentForRow(lb.settings.Indent, lb.settings.IndentRows, row)
+}
+
+// getIndentRight is getIndent for the right-hand inset.
+func (lb *linebreaker) getIndentRight(row int) bag.ScaledPoint {
+	return indentForRow(lb.settings.IndentRight, lb.settings.IndentRightRows, row)
+}
+
+// indentForRow selects the inset for a row: 0 rows means every row, a positive
+// count means the first n, a negative count means every row except the first n.
+func indentForRow(indent bag.ScaledPoint, rows, row int) bag.ScaledPoint {
 	switch {
 	case rows == 0:
-		return lb.settings.Indent
+		return indent
 	case rows < 0:
 		if row >= -1*rows {
-			return lb.settings.Indent
+			return indent
 		}
 		return bag.ScaledPoint(0)
 
 	case rows > 0:
 		if rows > row {
-			return lb.settings.Indent
+			return indent
 		}
 		return bag.ScaledPoint(0)
 	}
@@ -652,6 +663,11 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				}
 			}
 			lineEnd.Attributes = H{"origin": "lineend"}
+			// The right-hand inset is width added to the line-end glue rather
+			// than a narrower hbox: the line still spans the full HSize, so
+			// alignment resolves inside the measure that is left, exactly as it
+			// does for the left inset.
+			lineEnd.Width += lb.getIndentRight(e.Line)
 			InsertAfter(startPos, endNode.Prev(), lineEnd)
 
 			// indentation

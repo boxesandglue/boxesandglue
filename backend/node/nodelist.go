@@ -20,16 +20,29 @@ const (
 
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
-	LineEndGlue           *Glue
-	LineStartGlue         *Glue
-	DemeritsFitness       int
-	DoublehyphenDemerits  int
-	EmergencyStretch      bag.ScaledPoint
-	FontExpansion         float64
-	HSize                 bag.ScaledPoint
-	Hyphenpenalty         int
-	Indent                bag.ScaledPoint
-	IndentRows            int
+	LineEndGlue          *Glue
+	LineStartGlue        *Glue
+	DemeritsFitness      int
+	DoublehyphenDemerits int
+	EmergencyStretch     bag.ScaledPoint
+	FontExpansion        float64
+	HSize                bag.ScaledPoint
+	Hyphenpenalty        int
+	Indent               bag.ScaledPoint
+	IndentRows           int
+	// IndentRight is the mirror of Indent: it narrows a line from the right
+	// without moving where the line starts. IndentRightRows selects the rows it
+	// applies to with the same sign convention as IndentRows (positive: the
+	// first n rows; negative: every row but the first n; 0: all rows).
+	//
+	// The two are separate because they are not the same operation. Indent
+	// shifts the line's content to the right as well as shortening it, which is
+	// what a paragraph indent means; IndentRight only takes width away from the
+	// end, which is what is needed to lay text beside something on the right —
+	// the line box still spans the full HSize, so alignment inside the narrowed
+	// measure keeps working.
+	IndentRight           bag.ScaledPoint
+	IndentRightRows       int
 	LineHeight            bag.ScaledPoint
 	Tolerance             float64
 	SqueezeOverfullBoxes  bool
