@@ -3,6 +3,7 @@ package frontend
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -178,8 +179,30 @@ func (fs *FontSource) String() string {
 type FontFamily struct {
 	doc          *Document
 	familyMember map[FontWeight]map[FontStyle]*FontSource
-	Name         string
-	ID           int
+	// rangeMembers are @font-face entries that cover a weight range (CSS
+	// Fonts 4 `font-weight: 200 900`), typically variable fonts with a
+	// wght axis. They are matched by containment and instantiated per
+	// used weight.
+	rangeMembers []rangeMember
+	// rangeInstances caches the per-weight FontSource derived from a
+	// range member, so repeated lookups return pointer-identical sources:
+	// the face cache and the coverage cache key by identity.
+	rangeInstances map[rangeInstanceKey]*FontSource
+	Name           string
+	ID             int
+}
+
+// rangeMember is a family member covering [min, max] instead of a single
+// weight.
+type rangeMember struct {
+	fs       *FontSource
+	min, max FontWeight
+	style    FontStyle
+}
+
+type rangeInstanceKey struct {
+	base *FontSource
+	w    FontWeight
 }
 
 // AddMember adds a member to the font family.
@@ -199,6 +222,94 @@ func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style
 	return nil
 }
 
+// AddMemberRange adds a member that covers the weight range [weightMin,
+// weightMax] (CSS Fonts 4 range syntax in @font-face, e.g. `font-weight:
+// 200 900`), typically a variable font with a wght axis. A request for a
+// weight inside the range resolves to a per-weight instance of the font
+// source whose "wght" variation axis is pinned to the requested weight.
+// Point members (AddMember) take precedence at their exact weight.
+func (ff *FontFamily) AddMemberRange(fontsource *FontSource, weightMin, weightMax FontWeight, style FontStyle) error {
+	if fontsource == nil {
+		return fmt.Errorf("Font source is nil")
+	}
+	if weightMin > weightMax {
+		weightMin, weightMax = weightMax, weightMin
+	}
+	if weightMin == weightMax {
+		return ff.AddMember(fontsource, weightMin, style)
+	}
+	ff.doc.fontlocal[fontsource.Name] = fontsource
+	bag.Logger.Debug("Add range member to font family", "id", ff.ID, "min", weightMin, "max", weightMax, "style", style, "source", fontsource)
+	ff.rangeMembers = append(ff.rangeMembers, rangeMember{fs: fontsource, min: weightMin, max: weightMax, style: style})
+	return nil
+}
+
+// hasWeight reports whether a point member exists at w or a range member
+// covers w.
+func (ff *FontFamily) hasWeight(w FontWeight) bool {
+	if ff.familyMember[w] != nil {
+		return true
+	}
+	for _, r := range ff.rangeMembers {
+		if w >= r.min && w <= r.max {
+			return true
+		}
+	}
+	return false
+}
+
+// stylesAt returns the style map in effect at weight w. Point members
+// registered exactly at w take precedence; range members covering w fill
+// in styles the point map does not provide, as per-weight instances.
+func (ff *FontFamily) stylesAt(w FontWeight) map[FontStyle]*FontSource {
+	m := ff.familyMember[w]
+	var merged map[FontStyle]*FontSource
+	for _, r := range ff.rangeMembers {
+		if w < r.min || w > r.max {
+			continue
+		}
+		if m[r.style] != nil || merged[r.style] != nil {
+			continue
+		}
+		if merged == nil {
+			merged = make(map[FontStyle]*FontSource, len(m)+1)
+			maps.Copy(merged, m)
+		}
+		merged[r.style] = ff.instanceAt(r.fs, w)
+	}
+	if merged != nil {
+		return merged
+	}
+	return m
+}
+
+// instanceAt returns the per-weight instance of a range member's font
+// source: a copy with the "wght" variation axis pinned to w. Cached so
+// repeated lookups return the same pointer.
+func (ff *FontFamily) instanceAt(base *FontSource, w FontWeight) *FontSource {
+	key := rangeInstanceKey{base: base, w: w}
+	if inst, ok := ff.rangeInstances[key]; ok {
+		return inst
+	}
+	vs := make(map[string]float64, len(base.VariationSettings)+1)
+	maps.Copy(vs, base.VariationSettings)
+	vs["wght"] = float64(w)
+	inst := &FontSource{
+		Name:              base.Name,
+		Location:          base.Location,
+		FontFeatures:      base.FontFeatures,
+		Data:              base.Data,
+		SizeAdjust:        base.SizeAdjust,
+		Index:             base.Index,
+		VariationSettings: vs,
+	}
+	if ff.rangeInstances == nil {
+		ff.rangeInstances = make(map[rangeInstanceKey]*FontSource)
+	}
+	ff.rangeInstances[key] = inst
+	return inst
+}
+
 // GetFontSource tries to get the face closest to the requested face.
 func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
 	bag.Logger.Log(context.Background(), -8, "FontFamily#GetFontSource", "weight", weight, "style", style)
@@ -206,52 +317,52 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 		return nil, fmt.Errorf("no font family specified")
 	}
 
-	if ff.familyMember == nil {
+	if ff.familyMember == nil && len(ff.rangeMembers) == 0 {
 		return nil, ErrEmptyFF
 	}
-	if ff.familyMember[weight] == nil {
+	if !ff.hasWeight(weight) {
 		switch {
 		case weight >= 400 && weight <= 500:
 			for i := weight; i <= 500; i++ {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
 			}
 			for i := weight; i > 0; i-- {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
 			}
 			for i := weight; i < 1000; i++ {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
 			}
 		case weight < 400:
 			for i := weight; i > 0; i-- {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
 			}
 			for i := weight; i < 1000; i++ {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
 			}
 		default:
 			for i := weight; i < 1000; i++ {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
 			}
 			for i := weight; i > 0; i-- {
-				if ff.familyMember[i] != nil {
+				if ff.hasWeight(i) {
 					weight = i
 					goto found
 				}
@@ -260,7 +371,7 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 		return nil, ErrUnfulfilledFamilyRequest
 	}
 found:
-	ffMemberWeight := ff.familyMember[weight]
+	ffMemberWeight := ff.stylesAt(weight)
 	if ff := ffMemberWeight[style]; ff != nil {
 		return ff, nil
 	}
