@@ -421,8 +421,20 @@ func ResolveFontWeight(fw string, inheritedValue FontWeight) FontWeight {
 	}
 	i, err := strconv.Atoi(fw)
 	if err != nil {
-		bag.Logger.Error(fmt.Sprintf("resolve font size: cannot convert %q to int", fw))
-		return FontWeight400
+		// Invalid values leave the inherited weight in place, like a
+		// browser dropping an invalid declaration. The two-number form
+		// is a common mix-up: it is only valid as an @font-face
+		// descriptor, not as a property value, so give a targeted hint.
+		if f := strings.Fields(fw); len(f) == 2 {
+			_, err1 := strconv.Atoi(f[0])
+			_, err2 := strconv.Atoi(f[1])
+			if err1 == nil && err2 == nil {
+				bag.Logger.Warn("font-weight range is only valid inside @font-face; use a single value on the element", "value", fw)
+				return inheritedValue
+			}
+		}
+		bag.Logger.Warn(fmt.Sprintf("resolve font weight: cannot convert %q to int", fw))
+		return inheritedValue
 	}
 
 	return FontWeight(i)
