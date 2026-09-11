@@ -6,14 +6,20 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
-// buildWords lays out words of uniform glyphs separated by fixed glue, the
-// shape the other linebreak tests use.
+// buildWords lays out words of uniform glyphs separated by interword glue.
+//
+// The glue stretches and shrinks: with rigid spaces there is often no feasible
+// breakpoint in a narrowed measure at all, and the breaker emits overfull lines
+// whether or not the inset is doing anything — a fixture that cannot show the
+// feature working also cannot show it broken.
 func buildWords(words []string, charWidth, spaceWidth bag.ScaledPoint) Node {
 	var head, cur Node
 	for i, w := range words {
 		if i > 0 {
 			sp := NewGlue()
 			sp.Width = spaceWidth
+			sp.Stretch = spaceWidth
+			sp.Shrink = spaceWidth / 3
 			head = InsertAfter(head, cur, sp)
 			cur = sp
 		}
@@ -23,9 +29,13 @@ func buildWords(words []string, charWidth, spaceWidth bag.ScaledPoint) Node {
 	return head
 }
 
-// lineWidths returns the natural width of the content of each line: the packed
-// hbox less the skips inserted around it. That is the measure the breaker
-// actually had to work with.
+// lineContentWidths sums each line's content, skipping the leftskip and
+// line-end glue.
+//
+// Summed rather than taken as hl.Width minus the skips: HpackTo forces the box
+// to the full HSize and writes the set glue widths back into the nodes, so that
+// subtraction yields a constant that cannot exceed the measure whatever the
+// breaker did.
 func lineContentWidths(vlist *VList) []bag.ScaledPoint {
 	var out []bag.ScaledPoint
 	for n := vlist.List; n != nil; n = n.Next() {
@@ -33,15 +43,41 @@ func lineContentWidths(vlist *VList) []bag.ScaledPoint {
 		if !ok {
 			continue
 		}
-		var skips bag.ScaledPoint
+		var content bag.ScaledPoint
 		for m := hl.List; m != nil; m = m.Next() {
 			if g, ok := m.(*Glue); ok {
 				if o, _ := g.Attributes["origin"].(string); o == "leftskip" || o == "lineend" {
-					skips += g.Width
+					continue
+				}
+			}
+			w, _, _ := m.Sizes(Horizontal)
+			content += w
+		}
+		out = append(out, content)
+	}
+	return out
+}
+
+// lineEndWidths returns each line's line-end glue: the base glue plus whatever
+// right inset that row was given. The row selection is asserted on this rather
+// than on content width, where a naturally short last line is indistinguishable
+// from a narrowed one.
+func lineEndWidths(vlist *VList) []bag.ScaledPoint {
+	var out []bag.ScaledPoint
+	for n := vlist.List; n != nil; n = n.Next() {
+		hl, ok := n.(*HList)
+		if !ok {
+			continue
+		}
+		var end bag.ScaledPoint
+		for m := hl.List; m != nil; m = m.Next() {
+			if g, ok := m.(*Glue); ok {
+				if o, _ := g.Attributes["origin"].(string); o == "lineend" {
+					end += g.Width
 				}
 			}
 		}
-		out = append(out, hl.Width-skips)
+		out = append(out, end)
 	}
 	return out
 }
@@ -94,6 +130,10 @@ func TestIndentRightNarrowsFromTheEnd(t *testing.T) {
 
 // TestIndentRightRowsSelectsRows: the row selector means the same thing it
 // means for the left inset — first n rows, or all rows but the first n.
+//
+// Asserted on the line-end glue, which carries the inset for the rows it applies
+// to. The last line is excluded: it absorbs whatever slack is left, so its glue
+// is wide whether or not the row was narrowed.
 func TestIndentRightRowsSelectsRows(t *testing.T) {
 	const charWidth = bag.ScaledPoint(6 * bag.Factor)
 	const spaceWidth = bag.ScaledPoint(3 * bag.Factor)
@@ -102,8 +142,8 @@ func TestIndentRightRowsSelectsRows(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		rows   int
-		inset  bool // whether row 0 is expected to be narrowed
-		lastIn bool // whether the last row is expected to be narrowed
+		first  bool // row 0 narrowed?
+		second bool // row 1 narrowed?
 	}{
 		{"all rows", 0, true, true},
 		{"first row only", 1, true, false},
@@ -117,21 +157,18 @@ func TestIndentRightRowsSelectsRows(t *testing.T) {
 			s.IndentRightRows = tc.rows
 			vlist, _ := Linebreak(buildWords(words, charWidth, spaceWidth), s)
 
-			widths := lineContentWidths(vlist)
-			if len(widths) < 2 {
-				t.Fatalf("expected several lines, got %d", len(widths))
+			ends := lineEndWidths(vlist)
+			if len(ends) < 3 {
+				t.Fatalf("want at least three lines so neither asserted row is the last, got %d", len(ends))
 			}
-			limit := s.HSize - s.IndentRight
-			if got := widths[0] <= limit; got != tc.inset {
-				t.Errorf("row 0 narrowed = %v (%s of content), want %v", got, widths[0], tc.inset)
-			}
-			if got := widths[len(widths)-1] <= limit; got != tc.lastIn {
-				t.Errorf("last row narrowed = %v (%s of content), want %v", got, widths[len(widths)-1], tc.lastIn)
+			for i, want := range []bool{tc.first, tc.second} {
+				if got := ends[i] >= s.IndentRight; got != want {
+					t.Errorf("row %d narrowed = %v (line-end glue %s), want %v", i, got, ends[i], want)
+				}
 			}
 		})
 	}
 }
-
 
 func widest(widths []bag.ScaledPoint) bag.ScaledPoint {
 	var max bag.ScaledPoint
