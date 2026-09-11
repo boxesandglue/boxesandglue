@@ -855,7 +855,13 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
 			oc.gotoTextMode(ScopePage)
-			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
+			// A rule without area (used as a rigid horizontal spacer, e.g.
+			// preserved spaces in white-space:pre) has no ink: a degenerate
+			// rectangle fills nothing per PDF 1.7 §8.5.3.3.2, but some
+			// rasterizers (mupdf) still paint it as a hairline, so suppress
+			// the fill operator entirely.
+			fillsArea := v.Width != 0 && v.Height+v.Depth != 0
+			hasVisibleOutput := v.Pre != "" || v.Post != "" || (!v.Hide && fillsArea)
 			hRuleNeedsArtifact := oc.p.document.Format.IsPDFUA() && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
 			if hRuleNeedsArtifact {
 				oc.writef("/Artifact BMC\n")
@@ -870,7 +876,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if v.Pre != "" {
 				pdfinstructions = append(pdfinstructions, v.Pre)
 			}
-			if !v.Hide {
+			if !v.Hide && fillsArea {
 				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, v.Height+v.Depth))
 			}
 			if v.Attributes != nil {
@@ -1458,7 +1464,10 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			posX := x
 			posY := y - sumY
 			sumY += v.Height + v.Depth
-			hasVisibleOutput := v.Pre != "" || v.Post != "" || !v.Hide
+			// Same degenerate-rectangle guard as the horizontal rule case:
+			// a zero-area rule is a spacer, not ink.
+			fillsArea := v.Width != 0 && v.Height+v.Depth != 0
+			hasVisibleOutput := v.Pre != "" || v.Post != "" || (!v.Hide && fillsArea)
 			ruleNeedsArtifact := untaggedContainer && hasVisibleOutput
 			oc.gotoTextMode(ScopePage)
 			if ruleNeedsArtifact {
@@ -1468,7 +1477,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if v.Pre != "" {
 				pdfinstructions = append(pdfinstructions, v.Pre)
 			}
-			if !v.Hide {
+			if !v.Hide && fillsArea {
 				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 0 %s %s re f Q", v.Width, -1*(v.Height+v.Depth)))
 			}
 			if v.Attributes != nil {
