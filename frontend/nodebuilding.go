@@ -1945,6 +1945,13 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		decorationStart.SetAttribute("decorationstyle", decorationStyle)
 		if decorationColor != nil {
 			decorationStart.SetAttribute("decorationcolor", decorationColor)
+		} else if col != nil {
+			// CSS text-decoration-color defaults to currentColor. Glyphs
+			// are filled but the rule is stroked, and stroking has its own
+			// colour state that nobody sets, so without an explicit colour
+			// the rule would come out in the PDF default black. Hand the
+			// run's text colour to the drawing instead.
+			decorationStart.SetAttribute("decorationcolor", col)
 		}
 		decorationStart.SetAttribute("SettingTextDecorationLine", decorationLine)
 		if head != nil {
