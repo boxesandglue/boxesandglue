@@ -250,6 +250,10 @@ const (
 	SettingIndentLeft
 	// SettingIndentLeftRows determines the number of rows to be indented (positive value), or the number of rows not indented (negative values). 0 means all rows.
 	SettingIndentLeftRows
+	// SettingIndentRight narrows the line from the right without moving where it starts.
+	SettingIndentRight
+	// SettingIndentRightRows selects the rows SettingIndentRight applies to, with the same sign convention as SettingIndentLeftRows.
+	SettingIndentRightRows
 	// SettingLeader contains the leader pattern string (e.g. ".") for TeX-style leaders.
 	SettingLeader
 	// SettingLeading determines the distance between two base lines (line height).
@@ -458,6 +462,10 @@ func (st SettingType) String() string {
 		settingName = "SettingIndentLeft"
 	case SettingIndentLeftRows:
 		settingName = "SettingIndentLeftRows"
+	case SettingIndentRight:
+		settingName = "SettingIndentRight"
+	case SettingIndentRightRows:
+		settingName = "SettingIndentRightRows"
 	case SettingLeader:
 		settingName = "SettingLeader"
 	case SettingLeading:
@@ -742,6 +750,8 @@ type Options struct {
 	HyphenPenalty    int
 	IndentLeft       bag.ScaledPoint
 	IndentLeftRows   int
+	IndentRight      bag.ScaledPoint
+	IndentRightRows  int
 	Leading          bag.ScaledPoint
 	Tolerance        float64
 	EmergencyStretch bag.ScaledPoint
@@ -802,6 +812,15 @@ func EmergencyStretch(es bag.ScaledPoint) TypesettingOption {
 func FontSize(size bag.ScaledPoint) TypesettingOption {
 	return func(p *Options) {
 		p.Fontsize = size
+	}
+}
+
+// IndentRight narrows the line from the right by size for the given rows,
+// leaving the start of the line where it is.
+func IndentRight(size bag.ScaledPoint, rows int) TypesettingOption {
+	return func(p *Options) {
+		p.IndentRight = size
+		p.IndentRightRows = rows
 	}
 }
 
@@ -1219,6 +1238,12 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	if ilr, ok := te.Settings[SettingIndentLeftRows]; ok {
 		p.IndentLeftRows = ilr.(int)
 	}
+	if ir, ok := te.Settings[SettingIndentRight]; ok {
+		p.IndentRight = ir.(bag.ScaledPoint)
+	}
+	if irr, ok := te.Settings[SettingIndentRightRows]; ok {
+		p.IndentRightRows = irr.(int)
+	}
 	// Use padding-left as indent for all rows (HTML list behavior).
 	// Consume and delete from te.Settings so Mknodes does not also apply
 	// it as an inline padding-left glue at the start of the paragraph —
@@ -1272,7 +1297,8 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	// -ListPaddingLeft glue that places the marker glyph in the
 	// left gutter (X = -ListPaddingLeft from the anchor).
 	//
-	// RTL: anchor = p.hsize (the line's right content edge). The
+	// RTL: anchor = the line's right content edge, which is p.hsize less
+	// any right inset (IndentRight moves that edge inwards). The
 	// hbox uses a mirrored +ListPaddingLeft trailing glue, so the
 	// marker glyph lands in the right gutter (X = +0..ListPaddingLeft
 	// from the anchor).
@@ -1285,7 +1311,7 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 		if hbox, ok := prep.(*node.HList); ok && hbox.Attributes != nil {
 			if outside, _ := hbox.Attributes["outside-marker"].(bool); outside {
 				if rtl, _ := hbox.Attributes["outside-marker-rtl"].(bool); rtl {
-					hbox.Attributes["outside-marker-anchor"] = p.hsize
+					hbox.Attributes["outside-marker-anchor"] = p.hsize - p.IndentRight
 				} else {
 					hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
 				}
@@ -1328,6 +1354,8 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	ls.HSize = p.hsize
 	ls.Indent = p.IndentLeft
 	ls.IndentRows = p.IndentLeftRows
+	ls.IndentRight = p.IndentRight
+	ls.IndentRightRows = p.IndentRightRows
 	ls.Tolerance = 4
 	if p.Tolerance != 0 {
 		ls.Tolerance = p.Tolerance
@@ -1851,7 +1879,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
-		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingTabSize, SettingTabSizeSpaces:
+		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingTabSize, SettingTabSizeSpaces:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
 			// ignore
