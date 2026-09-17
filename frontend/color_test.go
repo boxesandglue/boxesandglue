@@ -98,3 +98,32 @@ func TestParseCMYKMalformed(t *testing.T) {
 		}
 	}
 }
+
+// A spot color defined by the user must end up as a Separation color space in
+// the PDF. Only the predefined Pantone entries used to be registered, a
+// DefineColor'd spot color wrote "/CS0 cs" without any matching resource.
+func TestDefineSpotColor(t *testing.T) {
+	f, _ := initDocument(io.Discard)
+	spot := &color.Color{Space: color.ColorSpotcolor, Basecolor: "PANTONE 300 C", C: 1, M: 0.44}
+	f.DefineColor("brand", spot)
+	if spot.SpotcolorID == 0 {
+		t.Fatal("spot color not registered with the document")
+	}
+	if !f.usedSpotcolors[spot] {
+		t.Error("spot color missing from usedSpotcolors")
+	}
+	if got, want := f.GetColor("brand").PDFStringNonStroking(), "/CS1 cs 1 scn "; got != want {
+		t.Errorf("PDFStringNonStroking() = %q, want %q", got, want)
+	}
+	// defining the same color under a second name must not register twice
+	f.DefineColor("alias", spot)
+	if got := len(f.usedSpotcolors); got != 1 {
+		t.Errorf("len(usedSpotcolors) = %d, want 1", got)
+	}
+	// the ink name falls back to the color name
+	plain := &color.Color{Space: color.ColorSpotcolor}
+	f.DefineColor("gold", plain)
+	if plain.Basecolor != "gold" {
+		t.Errorf("Basecolor = %q, want gold", plain.Basecolor)
+	}
+}

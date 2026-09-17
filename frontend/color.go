@@ -10,8 +10,23 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/color"
 )
 
-// DefineColor associates a color with a name for later use.
+// DefineColor associates a color with a name for later use. A spot color is
+// registered with the document so that the PDF gets its Separation color
+// space; its Basecolor (the name of the ink) defaults to the given name.
 func (d *Document) DefineColor(name string, col *color.Color) {
+	if d.usedcolors == nil {
+		d.usedcolors = make(map[string]*color.Color)
+	}
+	if col.Space == color.ColorSpotcolor && col.SpotcolorID == 0 {
+		if col.Basecolor == "" {
+			col.Basecolor = name
+		}
+		if d.usedSpotcolors == nil {
+			d.usedSpotcolors = make(map[*color.Color]bool)
+		}
+		d.usedSpotcolors[col] = true
+		col.SpotcolorID = len(d.usedSpotcolors)
+	}
 	d.usedcolors[name] = col
 }
 
