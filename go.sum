@@ -2,8 +2,8 @@ github.com/boxesandglue/baseline-pdf v1.1.22 h1:8jz63dd1e6qEA7CDlHKU5lqq82BZJhAa
 github.com/boxesandglue/baseline-pdf v1.1.22/go.mod h1:WoJAimnUSgqGkxIh5+cWVpBvDoqyUY+hQHI0PFA/qvc=
 github.com/boxesandglue/gofpdi v1.0.24 h1:7Q0v4dkmByemj8PyIYi8ylIYrUnNhY/L/Ed6MRGwlro=
 github.com/boxesandglue/gofpdi v1.0.24/go.mod h1:U26faV5/yQf8ivQS0Tt2TdpU7Y8X9wpLLB2T/5oI+u4=
-github.com/boxesandglue/svgreader v0.0.4 h1:q3hGxqpwUUHByfM3NoinB+vWbH18v1TmVnCJKCo8VWU=
-github.com/boxesandglue/svgreader v0.0.4/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
+github.com/boxesandglue/svgreader v0.0.5 h1:yUvFP+T66l2YjRjFs7aLQ4lAfimDSLRssy6wZcfOTGc=
+github.com/boxesandglue/svgreader v0.0.5/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
 github.com/boxesandglue/textshape v0.0.15 h1:lWnWReoDxJbO/PNcL/EfMsbLkRgNMzwR86ChN8ZeuO0=
 github.com/boxesandglue/textshape v0.0.15/go.mod h1:DdRw4tpKs6xFaulvBfut/ICZGXgZeibMhoLrQycmVh8=
 github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
