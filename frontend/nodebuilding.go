@@ -2434,6 +2434,25 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				tail = opener
 			}
 
+			// Inline background. A background colour on the paragraph
+			// itself is a block property and is painted by whoever builds
+			// the block; only a child Text whose colour differs from the
+			// surrounding one gets a box behind its glyphs. The pair of
+			// markers is resolved after line breaking, once it is known
+			// which lines the child spans (see postLinebreakBackground).
+			// Inheritance above copied the parent's colour into a child
+			// without one, so such a child compares equal here.
+			parentBG := fe.backgroundColorOf(newSettings[SettingBackgroundColor])
+			childBG := fe.backgroundColorOf(t.Settings[SettingBackgroundColor])
+			var bgStart *node.StartStop
+			if childBG != nil && !sameColor(childBG, parentBG) {
+				bgStart = node.NewStartStop()
+				bgStart.Action = node.ActionUserSetting
+				bgStart.SetAttribute(attrInlineBackground, childBG)
+				head = node.InsertAfter(head, tail, bgStart)
+				tail = bgStart
+			}
+
 			nl, end, err = fe.Mknodes(t)
 			// Restore the settings consumed above so a later
 			// re-formatting of the same Text (table measurement passes)
@@ -2453,6 +2472,15 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			if nl != nil {
 				head = node.InsertAfter(head, tail, nl)
 				tail = end
+			}
+
+			if bgStart != nil {
+				bgStop := node.NewStartStop()
+				bgStop.Action = node.ActionUserSetting
+				bgStop.StartNode = bgStart
+				bgStop.SetAttribute(attrInlineBackground, nil)
+				head = node.InsertAfter(head, tail, bgStop)
+				tail = bgStop
 			}
 
 			if needsLangSwitch {

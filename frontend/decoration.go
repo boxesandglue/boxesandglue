@@ -17,6 +17,9 @@ type styles struct {
 	// pos is the line's offset from the baseline, negative below it.
 	pos       bag.ScaledPoint
 	linewidth bag.ScaledPoint
+	// backgrounds is the stack of inline background boxes open at this point
+	// of the line, outermost first. See postLinebreakBackgroundLine.
+	backgrounds []*inlineBackground
 }
 
 // DecorationOffset returns where a text-decoration line sits relative to the
@@ -197,11 +200,13 @@ func postLinebreakHL(n node.Node, st *styles) node.Node {
 }
 
 func postLinebreak(vl *node.VList) *node.VList {
-	var e node.Node
-	for e = vl.List; e != nil; e = e.Next() {
-		if hl, ok := e.(*node.HList); ok {
-			postLinebreakHL(hl, &styles{})
-		}
-	}
+	// Backgrounds first: their rules go in front of the decoration rules, so
+	// an underline is painted on top of the background, not under it.
+	postLinebreakBackground(vl)
+	// One walk over all lines. postLinebreakHL follows the Next chain from
+	// its argument, so starting it once at the first line covers the whole
+	// paragraph; starting it again at every line drew the decorations of
+	// the later lines once per preceding line, on top of each other.
+	vl.List = postLinebreakHL(vl.List, &styles{})
 	return vl
 }
