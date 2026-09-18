@@ -42,8 +42,12 @@ func (tr *SVGTextRenderer) UsedFaces() []*pdf.Face {
 // RenderText implements svgreader.TextRenderer. It shapes the text using
 // HarfBuzz (via textshape) and returns PDF text operators.
 func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontFamily, fontWeight, fontStyle, textAnchor string, fill svgreader.Color) string {
+	// A text that cannot be set is dropped, but not silently: an SVG with
+	// a font-family that the document does not know rendered its labels as
+	// nothing, and nobody was told why.
 	ff := tr.resolveFamily(fontFamily)
 	if ff == nil {
+		bag.Logger.Warn("SVG text not rendered: font family not found", "font-family", fontFamily, "text", text)
 		return ""
 	}
 
@@ -52,11 +56,13 @@ func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontF
 
 	fs, err := ff.GetFontSource(weight, style)
 	if err != nil {
+		bag.Logger.Warn("SVG text not rendered", "font-family", fontFamily, "text", text, "error", err)
 		return ""
 	}
 
 	face, err := tr.doc.LoadFace(fs)
 	if err != nil {
+		bag.Logger.Warn("SVG text not rendered", "font-family", fontFamily, "text", text, "error", err)
 		return ""
 	}
 
