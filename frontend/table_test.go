@@ -125,3 +125,24 @@ func TestCellStacksBlockContents(t *testing.T) {
 			tbl.rowHeights[0], want)
 	}
 }
+
+// TestTableColspanRest checks that a cell with a huge colspan, the "rule
+// across all columns" idiom colspan="9999", does not widen the table beyond
+// the columns its other rows have.
+func TestTableColspanRest(t *testing.T) {
+	cell := func(colspan int) *TableCell {
+		return &TableCell{ExtraColspan: colspan - 1}
+	}
+	tbl := &Table{Rows: TableRows{
+		{Cells: []*TableCell{cell(1), cell(1), cell(1)}},
+		{Cells: []*TableCell{cell(9999)}},
+		{Cells: []*TableCell{cell(2), cell(1)}},
+	}}
+	tbl.analyzeTable()
+	if tbl.nCol != 3 {
+		t.Errorf("got %d columns, want 3", tbl.nCol)
+	}
+	if got := tbl.Rows[1].Cells[0].ExtraColspan; got != 2 {
+		t.Errorf("rule cell spans %d extra columns, want 2", got)
+	}
+}

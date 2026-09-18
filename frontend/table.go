@@ -675,16 +675,49 @@ func (tbl *Table) analyzeTable() {
 	// sum of colspans per row, not the maximum number of cells per row — a
 	// row with a single colspan="10" cell still occupies 10 columns.
 	tbl.nRow = len(tbl.Rows)
+	// A colspan of 1000 or more means "the rest of the row" (HTML clamps
+	// colspan at 1000, and a rule row spanning "all columns" is written
+	// with colspan="9999"). Such a cell must not create thousands of empty
+	// columns, which the border spacing of the separated model would turn
+	// into thousands of gaps. The column count therefore comes from the
+	// rows without such a cell, and the cell is clamped to what is left.
+	const colspanRest = 999
 	for i, row := range tbl.Rows {
 		row.table = tbl
 		row.row = i
 		sum := 0
+		rest := false
 		for _, c := range row.Cells {
+			if c.ExtraColspan >= colspanRest {
+				rest = true
+				sum++
+				continue
+			}
 			sum += c.ExtraColspan + 1
 		}
-		if sum > tbl.nCol {
+		if !rest && sum > tbl.nCol {
 			tbl.nCol = sum
 		}
+	}
+	for _, row := range tbl.Rows {
+		others := 0
+		var restCell *TableCell
+		for _, c := range row.Cells {
+			if c.ExtraColspan >= colspanRest && restCell == nil {
+				restCell = c
+				continue
+			}
+			others += c.ExtraColspan + 1
+		}
+		if restCell == nil {
+			continue
+		}
+		if others+1 > tbl.nCol {
+			// Every row has such a cell, or this one has more cells than
+			// any other row: the table is as wide as this row.
+			tbl.nCol = others + 1
+		}
+		restCell.ExtraColspan = tbl.nCol - others - 1
 	}
 
 	// build n*m matrix where each entry points to the table cell which it displays.
