@@ -13,21 +13,60 @@ import (
 
 // Table represents tabular material to be typeset.
 type Table struct {
-	FontFamily   *FontFamily
-	doc          *Document
-	Rows         TableRows
-	ColSpec      []ColSpec
-	columnWidths []bag.ScaledPoint
-	rowHeights   []bag.ScaledPoint
-	cellMatrix   matrix
-	MaxWidth     bag.ScaledPoint
-	FontSize     bag.ScaledPoint
-	Leading      bag.ScaledPoint
-	nCol         int
-	nRow         int
-	Stretch      bool
-	HeaderRows   int // number of initial rows that are header rows (from <thead>)
-	FooterRows   int // number of trailing rows that are footer rows (from <tfoot>)
+	FontFamily *FontFamily
+	doc        *Document
+	Rows       TableRows
+	ColSpec    []ColSpec
+	// BorderModel is how the borders of neighbouring cells meet. The zero
+	// value is BorderModelCollapse: the border between two cells is drawn
+	// once, as wide as the wider of the two, and the table's own border
+	// (BorderTopWidth and friends) is merged into the cells on the edge.
+	// BorderModelSeparate draws every border of every cell and keeps the
+	// cells apart by BorderSpacingHorizontal and BorderSpacingVertical,
+	// also between the outer cells and the edge of the table; the table's
+	// own border is then not drawn here but left to the caller, who knows
+	// the table's padding and background.
+	BorderModel             BorderModel
+	BorderSpacingHorizontal bag.ScaledPoint
+	BorderSpacingVertical   bag.ScaledPoint
+	BorderTopWidth          bag.ScaledPoint
+	BorderRightWidth        bag.ScaledPoint
+	BorderBottomWidth       bag.ScaledPoint
+	BorderLeftWidth         bag.ScaledPoint
+	BorderTopColor          *color.Color
+	BorderRightColor        *color.Color
+	BorderBottomColor       *color.Color
+	BorderLeftColor         *color.Color
+	columnWidths            []bag.ScaledPoint
+	rowHeights              []bag.ScaledPoint
+	cellMatrix              matrix
+	MaxWidth                bag.ScaledPoint
+	FontSize                bag.ScaledPoint
+	Leading                 bag.ScaledPoint
+	nCol                    int
+	nRow                    int
+	Stretch                 bool
+	HeaderRows              int // number of initial rows that are header rows (from <thead>)
+	FooterRows              int // number of trailing rows that are footer rows (from <tfoot>)
+}
+
+// BorderModel is the value of SettingBorderCollapse and Table.BorderModel:
+// the collapsing or the separated borders model of CSS 2.1 §17.6.
+type BorderModel int
+
+const (
+	// BorderModelCollapse draws the border between two cells once.
+	BorderModelCollapse BorderModel = iota
+	// BorderModelSeparate draws every border of every cell and keeps the
+	// cells apart by the border spacing.
+	BorderModelSeparate
+)
+
+func (bm BorderModel) String() string {
+	if bm == BorderModelSeparate {
+		return "separate"
+	}
+	return "collapse"
 }
 
 // TableRow represents a row in a table.
@@ -41,22 +80,22 @@ type TableRow struct {
 
 // TableCell represents a table cell
 type TableCell struct {
-	BackgroundColor             *color.Color
-	BorderTopColor              *color.Color
-	BorderBottomColor           *color.Color
-	BorderLeftColor             *color.Color
-	BorderRightColor            *color.Color
-	row                         *TableRow
-	vlist                       *node.VList
-	Contents                    []any
-	nextCell                    []*TableCell
-	nextRow                     []*TableCell
-	BorderTopWidth              bag.ScaledPoint
-	BorderBottomWidth           bag.ScaledPoint
-	BorderLeftWidth             bag.ScaledPoint
-	BorderRightWidth            bag.ScaledPoint
-	CalculatedWidth             bag.ScaledPoint
-	CalculatedHeight            bag.ScaledPoint
+	BackgroundColor   *color.Color
+	BorderTopColor    *color.Color
+	BorderBottomColor *color.Color
+	BorderLeftColor   *color.Color
+	BorderRightColor  *color.Color
+	row               *TableRow
+	vlist             *node.VList
+	Contents          []any
+	nextCell          []*TableCell
+	nextRow           []*TableCell
+	BorderTopWidth    bag.ScaledPoint
+	BorderBottomWidth bag.ScaledPoint
+	BorderLeftWidth   bag.ScaledPoint
+	BorderRightWidth  bag.ScaledPoint
+	CalculatedWidth   bag.ScaledPoint
+	CalculatedHeight  bag.ScaledPoint
 	// SpecifiedWidth is the cell's declared width (CSS `width` on a
 	// <td>/<th>, percentages already resolved against the table width).
 	// Zero means "not specified". CSS 2.1 §17.5.2.2 folds it into the
@@ -445,6 +484,10 @@ func (row *TableRow) setHeight() ([]span, error) {
 		for j := 0; j <= cell.ExtraColspan; j++ {
 			cell.CalculatedWidth += row.table.columnWidths[cell.colStart+j]
 		}
+		// A cell spanning columns also covers the spacing between them.
+		if row.table.BorderModel == BorderModelSeparate {
+			cell.CalculatedWidth += row.table.BorderSpacingHorizontal * bag.ScaledPoint(cell.ExtraColspan)
+		}
 	}
 	rowspans := []span{}
 	for _, cell := range row.Cells {
@@ -492,6 +535,22 @@ func (row *TableRow) calculateWidths() ([]bag.ScaledPoint, []bag.ScaledPoint, []
 func (row *TableRow) build() (*node.HList, error) {
 	var head node.Node
 	var tail node.Node
+	// Separated model: spacing before the first cell and after every cell.
+	var spacing bag.ScaledPoint
+	if row.table.BorderModel == BorderModelSeparate {
+		spacing = row.table.BorderSpacingHorizontal
+	}
+	addSpacing := func() {
+		if spacing <= 0 {
+			return
+		}
+		k := node.NewKern()
+		k.Kern = spacing
+		k.Attributes = node.H{"origin": "border spacing"}
+		head = node.InsertAfter(head, tail, k)
+		tail = k
+	}
+	addSpacing()
 	for x := 0; x < row.table.nCol; x++ {
 		cellptr := row.table.cellMatrix[x][row.row]
 		if cellptr.cell == nil {
@@ -504,6 +563,7 @@ func (row *TableRow) build() (*node.HList, error) {
 			}
 			head = node.InsertAfter(head, tail, vl)
 			tail = vl
+			addSpacing()
 			x += cellptr.cell.ExtraColspan
 		} else {
 			// dummy cell because of rowspan
@@ -516,11 +576,21 @@ func (row *TableRow) build() (*node.HList, error) {
 			vl.Attributes = node.H{"origin": "dummy cell"}
 			head = node.InsertAfter(head, tail, vl)
 			tail = vl
+			addSpacing()
 		}
 	}
 	hl := node.Hpack(head)
 	hl.Attributes = node.H{"origin": "table row"}
 	return hl, nil
+}
+
+// horizontalSpacingTotal is the width the border spacing takes in a row: one
+// gap more than there are columns. Zero in the collapsing model.
+func (tbl *Table) horizontalSpacingTotal() bag.ScaledPoint {
+	if tbl.BorderModel != BorderModelSeparate || tbl.BorderSpacingHorizontal <= 0 {
+		return 0
+	}
+	return tbl.BorderSpacingHorizontal * bag.ScaledPoint(tbl.nCol+1)
 }
 
 // MatrixString returns the debug string of the table matrix.
@@ -561,6 +631,10 @@ func (tr *TableRows) calculateHeights() error {
 			cell.CalculatedHeight = 0
 			for rs := 0; rs <= cell.ExtraRowspan; rs++ {
 				cell.CalculatedHeight += row.table.rowHeights[cell.rowStart+rs]
+			}
+			// A cell spanning rows also covers the spacing between them.
+			if tbl.BorderModel == BorderModelSeparate {
+				cell.CalculatedHeight += tbl.BorderSpacingVertical * bag.ScaledPoint(cell.ExtraRowspan)
 			}
 		}
 	}
@@ -695,46 +769,72 @@ func (tbl *Table) analyzeTable() {
 			}
 		}
 	}
-	// border collapse
+	if tbl.BorderModel == BorderModelSeparate {
+		// Every cell keeps all four borders as declared.
+		return
+	}
+	// The table's own border merges into the cells on the edge: the wider
+	// one wins and brings its colour.
 	for _, row := range tbl.Rows {
 		for _, cell := range row.Cells {
-			maxBorderLeft := bag.ScaledPoint(0)
-			for _, nc := range cell.nextCell {
-				if nc.BorderLeftWidth > maxBorderLeft {
-					maxBorderLeft = nc.BorderLeftWidth
-				}
+			if cell.colStart == 0 && tbl.BorderLeftWidth > cell.BorderLeftWidth {
+				cell.BorderLeftWidth = tbl.BorderLeftWidth
+				cell.calculatedBorderLeftWidth = tbl.BorderLeftWidth
+				cell.BorderLeftColor = tbl.BorderLeftColor
 			}
-			borderWidthWant := cell.BorderRightWidth
-			for _, nc := range cell.nextCell {
-				if nc.BorderLeftWidth > cell.BorderRightWidth {
-					borderWidthWant = nc.BorderLeftWidth
-				}
+			if cell.colStart+cell.ExtraColspan == tbl.nCol-1 && tbl.BorderRightWidth > cell.BorderRightWidth {
+				cell.BorderRightWidth = tbl.BorderRightWidth
+				cell.calculatedBorderRightWidth = tbl.BorderRightWidth
+				cell.BorderRightColor = tbl.BorderRightColor
 			}
-			if cell.nextCell != nil {
-				borderWidthWant /= 2
+			if cell.rowStart == 0 && tbl.BorderTopWidth > cell.BorderTopWidth {
+				cell.BorderTopWidth = tbl.BorderTopWidth
+				cell.calculatedBorderTopWidth = tbl.BorderTopWidth
+				cell.BorderTopColor = tbl.BorderTopColor
 			}
-			if borderWidthWant <= cell.calculatedBorderRightWidth {
-				cell.calculatedBorderRightWidth = borderWidthWant
+			if cell.rowStart+cell.ExtraRowspan == tbl.nRow-1 && tbl.BorderBottomWidth > cell.BorderBottomWidth {
+				cell.BorderBottomWidth = tbl.BorderBottomWidth
+				cell.calculatedBorderBottomWidth = tbl.BorderBottomWidth
+				cell.BorderBottomColor = tbl.BorderBottomColor
+			}
+		}
+	}
+	// Collapsing borders (CSS 2.1 §17.6.2.1, reduced to width): where two
+	// cells meet, the wider border wins and brings its colour. Between
+	// columns each cell draws half of it, so the line sits on the column
+	// boundary; between rows the upper cell draws all of it and the lower
+	// cell nothing, so a table split between pages keeps a full line at the
+	// bottom of the page.
+	for _, row := range tbl.Rows {
+		for _, cell := range row.Cells {
+			if len(cell.nextCell) > 0 {
+				want := cell.BorderRightWidth
+				col := cell.BorderRightColor
 				for _, nc := range cell.nextCell {
-					nc.calculatedBorderLeftWidth = borderWidthWant
+					if nc.BorderLeftWidth > want {
+						want = nc.BorderLeftWidth
+						col = nc.BorderLeftColor
+					}
 				}
-			} else {
-				cell.calculatedBorderRightWidth = borderWidthWant
-			}
-
-			maxBorderTop := bag.ScaledPoint(0)
-			for _, nr := range cell.nextRow {
-				if nr.BorderTopWidth > maxBorderTop {
-					maxBorderTop = nr.BorderTopWidth
-				}
-			}
-			borderWidthWant = cell.BorderBottomWidth
-			for _, nr := range cell.nextRow {
-				if nr.BorderTopWidth > cell.BorderBottomWidth {
-					borderWidthWant = nr.BorderTopWidth
+				half := want / 2
+				cell.calculatedBorderRightWidth = want - half
+				cell.BorderRightColor = col
+				for _, nc := range cell.nextCell {
+					nc.calculatedBorderLeftWidth = half
+					nc.BorderLeftColor = col
 				}
 			}
-			if borderWidthWant <= cell.calculatedBorderBottomWidth {
+			if len(cell.nextRow) > 0 {
+				want := cell.BorderBottomWidth
+				col := cell.BorderBottomColor
+				for _, nr := range cell.nextRow {
+					if nr.BorderTopWidth > want {
+						want = nr.BorderTopWidth
+						col = nr.BorderTopColor
+					}
+				}
+				cell.calculatedBorderBottomWidth = want
+				cell.BorderBottomColor = col
 				for _, nr := range cell.nextRow {
 					nr.calculatedBorderTopWidth = 0
 				}
@@ -751,6 +851,14 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	tbl.columnWidths = make([]bag.ScaledPoint, tbl.nCol)
 	tbl.rowHeights = make([]bag.ScaledPoint, tbl.nRow)
 	colspans := []span{}
+	// In the separated model the spacing sits between the columns and at
+	// both edges, so the columns share what is left of the width. The
+	// spacing comes back when the rows are packed, so MaxWidth is
+	// restored on exit for a caller that reads it.
+	if spacing := tbl.horizontalSpacingTotal(); spacing > 0 {
+		tbl.MaxWidth -= spacing
+		defer func() { tbl.MaxWidth += spacing }()
+	}
 	if tbl.ColSpec == nil {
 		colmax := make([]bag.ScaledPoint, tbl.nCol)
 		colmin := make([]bag.ScaledPoint, tbl.nCol)
@@ -951,14 +1059,23 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		return nil, err
 	}
 
-	// Build a single row HList with the correct height.
+	// Build a single row HList with the correct height. In the separated
+	// model the vertical spacing below a row is its depth, and the first
+	// row also carries the spacing above the table.
+	spacingV := bag.ScaledPoint(0)
+	if tbl.BorderModel == BorderModelSeparate {
+		spacingV = tbl.BorderSpacingVertical
+	}
 	buildRow := func(i int) (*node.HList, error) {
 		hl, err := tbl.Rows[i].build()
 		if err != nil {
 			return nil, err
 		}
 		hl.Height = tbl.rowHeights[i]
-		hl.Depth = 0
+		hl.Depth = spacingV
+		if i == 0 {
+			hl.Height += spacingV
+		}
 		return hl, nil
 	}
 
@@ -977,9 +1094,9 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	// Store header information so the page breaker can repeat headers
 	// when splitting the table across pages.
 	if tbl.HeaderRows > 0 {
-		headerHeight := bag.ScaledPoint(0)
+		headerHeight := spacingV
 		for i := 0; i < tbl.HeaderRows; i++ {
-			headerHeight += tbl.rowHeights[i]
+			headerHeight += tbl.rowHeights[i] + spacingV
 		}
 		vl.Attributes["_headerCount"] = tbl.HeaderRows
 		vl.Attributes["_headerHeight"] = headerHeight
@@ -1003,7 +1120,7 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		footerHeight := bag.ScaledPoint(0)
 		start := len(tbl.Rows) - tbl.FooterRows
 		for i := start; i < len(tbl.Rows); i++ {
-			footerHeight += tbl.rowHeights[i]
+			footerHeight += tbl.rowHeights[i] + spacingV
 		}
 		vl.Attributes["_footerCount"] = tbl.FooterRows
 		vl.Attributes["_footerHeight"] = footerHeight

@@ -213,6 +213,15 @@ const (
 	SettingBorderBottomLeftRadius
 	// SettingBorderBottomRightRadius sets the bottom right radius (x and y are the same).
 	SettingBorderBottomRightRadius
+	// SettingBorderCollapse selects the border model of a table, a
+	// BorderModel value. Only tables read it.
+	SettingBorderCollapse
+	// SettingBorderSpacingHorizontal is the horizontal distance between the
+	// cells of a table in the separated borders model (bag.ScaledPoint).
+	SettingBorderSpacingHorizontal
+	// SettingBorderSpacingVertical is the vertical distance between the
+	// cells of a table in the separated borders model (bag.ScaledPoint).
+	SettingBorderSpacingVertical
 	// SettingColor sets a predefined color.
 	SettingColor
 	// SettingColumnWidth sets the width of a table column (for col elements).
@@ -424,6 +433,12 @@ func (st SettingType) String() string {
 		settingName = "SettingBorderTopLeftRadius"
 	case SettingBorderTopRightRadius:
 		settingName = "SettingBorderTopRightRadius"
+	case SettingBorderCollapse:
+		settingName = "SettingBorderCollapse"
+	case SettingBorderSpacingHorizontal:
+		settingName = "SettingBorderSpacingHorizontal"
+	case SettingBorderSpacingVertical:
+		settingName = "SettingBorderSpacingVertical"
 	case SettingBorderTopStyle:
 		settingName = "SettingBorderTopStyle"
 	case SettingBorderTopWidth:
@@ -1889,6 +1904,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingBorderBottomLeftRadius, SettingBorderBottomRightRadius, SettingBorderTopLeftRadius, SettingBorderTopRightRadius:
 			// ignore
+		case SettingBorderCollapse, SettingBorderSpacingHorizontal, SettingBorderSpacingVertical:
+			// table properties, consumed by the table builder
 		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
 			// ignore
 		case SettingWidth, SettingBox, SettingPageBreakAfter, SettingPageBreakBefore:
