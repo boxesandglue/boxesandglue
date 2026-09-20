@@ -2443,19 +2443,24 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}
-	newSettings := make(TypesettingSettings)
+	// The strings and child texts inherit the settings of this text; they
+	// are only read below, so the map is shared. A copy is made when
+	// SettingDest has to be dropped from it.
+	newSettings := ts.Settings
 	var nl, end node.Node
-	maps.Copy(newSettings, ts.Settings)
 	var hyperlinkStartNode *node.StartStop
 	var hyperlinkDest string
 
 	// Insert a destination anchor if SettingDest is set on this text block.
+	// The strings below must not repeat it, so they get a copy of the
+	// settings without the destination.
 	if destName, ok := ts.Settings[SettingDest]; ok {
 		destStart := node.NewStartStop()
 		destStart.Action = node.ActionDest
 		destStart.Value = destName
 		head = node.InsertAfter(head, tail, destStart)
 		tail = destStart
+		newSettings = maps.Clone(ts.Settings)
 		delete(newSettings, SettingDest)
 	}
 
