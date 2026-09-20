@@ -301,6 +301,18 @@ func (lb *linebreaker) getIndentRight(row int) bag.ScaledPoint {
 
 // indentForRow selects the inset for a row: 0 rows means every row, a positive
 // count means the first n, a negative count means every row except the first n.
+// IndentForRow returns the left inset of the given row (counted from 0)
+// under these settings, see Indent and IndentRows.
+func (ls *LinebreakSettings) IndentForRow(row int) bag.ScaledPoint {
+	return indentForRow(ls.Indent, ls.IndentRows, row)
+}
+
+// IndentRightForRow returns the right inset of the given row (counted from
+// 0) under these settings, see IndentRight and IndentRightRows.
+func (ls *LinebreakSettings) IndentRightForRow(row int) bag.ScaledPoint {
+	return indentForRow(ls.IndentRight, ls.IndentRightRows, row)
+}
+
 func indentForRow(indent bag.ScaledPoint, rows, row int) bag.ScaledPoint {
 	switch {
 	case rows == 0:
@@ -484,7 +496,7 @@ func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*
 				from:             ac[c],
 				next:             active,
 				Fitness:          c,
-				Width:            width - ac[c].Width,
+				Width:            width - ac[c].sumW,
 				sumW:             W,
 				sumExpand:        E,
 				sumY:             Y,

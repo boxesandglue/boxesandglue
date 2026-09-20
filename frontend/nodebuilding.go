@@ -1041,6 +1041,12 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 	if prep.done {
 		return prep.early, prep.pi, nil
 	}
+	return fe.breakPrepared(te, prep)
+}
+
+// breakPrepared runs the line breaker on a prepared paragraph and applies
+// the post-linebreak steps. The node list of prep is consumed.
+func (fe *Document) breakPrepared(te *Text, prep *paragraphPrep) (*node.VList, *ParagraphInfo, error) {
 	pi := prep.pi
 	vlist, info := node.Linebreak(prep.hlist, prep.ls)
 	for _, inf := range info {
@@ -1207,6 +1213,86 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 		g.Attributes = node.H{"origin": "empty list in FormatParagraph"}
 		return &paragraphPrep{done: true, early: node.Vpack(g)}, nil
 	}
+	p := fe.paragraphOptions(te, hsize, opts...)
+	pi := ParagraphInfo{}
+	if len(te.Items) > 0 {
+		if tbl, ok := te.Items[0].(*Table); ok {
+			if sWd, ok := te.Settings[SettingWidth]; ok {
+				if wd, ok := sWd.(string); ok {
+					if wd == "100%" {
+						tbl.Stretch = true
+					}
+				}
+			}
+			tbl.MaxWidth = hsize
+			vls, err := fe.BuildTable(tbl)
+			for _, vl := range vls {
+				pi.Widths = append(pi.Widths, vl.Width)
+				pi.Height += vl.Height
+			}
+			if err != nil {
+				return &paragraphPrep{pi: &pi}, err
+			}
+			vl := vls[0]
+			return &paragraphPrep{done: true, early: vl, pi: &pi}, nil
+		}
+	}
+	// CSS list-style-position: outside, see setOutsideMarkerAnchor.
+	if prep, ok := te.Settings[SettingPrepend]; ok {
+		if hbox, ok := prep.(*node.HList); ok {
+			setOutsideMarkerAnchor(hbox, p)
+		}
+	}
+
+	var hlist, tail node.Node
+	var err error
+
+	hlist, tail, err = fe.Mknodes(te)
+	if err != nil {
+		return &paragraphPrep{}, err
+	}
+	if hlist == nil {
+		return &paragraphPrep{done: true, early: node.NewVList()}, nil
+	}
+
+	// A single start stop node (like a PDF dest)
+	if _, ok := hlist.(*node.StartStop); ok && hlist.Next() == nil {
+		return &paragraphPrep{done: true, early: node.Vpack(hlist)}, nil
+	}
+
+	// Strip leading and trailing whitespace (Glue/Kern) for CSS-conformant
+	// behavior: spaces at the start/end of a paragraph should not appear.
+	hlist, tail = stripLeadingTrailingGlue(hlist, tail)
+	if hlist == nil {
+		return &paragraphPrep{done: true, early: node.NewVList()}, nil
+	}
+
+	if ic, ok := te.Settings[SettingItalicCorrection].(bool); ok && ic {
+		applyItalicCorrection(hlist)
+	}
+
+	Hyphenate(hlist, p.Language)
+	hlist = preventBreakBeforeClosingPunctuation(hlist)
+	node.AppendLineEndAfter(hlist, tail)
+
+	ls := fe.linebreakSettings(te, p)
+	// The UAX#9 paragraph embedding level (0 = LTR, 1 = RTL) drives the
+	// per-line bidi reorder after line breaking.
+	var paragraphLevel uint8
+	if dir, ok := te.Settings[SettingDirection]; ok {
+		if d, ok := dir.(Direction); ok && d == DirectionRTL {
+			paragraphLevel = 1
+		}
+	}
+	return &paragraphPrep{hlist: hlist, ls: ls, pi: &pi, paragraphLevel: paragraphLevel}, nil
+}
+
+// paragraphOptions resolves the typesetting options of a paragraph from the
+// document defaults, the settings of te and opts. It consumes
+// SettingPaddingLeft (it becomes the indent), stores a detected RTL
+// direction in te.Settings and applies a font size or family given in opts
+// to te.Settings.
+func (fe *Document) paragraphOptions(te *Text, hsize bag.ScaledPoint, opts ...TypesettingOption) *Options {
 	p := &Options{
 		Language: fe.Doc.DefaultLanguage,
 		hsize:    hsize,
@@ -1280,91 +1366,44 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	if p.Fontfamily != nil {
 		te.Settings[SettingFontFamily] = p.Fontfamily
 	}
-	pi := ParagraphInfo{}
-	if len(te.Items) > 0 {
-		if tbl, ok := te.Items[0].(*Table); ok {
-			if sWd, ok := te.Settings[SettingWidth]; ok {
-				if wd, ok := sWd.(string); ok {
-					if wd == "100%" {
-						tbl.Stretch = true
-					}
-				}
-			}
-			tbl.MaxWidth = hsize
-			vls, err := fe.BuildTable(tbl)
-			for _, vl := range vls {
-				pi.Widths = append(pi.Widths, vl.Width)
-				pi.Height += vl.Height
-			}
-			if err != nil {
-				return &paragraphPrep{pi: &pi}, err
-			}
-			vl := vls[0]
-			return &paragraphPrep{done: true, early: vl, pi: &pi}, nil
-		}
-	}
-	// CSS list-style-position: outside. A marker hbox carrying
-	// Attributes["outside-marker"]=true (htmlbag's <li> renderer)
-	// must be painted in the gutter regardless of the line's
-	// text-align stretch.
-	//
-	// LTR: anchor = p.IndentLeft. The hbox itself contains a
-	// -ListPaddingLeft glue that places the marker glyph in the
-	// left gutter (X = -ListPaddingLeft from the anchor).
-	//
-	// RTL: anchor = the line's right content edge, which is p.hsize less
-	// any right inset (IndentRight moves that edge inwards). The
-	// hbox uses a mirrored +ListPaddingLeft trailing glue, so the
-	// marker glyph lands in the right gutter (X = +0..ListPaddingLeft
-	// from the anchor).
-	//
-	// Both anchors must be captured here, not in the backend,
-	// because HpackTo mutates Glue.Width in place from natural to
-	// actual width during line packing, erasing the natural-vs-
-	// stretch split that the backend would otherwise need.
-	if prep, ok := te.Settings[SettingPrepend]; ok {
-		if hbox, ok := prep.(*node.HList); ok && hbox.Attributes != nil {
-			if outside, _ := hbox.Attributes["outside-marker"].(bool); outside {
-				if rtl, _ := hbox.Attributes["outside-marker-rtl"].(bool); rtl {
-					hbox.Attributes["outside-marker-anchor"] = p.hsize - p.IndentRight
-				} else {
-					hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
-				}
-			}
-		}
-	}
+	return p
+}
 
-	var hlist, tail node.Node
-	var err error
-
-	hlist, tail, err = fe.Mknodes(te)
-	if err != nil {
-		return &paragraphPrep{}, err
+// setOutsideMarkerAnchor stores the anchor for a list marker painted in the
+// gutter (CSS list-style-position: outside) on the marker hbox. The hbox
+// carrying Attributes["outside-marker"]=true comes from htmlbag's <li>
+// renderer.
+//
+// LTR: anchor = p.IndentLeft. The hbox itself contains a -ListPaddingLeft
+// glue that places the marker glyph in the left gutter (X = -ListPaddingLeft
+// from the anchor).
+//
+// RTL: anchor = the line's right content edge, which is p.hsize less any
+// right inset (IndentRight moves that edge inwards). The hbox uses a
+// mirrored +ListPaddingLeft trailing glue, so the marker glyph lands in the
+// right gutter (X = +0..ListPaddingLeft from the anchor).
+//
+// Both anchors must be captured here, not in the backend, because HpackTo
+// mutates Glue.Width in place from natural to actual width during line
+// packing, erasing the natural-vs-stretch split that the backend would
+// otherwise need.
+func setOutsideMarkerAnchor(hbox *node.HList, p *Options) {
+	if hbox.Attributes == nil {
+		return
 	}
-	if hlist == nil {
-		return &paragraphPrep{done: true, early: node.NewVList()}, nil
+	if outside, _ := hbox.Attributes["outside-marker"].(bool); !outside {
+		return
 	}
-
-	// A single start stop node (like a PDF dest)
-	if _, ok := hlist.(*node.StartStop); ok && hlist.Next() == nil {
-		return &paragraphPrep{done: true, early: node.Vpack(hlist)}, nil
+	if rtl, _ := hbox.Attributes["outside-marker-rtl"].(bool); rtl {
+		hbox.Attributes["outside-marker-anchor"] = p.hsize - p.IndentRight
+	} else {
+		hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
 	}
+}
 
-	// Strip leading and trailing whitespace (Glue/Kern) for CSS-conformant
-	// behavior: spaces at the start/end of a paragraph should not appear.
-	hlist, tail = stripLeadingTrailingGlue(hlist, tail)
-	if hlist == nil {
-		return &paragraphPrep{done: true, early: node.NewVList()}, nil
-	}
-
-	if ic, ok := te.Settings[SettingItalicCorrection].(bool); ok && ic {
-		applyItalicCorrection(hlist)
-	}
-
-	Hyphenate(hlist, p.Language)
-	hlist = preventBreakBeforeClosingPunctuation(hlist)
-	node.AppendLineEndAfter(hlist, tail)
-
+// linebreakSettings derives the settings for node.Linebreak from the
+// resolved options and the settings of te.
+func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSettings {
 	ls := node.NewLinebreakSettings()
 	ls.HSize = p.hsize
 	ls.Indent = p.IndentLeft
@@ -1442,15 +1481,135 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 		lg.Subtype = node.GlueLineStart
 		ls.LineStartGlue = lg
 	}
-	// The UAX#9 paragraph embedding level (0 = LTR, 1 = RTL) drives the
-	// per-line bidi reorder after line breaking.
-	var paragraphLevel uint8
-	if dir, ok := te.Settings[SettingDirection]; ok {
-		if d, ok := dir.(Direction); ok && d == DirectionRTL {
-			paragraphLevel = 1
+	return ls
+}
+
+// formatPrepared breaks a paragraph that prepareParagraph has shaped for
+// another width into lines of hsize, with the options resolved anew from
+// opts. The node list of prep is consumed, so a prepared paragraph can be
+// formatted once. The table layout uses this to shape the paragraphs of a
+// cell only once: it measures the content widths on the prepared list and
+// breaks the lines when the column widths are known.
+func (fe *Document) formatPrepared(te *Text, prep *paragraphPrep, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
+	if prep.done {
+		return prep.early, prep.pi, nil
+	}
+	p := fe.paragraphOptions(te, hsize, opts...)
+	// Mknodes copied the marker hbox into the node list, so the anchor has
+	// to be updated on the copy as well as on the original.
+	if pre, ok := te.Settings[SettingPrepend]; ok {
+		if hbox, ok := pre.(*node.HList); ok {
+			setOutsideMarkerAnchor(hbox, p)
+			for n := prep.hlist; n != nil; n = n.Next() {
+				if hl, ok := n.(*node.HList); ok {
+					setOutsideMarkerAnchor(hl, p)
+					break
+				}
+			}
 		}
 	}
-	return &paragraphPrep{hlist: hlist, ls: ls, pi: &pi, paragraphLevel: paragraphLevel}, nil
+	prep.ls = fe.linebreakSettings(te, p)
+	prep.pi = &ParagraphInfo{}
+	return fe.breakPrepared(te, prep)
+}
+
+// measureParagraph returns the min-content and max-content width of a
+// prepared paragraph without running the line breaker. It walks the node
+// list once and enumerates the same break opportunities as node.Linebreak:
+// glue after a box, penalties below 10000, hard breaks and
+// discretionaries. Glue counts with its natural width, which is what the
+// line breaker sees as well: the stretch ratio of a line lives in the
+// packed HList, not in the glue.
+//
+// The results match what the table layout used to read off two line
+// breaker runs, one at 1sp and one at bag.MaxSP: the min-content width is
+// the longest unbreakable segment made of glyphs, glue and kerns plus the
+// hyphen at a discretionary and the indents of that row; the max-content
+// width is the longest line between forced breaks, without indents.
+func measureParagraph(prep *paragraphPrep) (minwd, maxwd bag.ScaledPoint) {
+	if prep.done || prep.hlist == nil {
+		return 0, 0
+	}
+	ls := prep.ls
+	var seg, line bag.ScaledPoint
+	row := 0
+	var prevItemBox bool
+	// Discardable glue after a break opportunity starts no segment, after
+	// a forced break no line either.
+	var skipSeg, skipLine bool
+	endSegment := func(extra bag.ScaledPoint) {
+		wd := seg + extra + ls.IndentForRow(row) + ls.IndentRightForRow(row)
+		if wd > minwd {
+			minwd = wd
+		}
+		seg = 0
+		row++
+		skipSeg = true
+	}
+	endLine := func(extra bag.ScaledPoint) {
+		if wd := line + extra; wd > maxwd {
+			maxwd = wd
+		}
+		line = 0
+		skipLine = true
+	}
+	for e := prep.hlist; e != nil; e = e.Next() {
+		switch t := e.(type) {
+		case *node.Glue:
+			if prevItemBox {
+				endSegment(0)
+			}
+			if !skipSeg {
+				seg += t.Width
+			}
+			if !skipLine {
+				line += t.Width
+			}
+			prevItemBox = false
+		case *node.Penalty:
+			prevItemBox = false
+			if t.Penalty < 10000 {
+				endSegment(t.Width)
+			}
+			if t.Penalty <= -10000 {
+				endLine(t.Width)
+			}
+		case *node.HardBreak:
+			prevItemBox = false
+			endSegment(0)
+			endLine(0)
+		case *node.Disc:
+			// Not a box: glue after the discretionary stays a break
+			// opportunity. The hyphen is only there when the line breaks
+			// here, and hanging punctuation lets it hang.
+			var pre bag.ScaledPoint
+			if !ls.HangingPunctuationEnd && t.Pre != nil {
+				pre, _, _ = node.Dimensions(t.Pre, nil, node.Horizontal)
+			}
+			endSegment(pre)
+			skipSeg = false
+		case *node.Glyph:
+			prevItemBox = true
+			seg += t.Width
+			line += t.Width
+			skipSeg, skipLine = false, false
+		case *node.Kern:
+			prevItemBox = true
+			seg += t.Kern
+			line += t.Kern
+			skipSeg, skipLine = false, false
+		default:
+			// Boxes, rules and images count for the line, the row measure
+			// of the line breaker only sees glyphs, glue and kerns.
+			prevItemBox = true
+			wd, _, _ := e.Sizes(node.Horizontal)
+			line += wd
+			skipSeg, skipLine = false, false
+		}
+	}
+	endSegment(0)
+	endLine(0)
+	return minwd, maxwd
 }
 
 // collectParagraphText recursively concatenates the string content of a Text

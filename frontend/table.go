@@ -124,9 +124,22 @@ type TableCell struct {
 	calculatedBorderRightWidth  bag.ScaledPoint
 	calculatedBorderTopWidth    bag.ScaledPoint
 	calculatedBorderBottomWidth bag.ScaledPoint
-	rowStart                    int  // top left corner
-	colStart                    int  // top left corner
-	IsHeader                    bool // true for <th> cells
+	// The formatted contents of the last build() call and the width they
+	// were formatted for. BuildTable builds every cell twice with the same
+	// width, once to find the row height and once to pack the row, and the
+	// second pass reuses the contents instead of shaping and breaking the
+	// paragraphs again. Reset at the start of BuildTable.
+	contentCache      *node.VList
+	contentCacheWidth bag.ScaledPoint
+	// prepared holds the shaped paragraphs of Contents, one entry per
+	// item and nil for items that are not plain text. minWidth shapes
+	// them, minWidth and maxWidth measure them and build consumes them
+	// for the line break, so every paragraph is shaped once per
+	// BuildTable.
+	prepared []*paragraphPrep
+	rowStart int  // top left corner
+	colStart int  // top left corner
+	IsHeader bool // true for <th> cells
 }
 
 // ColSpec represents common traits for a column such as width.
@@ -151,12 +164,38 @@ func (cell *TableCell) String() string {
 	return fmt.Sprintf("x: %d y:%d", cell.colStart, cell.rowStart)
 }
 
-// make the smallest possible paragraph and see how wide the longest lines are.
+// tableOpts returns the typesetting options the table imposes on the
+// paragraphs of its cells while measuring them.
+func (cell *TableCell) tableOpts() []TypesettingOption {
+	tbl := cell.row.table
+	return []TypesettingOption{Family(tbl.FontFamily), Leading(tbl.Leading), FontSize(tbl.FontSize)}
+}
+
+// preparedText returns the shaped node list of the text at index i of
+// Contents, shaping it on first use. The list is shaped for bag.MaxSP;
+// the width only matters for the line break, which build runs later.
+func (cell *TableCell) preparedText(i int, t *Text) (*paragraphPrep, error) {
+	if cell.prepared == nil {
+		cell.prepared = make([]*paragraphPrep, len(cell.Contents))
+	}
+	if prep := cell.prepared[i]; prep != nil {
+		return prep, nil
+	}
+	prep, err := cell.row.table.doc.prepareParagraph(t, bag.MaxSP, cell.tableOpts()...)
+	if err != nil {
+		return nil, err
+	}
+	cell.prepared[i] = prep
+	return prep, nil
+}
+
+// minWidth returns the min-content width of the cell: the widest unbreakable
+// piece of its contents.
 // TODO: also take into account the other possible elements.
 func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	minwd := bag.ScaledPoint(0)
 	formatWidth := 1 * bag.Factor
-	for _, cc := range cell.Contents {
+	for i, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
 			// Check if this is a box element
@@ -168,8 +207,17 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 				if wd := minWidthWithoutStretch(vl); wd > minwd {
 					minwd = wd
 				}
+			} else if prep, err := cell.preparedText(i, t); err != nil {
+				return 0, err
+			} else if !prep.done {
+				if wd, _ := measureParagraph(prep); wd > minwd {
+					minwd = wd
+				}
 			} else {
-				vl, pi, err := cell.row.table.doc.FormatParagraph(cc.(*Text), formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
+				// Paragraphs that resolve without line breaking (empty,
+				// a nested table): make the smallest possible paragraph
+				// and see how wide the longest lines are.
+				vl, pi, err := cell.row.table.doc.FormatParagraph(t, formatWidth, cell.tableOpts()...)
 				if err != nil {
 					return 0, err
 				}
@@ -221,12 +269,13 @@ func (cell *TableCell) minWidth() (bag.ScaledPoint, error) {
 	return minwd + cell.PaddingLeft + cell.PaddingRight + cell.BorderLeftWidth + cell.BorderRightWidth, nil
 }
 
-// Format the cell with maximum size and find out the longest line.
+// maxWidth returns the max-content width of the cell: the longest line of
+// its contents when nothing but forced breaks break a line.
 func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 	maxwd := bag.ScaledPoint(0)
 	formatWidth := bag.MaxSP
 
-	for _, cc := range cell.Contents {
+	for i, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
 			// Check if this is a box element
@@ -238,11 +287,16 @@ func (cell *TableCell) maxWidth() (bag.ScaledPoint, error) {
 				if wd := maxWidthWithoutStretch(vl); wd > maxwd {
 					maxwd = wd
 				}
-			} else {
-				_, info, err := cell.row.table.doc.FormatParagraph(t, formatWidth, Family(cell.row.table.FontFamily), Leading(cell.row.table.Leading), FontSize(cell.row.table.FontSize))
-				if err != nil {
-					return 0, err
+			} else if prep, err := cell.preparedText(i, t); err != nil {
+				return 0, err
+			} else if !prep.done {
+				if _, wd := measureParagraph(prep); wd > maxwd {
+					maxwd = wd
 				}
+			} else {
+				// The paragraph was resolved for bag.MaxSP when it was
+				// prepared, its line widths are the max-content width.
+				info := prep.pi
 				if info != nil {
 					for _, wd := range info.Widths {
 						if wd > maxwd {
@@ -279,10 +333,17 @@ func allVLists(head node.Node) bool {
 	return true
 }
 
-func (cell *TableCell) build() (*node.VList, error) {
+// buildContents formats the cell contents for the given width and returns
+// them as a single VList. The result is cached per width, see contentCache.
+func (cell *TableCell) buildContents(paraWidth bag.ScaledPoint) (*node.VList, error) {
+	if cell.contentCache != nil && cell.contentCacheWidth == paraWidth {
+		vl := cell.contentCache
+		// The first build linked the VList into a list that was discarded.
+		vl.SetPrev(nil)
+		vl.SetNext(nil)
+		return vl, nil
+	}
 	fe := cell.row.table.doc
-	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
-
 	// Apply cell's HAlign to paragraphs unless the Text already sets its own.
 	var cellAlignOpt []TypesettingOption
 	if cell.HAlign != HAlignDefault {
@@ -292,7 +353,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 	var head node.Node
 	var vl, formatted *node.VList
 	var err error
-	for _, cc := range cell.Contents {
+	for i, cc := range cell.Contents {
 		switch t := cc.(type) {
 		case *Text:
 			// Check if this is a box element that needs vertical formatting
@@ -309,7 +370,17 @@ func (cell *TableCell) build() (*node.VList, error) {
 				if _, hasOwn := t.Settings[SettingHAlign]; hasOwn {
 					opts = nil
 				}
-				formatted, _, err = fe.FormatParagraph(t, paraWidth, opts...)
+				// A paragraph shaped for the width calculation is broken
+				// into lines here; the line breaker consumes it.
+				var prep *paragraphPrep
+				if cell.prepared != nil {
+					prep, cell.prepared[i] = cell.prepared[i], nil
+				}
+				if prep != nil && !prep.done {
+					formatted, _, err = fe.formatPrepared(t, prep, paraWidth, opts...)
+				} else {
+					formatted, _, err = fe.FormatParagraph(t, paraWidth, opts...)
+				}
 				if err != nil {
 					return nil, err
 				}
@@ -344,11 +415,22 @@ func (cell *TableCell) build() (*node.VList, error) {
 		vl = node.Vpack(hl)
 	}
 	vl.Attributes = node.H{"origin": "cell contents"}
+	cell.contentCache = vl
+	cell.contentCacheWidth = paraWidth
+	return vl, nil
+}
+
+func (cell *TableCell) build() (*node.VList, error) {
+	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
+	vl, err := cell.buildContents(paraWidth)
+	if err != nil {
+		return nil, err
+	}
+	var head node.Node = vl
 	cellHeight := cell.CalculatedHeight
 	if cellHeight == 0 {
 		cellHeight = vl.Height + vl.Depth + cell.calculatedBorderTopWidth + cell.calculatedBorderBottomWidth + cell.PaddingBottom + cell.PaddingTop
 	}
-	head = vl
 
 	glueHeight := cellHeight - cell.calculatedBorderTopWidth - cell.calculatedBorderBottomWidth - vl.Height - vl.Depth - cell.PaddingTop - cell.PaddingBottom
 	valign := cell.VAlign
@@ -890,6 +972,14 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	tbl.doc = fe
 	var head, tail node.Node
 	tbl.analyzeTable()
+	// A previous BuildTable call on the same table must not share nodes
+	// with this one.
+	for _, r := range tbl.Rows {
+		for _, c := range r.Cells {
+			c.contentCache = nil
+			c.prepared = nil
+		}
+	}
 	tbl.columnWidths = make([]bag.ScaledPoint, tbl.nCol)
 	tbl.rowHeights = make([]bag.ScaledPoint, tbl.nRow)
 	colspans := []span{}
