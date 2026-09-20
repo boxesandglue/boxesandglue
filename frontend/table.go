@@ -74,8 +74,12 @@ type TableRow struct {
 	table            *Table
 	Cells            []*TableCell
 	CalculatedHeight bag.ScaledPoint
-	VAlign           VerticalAlignment
-	row              int
+	// MinHeight is the declared height of the row (CSS `height` on a
+	// <tr>). CSS 2.1 §17.5.3 treats it as a lower bound: the row grows
+	// to fit its cells but never shrinks below it.
+	MinHeight bag.ScaledPoint
+	VAlign    VerticalAlignment
+	row       int
 }
 
 // TableCell represents a table cell
@@ -102,7 +106,12 @@ type TableCell struct {
 	// automatic layout as a lower bound for the column, so a cell can
 	// widen its column beyond the content but never clips content that
 	// needs more room. Cells spanning several columns are ignored.
-	SpecifiedWidth              bag.ScaledPoint
+	SpecifiedWidth bag.ScaledPoint
+	// MinHeight is the cell's declared height (CSS `height` on a
+	// <td>/<th>), measured on the outside of the cell including padding
+	// and borders. Like the row's MinHeight it is a lower bound only
+	// (CSS 2.1 §17.5.3), zero means "not specified".
+	MinHeight                   bag.ScaledPoint
 	HAlign                      HorizontalAlignment
 	VAlign                      VerticalAlignment
 	ExtraColspan                int
@@ -495,7 +504,7 @@ func (row *TableRow) setHeight() ([]span, error) {
 		if err != nil {
 			return nil, err
 		}
-		ht := vl.Height + vl.Depth
+		ht := max(vl.Height+vl.Depth, cell.MinHeight)
 		if cell.ExtraRowspan == 0 {
 			if ht > maxht {
 				maxht = ht
@@ -504,7 +513,7 @@ func (row *TableRow) setHeight() ([]span, error) {
 			rowspans = append(rowspans, span{start: cell.rowStart, end: cell.rowStart + cell.ExtraRowspan, size: ht})
 		}
 	}
-	row.table.rowHeights[row.row] = maxht
+	row.table.rowHeights[row.row] = max(maxht, row.MinHeight)
 	return rowspans, nil
 }
 

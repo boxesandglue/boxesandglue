@@ -146,3 +146,36 @@ func TestTableColspanRest(t *testing.T) {
 		t.Errorf("rule cell spans %d extra columns, want 2", got)
 	}
 }
+
+// TestRowMinHeight checks that MinHeight on a row and on a cell is a lower
+// bound for the row height (CSS 2.1 §17.5.3): a short row grows to it, a
+// row whose content is taller keeps its natural height.
+func TestRowMinHeight(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := func() *TableCell {
+		return &TableCell{Contents: []any{fixedBox(bag.MustSP("30pt"), bag.MustSP("10pt"))}}
+	}
+	tallCell := content()
+	tallCell.MinHeight = bag.MustSP("40pt")
+	tbl := &Table{
+		MaxWidth: bag.MustSP("200pt"),
+		Rows: TableRows{
+			&TableRow{Cells: []*TableCell{content()}, MinHeight: bag.MustSP("50pt")},
+			&TableRow{Cells: []*TableCell{tallCell}},
+			&TableRow{Cells: []*TableCell{content()}, MinHeight: bag.MustSP("5pt")},
+			&TableRow{Cells: []*TableCell{content()}},
+		},
+	}
+	if _, err = fe.BuildTable(tbl); err != nil {
+		t.Fatal(err)
+	}
+	want := []bag.ScaledPoint{bag.MustSP("50pt"), bag.MustSP("40pt"), bag.MustSP("10pt"), bag.MustSP("10pt")}
+	for i, w := range want {
+		if got := tbl.rowHeights[i]; got != w {
+			t.Errorf("row %d: height %s, want %s", i, got, w)
+		}
+	}
+}
