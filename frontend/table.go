@@ -71,6 +71,8 @@ func (bm BorderModel) String() string {
 
 // TableRow represents a row in a table.
 type TableRow struct {
+	// ID is the source element's id, copied onto the hlist the row builds.
+	ID               string
 	table            *Table
 	Cells            []*TableCell
 	CalculatedHeight bag.ScaledPoint
@@ -140,6 +142,8 @@ type TableCell struct {
 	rowStart int  // top left corner
 	colStart int  // top left corner
 	IsHeader bool // true for <th> cells
+	// ID is the source element's id, copied onto the vlist the cell builds.
+	ID string
 }
 
 // ColSpec represents common traits for a column such as width.
@@ -561,6 +565,9 @@ func (cell *TableCell) build() (*node.VList, error) {
 
 	vl = node.Vpack(head)
 	vl.Attributes = node.H{"origin": "td"}
+	if cell.ID != "" {
+		vl.Attributes["id"] = cell.ID
+	}
 
 	// Draw background color if set
 	if cell.BackgroundColor != nil {
@@ -678,6 +685,9 @@ func (row *TableRow) build() (*node.HList, error) {
 	}
 	hl := node.Hpack(head)
 	hl.Attributes = node.H{"origin": "table row"}
+	if row.ID != "" {
+		hl.Attributes["id"] = row.ID
+	}
 	return hl, nil
 }
 
@@ -1309,7 +1319,7 @@ func (fe *Document) formatBoxElement(te *Text, hsize bag.ScaledPoint) (*node.VLi
 				}
 				// Copy parent settings for font, etc.
 				for k, v := range te.Settings {
-					if k != SettingBox && k != SettingDebug {
+					if k != SettingBox && k != SettingDebug && k != SettingElementID {
 						textItem.Settings[k] = v
 					}
 				}
@@ -1322,9 +1332,12 @@ func (fe *Document) formatBoxElement(te *Text, hsize bag.ScaledPoint) (*node.VLi
 		}
 	}
 	if head == nil {
-		return node.NewVList(), nil
+		vl := node.NewVList()
+		stampElementID(vl, te)
+		return vl, nil
 	}
 	vl := node.Vpack(head)
 	vl.Attributes = node.H{"origin": "box element"}
+	stampElementID(vl, te)
 	return vl, nil
 }
