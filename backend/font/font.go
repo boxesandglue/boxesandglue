@@ -234,6 +234,17 @@ func (f *Font) MathConstantsFU() *ot.MathConstants {
 	return m.Constants()
 }
 
+// GlyphAdvance returns the advance width of the glyph as Shape assigns it
+// to Atom.Advance and thus to Glyph.Width: the font's horizontal advance
+// scaled by Mag. The PDF backend compares Glyph.Width against this value to
+// detect a width the layout changed on purpose.
+func (f *Font) GlyphAdvance(gid int) bag.ScaledPoint {
+	if f == nil || f.Face == nil || f.Face.OTFace() == nil {
+		return 0
+	}
+	return bag.ScaledPoint(float32(f.Face.OTFace().HorizontalAdvance(ot.GlyphID(gid))) * float32(f.Mag))
+}
+
 // ItalicCorrection returns the italic correction for the given glyph id, in
 // scaled points. Used by the math engine to shift superscripts to the right
 // past a slanted nucleus (TeXbook Appendix G rule 18a). Returns 0 if the font

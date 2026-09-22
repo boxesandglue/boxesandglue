@@ -608,23 +608,17 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	bps = append(bps, lastNode)
 	for e := lastNode; e != nil; e = e.from {
 		if settings.HangingPunctuationEnd {
-			// In a left to right line the glyph loses its advance: the line
-			// end is on the right, and the ink runs on from the origin past
-			// it. A right to left line is mirrored after the break, and the
-			// glyph ends up at the left edge, so it has to be pulled out to
-			// the left instead. The advance stays, and a kern of the same
-			// amount follows the glyph; the reorder moves the kern to the
-			// glyph's left, where it takes back what the glyph advances.
-			// Node positions and the PDF's own advance agree that way; a
-			// zero width with a shifted glyph would leave the PDF advancing
-			// past the ink and open a gap before the next glyph.
+			// The glyph loses its advance so the line end ignores it. In a
+			// left to right line the ink runs on from the origin past the
+			// line end. A right to left line is mirrored after the break,
+			// the glyph ends up at the left edge, and XOffset pulls the ink
+			// out to the left by the advance. The PDF backend takes the
+			// difference between Glyph.Width and the font advance back in
+			// the TJ array, so the zero width does not open a gap before
+			// the next glyph.
 			hang := func(glyf *Glyph) {
 				if settings.TextDirection == TextDirRTL {
-					k := NewKern()
-					k.Kern = -glyf.Width
-					k.Attributes = H{"origin": "hang"}
-					InsertAfter(glyf, glyf, k)
-					return
+					glyf.XOffset -= glyf.Width
 				}
 				glyf.Width = 0
 			}

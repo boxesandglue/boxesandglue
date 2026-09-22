@@ -75,10 +75,10 @@ func TestHardBreakSlackGoesToTheLineEnd(t *testing.T) {
 	}
 }
 
-// Hanging punctuation lets the glyph protrude past the line end. Left to
-// right, the glyph drops its advance. Right to left, the glyph ends up at
-// the left edge after the bidi reorder, so it keeps its advance and a kern
-// of the same amount follows it, which the reorder moves to its left.
+// Hanging punctuation lets the glyph protrude past the line end. The glyph
+// drops its advance in both directions. Right to left, the glyph ends up at
+// the left edge after the bidi reorder, so XOffset pulls its ink out to the
+// left by the advance.
 func TestHangingPunctuationProtrudesAtTheLineEnd(t *testing.T) {
 	const w = 10 * bag.Factor
 	build := func(dir TextDirection) *Glyph {
@@ -111,10 +111,10 @@ func TestHangingPunctuationProtrudesAtTheLineEnd(t *testing.T) {
 		t.Errorf("ltr: width %s, xoffset %s; want 0 and 0", dot.Width, dot.XOffset)
 	}
 	dot = build(TextDirRTL)
-	if dot.Width != w {
-		t.Errorf("rtl: width %s, want %s (the advance stays)", dot.Width, w)
+	if dot.Width != 0 || dot.XOffset != -w {
+		t.Errorf("rtl: width %s, xoffset %s; want 0 and %s", dot.Width, dot.XOffset, -w)
 	}
-	if k, ok := dot.Next().(*Kern); !ok || k.Kern != -w {
-		t.Errorf("rtl: after the glyph %v, want a kern of %s", dot.Next(), -w)
+	if k, ok := dot.Next().(*Kern); ok {
+		t.Errorf("rtl: unexpected kern of %s after the glyph", k.Kern)
 	}
 }

@@ -767,7 +767,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			if v.XOffset != 0 && oc.currentFont != nil && oc.currentFont.Size != 0 {
 				adv := v.XOffset.ToPT() / oc.currentFont.Size.ToPT()
 				scale := oc.currentFont.Face.Scale
-				xOffsetMove = int(-1 * 1000 / scale * adv)
+				xOffsetMove = int(math.Round(-1 * 1000 / scale * adv))
 				if xOffsetMove != 0 {
 					oc.gotoTextMode(ScopeArray)
 					oc.writef(" %d ", xOffsetMove)
@@ -775,10 +775,28 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			oc.gotoTextMode(ScopeGlyph)
 			oc.writef("%04x", v.Codepoint)
-			// Reverse XOffset adjustment to restore text position
-			if xOffsetMove != 0 {
+			// After the glyph: reverse the XOffset adjustment to restore
+			// the text position, and reconcile the node width with the
+			// font advance. The PDF advances by the glyph's own advance
+			// width no matter what Glyph.Width says; when the layout gave
+			// the glyph a different width (hanging punctuation zeroes it),
+			// the TJ array takes the difference back so the PDF's position
+			// and sumX agree again. A glyph that still carries the width
+			// font.Shape assigned (the advance scaled by the integer Mag)
+			// is left alone: that value is off from the exact advance by a
+			// fraction of a font unit, and correcting it would sprinkle
+			// every text run with adjustments. Everything else is measured
+			// against the exact advance in text space, so widths the math
+			// engine derives with full precision round to zero as well.
+			post := -xOffsetMove
+			if v.Width != v.Font.GlyphAdvance(v.Codepoint) && v.Font.Size != 0 {
+				em := v.Font.Size.ToPT() * v.Font.Face.Scale
+				advTJ := v.Font.Face.AdvanceWidth(v.Codepoint) * 1000 / v.Font.Face.Scale
+				post += int(math.Round(advTJ - v.Width.ToPT()/em*1000))
+			}
+			if post != 0 {
 				oc.gotoTextMode(ScopeArray)
-				oc.writef(" %d ", -xOffsetMove)
+				oc.writef(" %d ", post)
 			}
 			sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
 		case *node.Glue:
