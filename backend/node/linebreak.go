@@ -608,12 +608,32 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	bps = append(bps, lastNode)
 	for e := lastNode; e != nil; e = e.from {
 		if settings.HangingPunctuationEnd {
+			// In a left to right line the glyph loses its advance: the line
+			// end is on the right, and the ink runs on from the origin past
+			// it. A right to left line is mirrored after the break, and the
+			// glyph ends up at the left edge, so it has to be pulled out to
+			// the left instead. The advance stays, and a kern of the same
+			// amount follows the glyph; the reorder moves the kern to the
+			// glyph's left, where it takes back what the glyph advances.
+			// Node positions and the PDF's own advance agree that way; a
+			// zero width with a shifted glyph would leave the PDF advancing
+			// past the ink and open a gap before the next glyph.
+			hang := func(glyf *Glyph) {
+				if settings.TextDirection == TextDirRTL {
+					k := NewKern()
+					k.Kern = -glyf.Width
+					k.Attributes = H{"origin": "hang"}
+					InsertAfter(glyf, glyf, k)
+					return
+				}
+				glyf.Width = 0
+			}
 			if e.Position.Type() == TypeDisc {
-				e.Position.(*Disc).Pre.(*Glyph).Width = 0
+				hang(e.Position.(*Disc).Pre.(*Glyph))
 			}
 			if glyf, ok := e.Position.Prev().(*Glyph); ok {
 				if len(glyf.Components) == 1 && unicode.IsPunct(rune(glyf.Components[0])) {
-					glyf.Width = 0
+					hang(glyf)
 				}
 			}
 		}
@@ -665,13 +685,23 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			// endNode is the HardBreak, this is the line we want to
 			// fix. e.Position itself marks the START of this line and
 			// is therefore the wrong node to test.
+			//
+			// The slack goes to the line end, which in a right to left line
+			// is the left edge: the leftskip takes the fill there.
+			leftskip := settings.LineStartGlue.Copy().(*Glue)
 			if _, endsAtHB := endNode.(*HardBreak); endsAtHB {
 				if settings.LineEndGlue.StretchOrder < StretchFil &&
 					settings.LineStartGlue.StretchOrder < StretchFil {
-					lineEnd = NewGlue()
-					lineEnd.Stretch = bag.Factor
-					lineEnd.StretchOrder = StretchFill
-					lineEnd.Subtype = GlueLineEnd
+					fill := NewGlue()
+					fill.Stretch = bag.Factor
+					fill.StretchOrder = StretchFill
+					if settings.TextDirection == TextDirRTL {
+						fill.Subtype = GlueLineStart
+						leftskip = fill
+					} else {
+						fill.Subtype = GlueLineEnd
+						lineEnd = fill
+					}
 				}
 			}
 			lineEnd.Attributes = H{"origin": "lineend"}
@@ -683,7 +713,6 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			InsertAfter(startPos, endNode.Prev(), lineEnd)
 
 			// indentation
-			leftskip := settings.LineStartGlue.Copy().(*Glue)
 			leftskip.Attributes = H{"origin": "leftskip"}
 			leftskip.Width += lb.getIndent(e.Line)
 			startPos = InsertBefore(startPos, startPos, leftskip)
@@ -693,6 +722,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			} else {
 				hl.Attributes["origin"] = "line"
 			}
+			hl.TextDir = settings.TextDirection
 			if settings.HalfLeading {
 				// CSS half-leading: grow the line box symmetrically to
 				// LineHeight instead of emitting lineskip glue below. The
@@ -742,6 +772,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	}
 	vl := Vpack(vert)
 	vl.Attributes = H{"origin": "Linebreak"}
+	vl.TextDir = settings.TextDirection
 	return vl, bps
 }
 

@@ -246,3 +246,50 @@ func TestBidiReorderLineKeepsEdgeGlues(t *testing.T) {
 		t.Errorf("lineend BidiLevel = %d, want 0 (edge glue untouched)", got)
 	}
 }
+
+// TestBidiReorderLastLineFillGoesLeft covers the last line of a justified
+// RTL paragraph: the paragraph's fill glue sits behind a penalty at the
+// logical end and has to travel to the visual left with the text, so the
+// line is flush right. The penalty must not cut the run.
+func TestBidiReorderLastLineFillGoesLeft(t *testing.T) {
+	glue := func(origin string) *node.Glue {
+		g := node.NewGlue()
+		g.Attributes = node.H{"origin": origin}
+		return g
+	}
+	glyph := func(label string) *node.Glyph {
+		g := node.NewGlyph()
+		g.Components = label
+		g.SetBidiLevel(1)
+		return g
+	}
+	leftskip, parfill, lineend := glue("leftskip"), glue("lineend"), glue("lineend")
+	pen := node.NewPenalty()
+	pen.Penalty = 10000
+	a, b := glyph("א"), glyph("ב")
+	var head, tail node.Node
+	for _, n := range []node.Node{leftskip, a, b, pen, parfill, lineend} {
+		head = node.InsertAfter(head, tail, n)
+		tail = n
+	}
+	hl := node.NewHList()
+	hl.List = head
+
+	bidiReorderLine(hl, 1)
+
+	want := []node.Node{leftskip, parfill, pen, b, a, lineend}
+	names := []string{"leftskip", "parfill", "penalty", "ב", "א", "lineend"}
+	i := 0
+	for n := hl.List; n != nil; n = n.Next() {
+		if i >= len(want) {
+			t.Fatalf("more than %d nodes", len(want))
+		}
+		if n != want[i] {
+			t.Errorf("position %d: want %s", i, names[i])
+		}
+		i++
+	}
+	if i != len(want) {
+		t.Fatalf("got %d nodes, want %d", i, len(want))
+	}
+}

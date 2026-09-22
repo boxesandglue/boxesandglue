@@ -23,6 +23,9 @@ type VList struct {
 	Shift    bag.ScaledPoint
 	GlueSet  float64
 	GlueSign uint8
+	// TextDir is the inline direction of the paragraph a VList holds, set
+	// by Linebreak; the zero value is left to right.
+	TextDir TextDirection
 }
 
 func (v *VList) String() string {
@@ -54,6 +57,7 @@ func (v *VList) Copy() Node {
 	n.GlueSign = v.GlueSign
 	n.ShiftX = v.ShiftX
 	n.Shift = v.Shift
+	n.TextDir = v.TextDir
 	n.List = CopyList(v.List)
 	n.Attributes = cloneAttributes(v.Attributes)
 	return n

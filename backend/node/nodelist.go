@@ -18,6 +18,26 @@ const (
 	Vertical Direction = false
 )
 
+// TextDirection is the inline direction a line box is laid out in: the
+// side its text starts on. It is the paragraph's base direction from UAX#9,
+// not the direction of a run inside the line. LuaTeX keeps the same thing
+// as the dir field of an hlist.
+type TextDirection uint8
+
+const (
+	// TextDirLTR is left to right, the zero value.
+	TextDirLTR TextDirection = iota
+	// TextDirRTL is right to left: the line starts at its right edge.
+	TextDirRTL
+)
+
+func (d TextDirection) String() string {
+	if d == TextDirRTL {
+		return "rtl"
+	}
+	return "ltr"
+}
+
 // LinebreakSettings controls the line breaking algorithm.
 type LinebreakSettings struct {
 	LineEndGlue          *Glue
@@ -58,6 +78,12 @@ type LinebreakSettings struct {
 	// OmitLastLeading has no meaning: half the leading sits in the last
 	// line's depth by construction.
 	HalfLeading bool
+	// TextDirection is the paragraph's base direction. The insets and the
+	// edge glues are physical whatever it says; what it decides is which
+	// side is the line end: where a forced break leaves its slack, and
+	// where hanging punctuation protrudes. Every line and the paragraph
+	// box carry it as TextDir.
+	TextDirection TextDirection
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.

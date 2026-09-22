@@ -32,6 +32,9 @@ type HList struct {
 	ShiftX   bag.ScaledPoint
 	VAlign   VerticalAlignment
 	GlueSign uint8 // 0 = normal, 1 = stretching, 2 = shrinking
+	// TextDir is the inline direction of a line box set by Linebreak; the
+	// zero value is left to right. Other HLists leave it unset.
+	TextDir TextDirection
 }
 
 func (h *HList) String() string {
@@ -64,6 +67,7 @@ func (h *HList) Copy() Node {
 	n.GlueSign = h.GlueSign
 	n.Shift = h.Shift
 	n.ShiftX = h.ShiftX
+	n.TextDir = h.TextDir
 	n.List = CopyList(h.List)
 	n.Attributes = cloneAttributes(h.Attributes)
 	return n

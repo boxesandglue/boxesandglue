@@ -1439,6 +1439,9 @@ func setOutsideMarkerAnchor(hbox *node.HList, p *Options) {
 func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSettings {
 	ls := node.NewLinebreakSettings()
 	ls.HSize = p.hsize
+	if d, ok := te.Settings[SettingDirection].(Direction); ok && d == DirectionRTL {
+		ls.TextDirection = node.TextDirRTL
+	}
 	ls.Indent = p.IndentLeft
 	ls.IndentRows = p.IndentLeftRows
 	ls.IndentRight = p.IndentRight
@@ -1667,6 +1670,12 @@ func collectParagraphText(te *Text, b *bytes.Buffer) {
 // We adopt the level of the most recent preceding content node, which
 // matches the semantic intent: a hyphenation point belongs to the word
 // it breaks.
+//
+// A Penalty is treated the same way. The one AppendLineEndAfter puts
+// between the last glyph and the paragraph's fill glue would otherwise
+// cut the RTL run in two, and the fill glue, reversed on its own, would
+// stay at the right: the last line of a justified RTL paragraph then sits
+// flush left instead of flush right.
 func propagateBidiLevels(line *node.HList) {
 	if line == nil || line.List == nil {
 		return
@@ -1674,7 +1683,7 @@ func propagateBidiLevels(line *node.HList) {
 	var prevLevel uint8
 	for n := line.List; n != nil; n = n.Next() {
 		switch n.(type) {
-		case *node.Disc:
+		case *node.Disc, *node.Penalty:
 			if n.BidiLevel() == 0 {
 				n.SetBidiLevel(prevLevel)
 			}
