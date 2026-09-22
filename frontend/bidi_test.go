@@ -193,3 +193,56 @@ func TestCollectParagraphTextIgnoresNonStrings(t *testing.T) {
 		t.Errorf("collectParagraphText = %q, want %q", got, "abcdef")
 	}
 }
+
+// TestBidiReorderLineKeepsEdgeGlues verifies that the linebreaker's own
+// leftskip and line-end glue stay at their physical edges in an RTL
+// paragraph while the content between them, the paragraph's fill glue
+// included, is mirrored.
+func TestBidiReorderLineKeepsEdgeGlues(t *testing.T) {
+	glue := func(origin string, level uint8) *node.Glue {
+		g := node.NewGlue()
+		g.Attributes = node.H{"origin": origin}
+		g.SetBidiLevel(level)
+		return g
+	}
+	glyph := func(label string) *node.Glyph {
+		g := node.NewGlyph()
+		g.Components = label
+		g.SetBidiLevel(1)
+		return g
+	}
+	leftskip := glue("leftskip", 0)
+	parfill := glue("lineend", 0) // AppendLineEndAfter's fill glue, still level 0 before L1
+	lineend := glue("lineend", 0)
+	a, b := glyph("א"), glyph("ב")
+	var head, tail node.Node
+	for _, n := range []node.Node{leftskip, a, b, parfill, lineend} {
+		head = node.InsertAfter(head, tail, n)
+		tail = n
+	}
+	hl := node.NewHList()
+	hl.List = head
+
+	bidiReorderLine(hl, 1)
+
+	var got []node.Node
+	for n := hl.List; n != nil; n = n.Next() {
+		got = append(got, n)
+	}
+	want := []node.Node{leftskip, parfill, b, a, lineend}
+	if len(got) != len(want) {
+		t.Fatalf("got %d nodes, want %d", len(got), len(want))
+	}
+	names := []string{"leftskip", "parfill", "ב", "א", "lineend"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("position %d: want %s", i, names[i])
+		}
+	}
+	if got := parfill.BidiLevel(); got != 1 {
+		t.Errorf("parfill BidiLevel = %d, want 1 (L1 resets trailing glue)", got)
+	}
+	if got := lineend.BidiLevel(); got != 0 {
+		t.Errorf("lineend BidiLevel = %d, want 0 (edge glue untouched)", got)
+	}
+}

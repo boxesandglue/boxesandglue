@@ -377,6 +377,16 @@ const (
 	// SettingTextDecorationColor is the decoration line's colour. Unset means
 	// CSS's `currentColor`: the line takes the text colour.
 	SettingTextDecorationColor
+	// SettingIndentStart is a logical indent at the line-start edge (CSS
+	// text-indent): the left in an LTR paragraph, the right in an RTL one.
+	// It is resolved to SettingIndentLeft or SettingIndentRight once the
+	// paragraph direction is known; a physical indent already set on that
+	// side wins.
+	SettingIndentStart
+	// SettingIndentStartRows selects the rows SettingIndentStart applies
+	// to, with the same sign convention as SettingIndentLeftRows. Unset
+	// means the first row.
+	SettingIndentStartRows
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -523,6 +533,10 @@ func (st SettingType) String() string {
 		settingName = "SettingTextDecorationStyle"
 	case SettingTextDecorationColor:
 		settingName = "SettingTextDecorationColor"
+	case SettingIndentStart:
+		settingName = "SettingIndentStart"
+	case SettingIndentStartRows:
+		settingName = "SettingIndentStartRows"
 	case SettingRowspan:
 		settingName = "SettingRowspan"
 	case SettingSize:
@@ -1345,6 +1359,25 @@ func (fe *Document) paragraphOptions(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	if irr, ok := te.Settings[SettingIndentRightRows]; ok {
 		p.IndentRightRows = irr.(int)
 	}
+	// A logical start indent (text-indent) goes to whichever edge the
+	// line starts at. The linebreaker's insets are physical, one value per
+	// side, so a physical indent already set on that side is kept and the
+	// logical one dropped; that is also what keeps a float's band intact.
+	if is, ok := te.Settings[SettingIndentStart]; ok {
+		rows := 1
+		if r, ok := te.Settings[SettingIndentStartRows].(int); ok {
+			rows = r
+		}
+		if paraDir == DirectionRTL {
+			if p.IndentRight == 0 {
+				p.IndentRight = is.(bag.ScaledPoint)
+				p.IndentRightRows = rows
+			}
+		} else if p.IndentLeft == 0 {
+			p.IndentLeft = is.(bag.ScaledPoint)
+			p.IndentLeftRows = rows
+		}
+	}
 	// Use padding-left as indent for all rows (HTML list behavior).
 	// Consume and delete from te.Settings so Mknodes does not also apply
 	// it as an inline padding-left glue at the start of the paragraph —
@@ -1672,7 +1705,8 @@ func applyL1(line *node.HList, paragraphLevel uint8) {
 	for n := line.List; n != nil; n = n.Next() {
 		nodes = append(nodes, n)
 	}
-	for i := len(nodes) - 1; i >= 0; i-- {
+	lo, hi := lineFurniture(nodes)
+	for i := hi - 1; i >= lo; i-- {
 		switch nodes[i].(type) {
 		case *node.Glue, *node.Kern:
 			nodes[i].SetBidiLevel(paragraphLevel)
@@ -1685,6 +1719,45 @@ func applyL1(line *node.HList, paragraphLevel uint8) {
 			return
 		}
 	}
+}
+
+// lineFurniture reports the range [lo, hi) of nodes that are paragraph
+// content, as opposed to the linebreaker's own edge glues: the leftskip it
+// puts at the start of every line and the line-end glue it puts at the end.
+// Those two carry the per-row insets (Indent, IndentRight) and the
+// alignment stretch, and they are physical by definition: a left inset
+// belongs to the left edge whatever the paragraph direction. The reorder
+// must therefore leave them in place, or an RTL paragraph would end up
+// with its right-hand inset on the left (a float on the right, say, with
+// the text running underneath it).
+//
+// Only the first and the last node are looked at. The paragraph's own fill
+// glue from AppendLineEndAfter carries the same "lineend" origin, but it
+// sits before the edge glue and is content: in an RTL paragraph it belongs
+// at the visual line end, which is the left, and the reorder takes it there.
+func lineFurniture(nodes []node.Node) (lo, hi int) {
+	lo, hi = 0, len(nodes)
+	if hi == 0 {
+		return lo, hi
+	}
+	if isEdgeGlue(nodes[0], "leftskip") {
+		lo = 1
+	}
+	if hi > lo && isEdgeGlue(nodes[hi-1], "lineend") {
+		hi--
+	}
+	return lo, hi
+}
+
+// isEdgeGlue reports whether n is a glue the linebreaker stamped with the
+// given origin.
+func isEdgeGlue(n node.Node, origin string) bool {
+	g, ok := n.(*node.Glue)
+	if !ok || g.Attributes == nil {
+		return false
+	}
+	o, _ := g.Attributes["origin"].(string)
+	return o == origin
 }
 
 // bidiReorderVList walks every HList line in vl and applies UAX#9 L1 and
@@ -1730,15 +1803,18 @@ func bidiReorderLine(line *node.HList, paragraphLevel uint8) {
 	if maxLevel == 0 || len(nodes) <= 1 {
 		return
 	}
+	// The linebreaker's edge glues stay where they are; only the content
+	// between them is reordered.
+	lo, hi := lineFurniture(nodes)
 	// L2-L4: reverse maximal sequences at level >= current, from the
 	// highest level down through 1. Reversing the level array alongside
 	// the node array keeps subsequent passes consistent.
 	for level := maxLevel; level >= 1; level-- {
-		i := 0
-		for i < len(nodes) {
+		i := lo
+		for i < hi {
 			if levels[i] >= level {
 				j := i
-				for j < len(nodes) && levels[j] >= level {
+				for j < hi && levels[j] >= level {
 					j++
 				}
 				for a, b := i, j-1; a < b; a, b = a+1, b-1 {
@@ -2053,7 +2129,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
-		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingTabSize, SettingTabSizeSpaces:
+		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingTabSize, SettingTabSizeSpaces:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
 			// ignore
@@ -2435,6 +2511,19 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	return head, nil
 }
 
+// isParagraphIndentSetting reports whether k is one of the indent settings
+// paragraphOptions reads off the paragraph itself. They are not passed down
+// to child texts: an inline child has no lines of its own to indent, and a
+// copy on the child would outlive the pass that derived it, which matters
+// for a float's band (htmlbag) that is recomputed on every pass.
+func isParagraphIndentSetting(k SettingType) bool {
+	switch k {
+	case SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows:
+		return true
+	}
+	return false
+}
+
 // Mknodes creates a list of nodes which which can be formatted to a given
 // width. The returned head and the tail are the beginning and the end of the
 // node list.
@@ -2575,7 +2664,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			}
 			// copy current settings to the child if not already set.
 			for k, v := range newSettings {
-				if _, found := t.Settings[k]; !found {
+				if _, found := t.Settings[k]; !found && !isParagraphIndentSetting(k) {
 					t.Settings[k] = v
 				}
 			}
