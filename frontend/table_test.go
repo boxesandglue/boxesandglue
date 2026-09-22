@@ -179,3 +179,38 @@ func TestRowMinHeight(t *testing.T) {
 		}
 	}
 }
+
+// TestCellKeepsSoleBlockAttributes: a cell whose contents are a single VList
+// reuses that VList, so labelling it must not discard what it already carries,
+// such as the alt text htmlbag puts on an image that is alone in its cell.
+func TestCellKeepsSoleBlockAttributes(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var image *node.VList
+	format := func(bag.ScaledPoint) (*node.VList, error) {
+		r := node.NewRule()
+		r.Width = bag.MustSP("20pt")
+		r.Height = bag.MustSP("10pt")
+		image = node.Vpack(r)
+		image.Attributes = node.H{"alt": "company logo"}
+		return image, nil
+	}
+	cell := &TableCell{Contents: []any{FormatToVList(format)}}
+	tbl := &Table{
+		MaxWidth: bag.MustSP("200pt"),
+		Rows:     TableRows{&TableRow{Cells: []*TableCell{cell}}},
+	}
+	if _, err = fe.BuildTable(tbl); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := image.Attributes["alt"]; got != "company logo" {
+		t.Errorf("alt = %v, want it kept (attributes %v)", got, image.Attributes)
+	}
+	if got := image.Attributes["origin"]; got != "cell contents" {
+		t.Errorf(`origin = %v, want "cell contents"`, got)
+	}
+}

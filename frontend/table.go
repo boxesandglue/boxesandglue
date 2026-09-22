@@ -414,7 +414,13 @@ func (cell *TableCell) buildContents(paraWidth bag.ScaledPoint) (*node.VList, er
 		hl.Attributes = node.H{"origin": "hpack cell"}
 		vl = node.Vpack(hl)
 	}
-	vl.Attributes = node.H{"origin": "cell contents"}
+	// A single VList is reused rather than wrapped, so it may already carry
+	// attributes of its own (htmlbag's alt and tag on an image). Add the
+	// label; do not replace the map.
+	if vl.Attributes == nil {
+		vl.Attributes = node.H{}
+	}
+	vl.Attributes["origin"] = "cell contents"
 	cell.contentCache = vl
 	cell.contentCacheWidth = paraWidth
 	return vl, nil
