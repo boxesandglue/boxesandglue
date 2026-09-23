@@ -1600,6 +1600,10 @@ type TabStop struct {
 	// edge of a left to right paragraph, the right edge of a right to left
 	// one.
 	Position bag.ScaledPoint
+	// Align is how the text after the tab lines up with the stop.
+	Align node.TabAlign
+	// Separator is what a node.TabAlignDecimal stop aligns on, "." if empty.
+	Separator string
 	// Leader is repeated across the tab, as with SettingLeader (e.g. ".").
 	Leader string
 }
@@ -1609,7 +1613,7 @@ type TabStop struct {
 func (fe *Document) nodeTabStops(te *Text, stops []TabStop) []node.TabStop {
 	out := make([]node.TabStop, 0, len(stops))
 	for _, s := range stops {
-		ns := node.TabStop{Position: s.Position}
+		ns := node.TabStop{Position: s.Position, Align: s.Align, Separator: s.Separator}
 		if s.Leader != "" {
 			ts := maps.Clone(te.Settings)
 			// These would put an anchor, a link or a marker in every copy.

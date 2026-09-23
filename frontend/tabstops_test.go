@@ -8,6 +8,27 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
+// runEnds returns, for each line of vl, where its last glyph ends.
+func runEnds(vl *node.VList) []bag.ScaledPoint {
+	var out []bag.ScaledPoint
+	for n := vl.List; n != nil; n = n.Next() {
+		hl, ok := n.(*node.HList)
+		if !ok {
+			continue
+		}
+		var x, end bag.ScaledPoint
+		for m := hl.List; m != nil; m = m.Next() {
+			w, _, _ := m.Sizes(node.Horizontal)
+			x += w
+			if _, ok := m.(*node.Glyph); ok {
+				end = x
+			}
+		}
+		out = append(out, end)
+	}
+	return out
+}
+
 // afterTabs returns, for each line of vl, where the text after each tab
 // starts, measured from the left edge of the line.
 func afterTabs(vl *node.VList) [][]bag.ScaledPoint {
@@ -48,6 +69,7 @@ func TestTabStopsFormatParagraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	stop := bag.MustSP("40mm")
+	measure := bag.MustSP("120mm")
 	format := func(t *testing.T, s string, stops ...TabStop) *node.VList {
 		t.Helper()
 		if stops == nil {
@@ -58,7 +80,7 @@ func TestTabStopsFormatParagraph(t *testing.T) {
 		te.Settings[SettingSize] = bag.MustSP("10pt")
 		te.Settings[SettingTabStops] = stops
 		te.Items = append(te.Items, s)
-		vl, _, err := fe.FormatParagraph(te, bag.MustSP("120mm"))
+		vl, _, err := fe.FormatParagraph(te, measure)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,6 +136,47 @@ func TestTabStopsFormatParagraph(t *testing.T) {
 		}
 		if g, ok := tab.Leader.List.(*node.Glyph); !ok || g.Components != "." {
 			t.Errorf("leader pattern %v, want the glyph \".\"", tab.Leader.List)
+		}
+	})
+
+	t.Run("contents line", func(t *testing.T) {
+		vl := format(t, "Introduction\t1\nA much longer chapter title\t123", TabStop{Position: measure, Align: node.TabAlignRight, Leader: "."})
+		got := runEnds(vl)
+		if len(got) != 2 || got[0] != measure || got[1] != measure {
+			t.Errorf("page numbers end at %v, want both at %s", got, measure)
+		}
+	})
+
+	t.Run("decimal in a right to left paragraph", func(t *testing.T) {
+		te := NewText()
+		te.Settings[SettingFontFamily] = ff
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		te.Settings[SettingDirection] = DirectionRTL
+		te.Settings[SettingTabStops] = []TabStop{{Position: stop, Align: node.TabAlignDecimal}}
+		te.Items = append(te.Items, "a\t123.45\nb\t1.5")
+		vl, _, err := fe.FormatParagraph(te, measure)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The numbers read left to right, so the separator's right edge is
+		// the one on the stop, counted from the right edge of the line.
+		var got []bag.ScaledPoint
+		for n := vl.List; n != nil; n = n.Next() {
+			hl, ok := n.(*node.HList)
+			if !ok {
+				continue
+			}
+			var x bag.ScaledPoint
+			for m := hl.List; m != nil; m = m.Next() {
+				w, _, _ := m.Sizes(node.Horizontal)
+				x += w
+				if g, ok := m.(*node.Glyph); ok && g.Components == "." {
+					got = append(got, hl.Width-x)
+				}
+			}
+		}
+		if len(got) != 2 || got[0] != stop || got[1] != stop {
+			t.Errorf("separators at %v from the right edge, want both at %s", got, stop)
 		}
 	})
 }
