@@ -560,7 +560,7 @@ func TestTabStopDecimalInsideBrokenParagraph(t *testing.T) {
 	stop := bag.ScaledPoint(120 * bag.Factor)
 	s := tabSettings(TabStop{Position: stop, Align: TabAlignDecimal})
 	s.LineEndGlue = NewGlue()
-	text := "aa bb cc\t12.5 dd ee ff gg hh ii jj kk ll mm\t1234.75 oo pp qq rr ss tt"
+	text := "aa bb cc\t12.5 dd ee ff gg hh ii jj kk ll\t1234.75 oo pp qq rr ss tt"
 	vlist, bps := Linebreak(buildTabbed(text), s)
 	ls := lines(vlist)
 	if len(ls) < 3 {
@@ -597,9 +597,9 @@ func TestTabStopRightRunTooLongToKeep(t *testing.T) {
 	stop := bag.ScaledPoint(150 * bag.Factor)
 	s := tabSettings(TabStop{Position: stop, Align: TabAlignRight})
 	s.LineEndGlue = NewGlue()
-	// Past "jj" the text would overshoot the stop, and "kkkkkkkkk" is too
+	// Past "jj" the text would overshoot the stop, and "kkkkkkkkkkkk" is too
 	// long to end the line with the tab at its own width instead.
-	vlist, bps := Linebreak(buildTabbed("aa\tbb cc dd ee ff gg hh ii jj kkkkkkkkk ll mm"), s)
+	vlist, bps := Linebreak(buildTabbed("aa\tcc dd ee ff gg hh ii jj kkkkkkkkkkkk ll mm"), s)
 	ls := lines(vlist)
 	if len(ls) < 2 {
 		t.Fatalf("got %d lines, want at least 2", len(ls))
@@ -737,7 +737,7 @@ func TestTabStopRightRunBrokenAtDisc(t *testing.T) {
 	s := tabSettings(TabStop{Position: stop, Align: TabAlignRight})
 	s.HSize = 100 * bag.Factor
 	s.LineEndGlue = NewGlue()
-	head := buildTabbed("aa\tbbbbbbbbbb cccccc")
+	head := buildTabbed("aa\tbbbbbbbb cccccccc")
 	var cs int
 	for n := head; n != nil; n = n.Next() {
 		if g, ok := n.(*Glyph); ok && g.Components == "c" {
@@ -769,11 +769,12 @@ func TestTabStopRightRunBrokenAtDisc(t *testing.T) {
 	}
 }
 
-// A right stop that the text after the tab reaches exactly from where the
-// tab starts takes it, with a tab of no width. A center stop the text is too
-// wide for, with the text before the tab in the way, starts the text right
-// after that, rather than going on to the next stop.
-func TestTabStopAlignedRunAtItsLimit(t *testing.T) {
+// A right or center stop the text after the tab is too wide for, with the
+// text before the tab in the way, keeps the tab at its own width, the width
+// it has once the stops run out, rather than going on to the next stop or
+// letting label and text touch. A run that leaves the tab more than that
+// lines up as usual.
+func TestTabStopAlignedRunTooWide(t *testing.T) {
 	next := TabStop{Position: 150 * bag.Factor}
 	for _, tc := range []struct {
 		name  string
@@ -781,13 +782,13 @@ func TestTabStopAlignedRunAtItsLimit(t *testing.T) {
 		text  string
 		start bag.ScaledPoint
 	}{
-		{"right, exact", TabStop{Position: 18 * bag.Factor, Align: TabAlignRight}, "x\n\tabc", 0},
-		{"center, too wide", TabStop{Position: 20 * bag.Factor, Align: TabAlignCenter}, "x\na\tbbbbbb", tabCharWidth},
+		{"right", TabStop{Position: 30 * bag.Factor, Align: TabAlignRight}, "a\tbbbb", tabCharWidth + tabNatural},
+		{"center", TabStop{Position: 20 * bag.Factor, Align: TabAlignCenter}, "a\tbbbbbb", tabCharWidth + tabNatural},
+		{"right, room to spare", TabStop{Position: 60 * bag.Factor, Align: TabAlignRight}, "a\tbbbb", 36 * bag.Factor},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			vlist, _ := Linebreak(buildTabbed(strings.Split(tc.text, "\n")...), tabSettings(tc.stop, next))
-			ls := lines(vlist)
-			if got := afterTabs(ls[1]); len(got) != 1 || got[0] != tc.start {
+			vlist, _ := Linebreak(buildTabbed(tc.text), tabSettings(tc.stop, next))
+			if got := afterTabs(lines(vlist)[0]); len(got) != 1 || got[0] != tc.start {
 				t.Errorf("text after the tab starts at %v, want [%s]", got, tc.start)
 			}
 		})
@@ -802,6 +803,33 @@ func TestTabStopRightPastTheMeasure(t *testing.T) {
 	s := tabSettings(TabStop{Position: 110 * bag.Factor, Align: TabAlignRight})
 	s.HSize = 100 * bag.Factor
 	vlist, _ := Linebreak(buildTabbed("aa\tbb cc dd ee ff gg hh ii jj kk ll"), s)
+	for i, w := range lineContentWidths(vlist) {
+		if w > s.HSize {
+			t.Errorf("line %d is %s wide, overfull", i, w)
+		}
+	}
+}
+
+// Both passes, and the pre-pass that decides which runs to keep, count the
+// tab's own width: with it "bb cc dd ee ff gg" no longer fits after "a" and
+// the tab, so it is not kept together and the line breaks inside it. The tab
+// itself is no breakpoint here.
+func TestTabStopTooWideRunBreaks(t *testing.T) {
+	s := tabSettings(TabStop{Position: 30 * bag.Factor, Align: TabAlignRight})
+	s.HSize = 100 * bag.Factor
+	head := buildTabbed("a\tbb cc dd ee ff gg")
+	for n := head; n != nil; n = n.Next() {
+		if g, ok := n.(*Glue); ok && g.Subtype == GlueTab {
+			p := NewPenalty()
+			p.Penalty = 10000
+			InsertBefore(head, g, p)
+			break
+		}
+	}
+	vlist, _ := Linebreak(head, s)
+	if len(lines(vlist)) < 2 {
+		t.Errorf("got %d line, want the run broken", len(lines(vlist)))
+	}
 	for i, w := range lineContentWidths(vlist) {
 		if w > s.HSize {
 			t.Errorf("line %d is %s wide, overfull", i, w)
