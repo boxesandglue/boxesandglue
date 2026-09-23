@@ -84,6 +84,12 @@ type LinebreakSettings struct {
 	// where hanging punctuation protrudes. Every line and the paragraph
 	// box carry it as TextDir.
 	TextDirection TextDirection
+	// TabStops are the positions a tab (a Glue of subtype GlueTab) advances
+	// to, measured from the paragraph's start edge: the left edge of a left
+	// to right paragraph, the right edge of a right to left one. A tab moves
+	// to the first stop past the text before it on the line; after the last
+	// stop it keeps its own width. Without stops tabs are ordinary glue.
+	TabStops []TabStop
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.

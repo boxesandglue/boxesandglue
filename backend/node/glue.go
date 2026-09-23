@@ -29,6 +29,9 @@ const (
 	// GlueLineEnd is added at the end of each line in a paragraph so that copy
 	// and paste works in PDF.
 	GlueLineEnd
+	// GlueTab is a tab. With LinebreakSettings.TabStops the line breaker
+	// sets its width so the text after it starts at the next stop.
+	GlueTab
 )
 
 // LeaderType determines how leader patterns are aligned.

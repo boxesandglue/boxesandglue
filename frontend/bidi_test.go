@@ -166,6 +166,43 @@ func TestApplyL1(t *testing.T) {
 	}
 }
 
+// TestApplyL1ResetsTabs: a tab inside an embedded run, and the whitespace
+// before it, go to the paragraph level, so that in a right to left paragraph
+// the segments between the tab stops keep their order from the right edge.
+func TestApplyL1ResetsTabs(t *testing.T) {
+	var nodes []node.Node
+	add := func(n node.Node, level uint8) node.Node {
+		n.SetBidiLevel(level)
+		nodes = append(nodes, n)
+		return n
+	}
+	g1 := add(node.NewGlyph(), 2)
+	space := add(node.NewGlue(), 2)
+	tab := node.NewGlue()
+	tab.Subtype = node.GlueTab
+	add(tab, 2)
+	g2 := add(node.NewGlyph(), 2)
+	var head, tail node.Node
+	for _, n := range nodes {
+		head = node.InsertAfter(head, tail, n)
+		tail = n
+	}
+	hl := node.NewHList()
+	hl.List = head
+
+	applyL1(hl, 1)
+
+	for _, c := range []struct {
+		name string
+		n    node.Node
+		want uint8
+	}{{"glyph before", g1, 2}, {"space before the tab", space, 1}, {"tab", tab, 1}, {"glyph after", g2, 2}} {
+		if got := c.n.BidiLevel(); got != c.want {
+			t.Errorf("%s: BidiLevel %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
 // TestApplyL1NoTrailingWhitespace covers the case where the line ends in a
 // glyph (no trailing whitespace at all). L1 should be a no-op.
 func TestApplyL1NoTrailingWhitespace(t *testing.T) {
