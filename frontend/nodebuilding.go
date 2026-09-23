@@ -232,6 +232,10 @@ const (
 	SettingDebug
 	// SettingDest defines a named PDF destination (anchor) for internal links.
 	SettingDest
+	// SettingElementID carries the source element's id so consumers can map a
+	// laid-out node back to the markup it came from. Unlike SettingDest it has
+	// no effect on the PDF.
+	SettingElementID
 	// SettingFontExpansion is the amount of expansion / shrinkage allowed. Value is a float between 0 (no expansion) and 1 (100% of the glyph width).
 	SettingFontExpansion
 	// SettingFontFamily selects a font family.
@@ -465,6 +469,8 @@ func (st SettingType) String() string {
 		settingName = "SettingDebug"
 	case SettingDest:
 		settingName = "SettingDest"
+	case SettingElementID:
+		settingName = "SettingElementID"
 	case SettingFontExpansion:
 		settingName = "SettingFontExpansion"
 	case SettingFontFamily:
@@ -1053,6 +1059,7 @@ func (fe *Document) FormatParagraph(te *Text, hsize bag.ScaledPoint, opts ...Typ
 		return nil, prep.pi, err
 	}
 	if prep.done {
+		stampElementID(prep.early, te)
 		return prep.early, prep.pi, nil
 	}
 	return fe.breakPrepared(te, prep)
@@ -1105,7 +1112,20 @@ func (fe *Document) breakPrepared(te *Text, prep *paragraphPrep) (*node.VList, *
 			vlist.Attributes = node.H{"origin": "FormatParagraph, setHeight"}
 		}
 	}
+	stampElementID(vlist, te)
 	return vlist, pi, nil
+}
+
+// stampElementID copies the element id of te onto the box built for it.
+func stampElementID(vl *node.VList, te *Text) {
+	id, ok := te.Settings[SettingElementID].(string)
+	if !ok || id == "" || vl == nil {
+		return
+	}
+	if vl.Attributes == nil {
+		vl.Attributes = node.H{}
+	}
+	vl.Attributes["id"] = id
 }
 
 // ParagraphTailStep describes an already-consumed prefix of a paragraph from
@@ -1565,6 +1585,7 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 // breaks the lines when the column widths are known.
 func (fe *Document) formatPrepared(te *Text, prep *paragraphPrep, hsize bag.ScaledPoint, opts ...TypesettingOption) (*node.VList, *ParagraphInfo, error) {
 	if prep.done {
+		stampElementID(prep.early, te)
 		return prep.early, prep.pi, nil
 	}
 	p := fe.paragraphOptions(te, hsize, opts...)
@@ -2189,6 +2210,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// table properties, consumed by the table builder
 		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
 			// ignore
+		case SettingElementID:
+			// consumed where the element's box is built (FormatParagraph,
+			// TableCell.build, TableRow.build); glyphs carry no identity.
 		case SettingWidth, SettingBox, SettingPageBreakAfter, SettingPageBreakBefore:
 			// ignore
 		case SettingPreserveWhitespace:
