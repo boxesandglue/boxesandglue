@@ -37,20 +37,27 @@ func isForcedBreak(n Node) bool {
 
 // Breakpoint is a feasible break point.
 type Breakpoint struct {
-	Position                              Node
-	Pre                                   Node
-	from                                  *Breakpoint
-	next                                  *Breakpoint
-	id                                    int
-	Line                                  int
-	Fitness                               int
-	Width                                 bag.ScaledPoint
+	Position Node
+	Pre      Node
+	from     *Breakpoint
+	next     *Breakpoint
+	id       int
+	Line     int
+	Fitness  int
+	Width    bag.ScaledPoint
+	lineSums
+	calculatedExpand bag.ScaledPoint
+	R                float64
+	Demerits         int
+}
+
+// lineSums are the running sums of the first pass: the natural width, the
+// finite stretch and shrink, the font expansion and the infinite stretch
+// orders.
+type lineSums struct {
 	sumW, sumY, sumZ                      bag.ScaledPoint
 	sumExpand                             bag.ScaledPoint
-	calculatedExpand                      bag.ScaledPoint
 	stretchFil, stretchFill, stretchFilll bag.ScaledPoint
-	R                                     float64
-	Demerits                              int
 }
 
 func (bp *Breakpoint) String() string {
@@ -64,15 +71,18 @@ func (bp *Breakpoint) String() string {
 }
 
 type linebreaker struct {
-	activeNodesA     *Breakpoint
-	inactiveNodesP   *Breakpoint
-	preva            *Breakpoint
-	settings         *LinebreakSettings
-	sumW, sumY, sumZ bag.ScaledPoint
-	sumExpand        bag.ScaledPoint
-	stretchFil       bag.ScaledPoint
-	stretchFill      bag.ScaledPoint
-	stretchFilll     bag.ScaledPoint
+	activeNodesA   *Breakpoint
+	inactiveNodesP *Breakpoint
+	preva          *Breakpoint
+	settings       *LinebreakSettings
+	lineSums
+	stops []TabStop
+	tabs  []tabMark
+	// firstTab is the index of the first tab on a line that starts at a
+	// break at the node. Kept here rather than in Breakpoint, which is
+	// allocated for every feasible break of every paragraph.
+	firstTab map[Node]int
+	org      lineOrigin
 }
 
 func newLinebreaker(settings *LinebreakSettings) *linebreaker {
@@ -91,28 +101,37 @@ func newLinebreaker(settings *LinebreakSettings) *linebreaker {
 // separate condition on the (L > l_j, Z = 0) state, which this flag carries.
 func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64, sumExpand bag.ScaledPoint, overfullNoShrink bool) {
 	// compute the adjustment ratio r from a to n
-	thisLineWidth := lb.sumW - a.sumW
+	curW := lb.sumW
 	switch t := n.(type) {
 	case *Penalty:
-		thisLineWidth += t.Width
+		curW += t.Width
 	case *Disc:
 		if !lb.settings.HangingPunctuationEnd {
 			wd, _, _ := Dimensions(t.Pre, nil, Horizontal)
-			thisLineWidth += wd
+			curW += wd
 		}
 	case *Glue:
 		if lb.settings.HangingPunctuationEnd {
 			if p := t.Prev(); p.Type() == TypeGlyph {
 				if g := p.(*Glyph); len(g.Components) == 1 && unicode.IsPunct(rune(g.Components[0])) {
-					thisLineWidth -= g.Width
+					curW -= g.Width
 				}
 			}
 		}
 	}
+	// Past a tab stop the line is measured from the tab instead of from a.
+	var x bag.ScaledPoint
+	from := &a.lineSums
+	if len(lb.tabs) > 0 {
+		if o := lb.origin(a); o != nil {
+			x, from = o.x, &o.lineSums
+		}
+	}
+	thisLineWidth := x + curW - from.sumW
 	// subtract the per-row insets: the measure a line has to fit into is the
 	// hsize less whatever is taken off either end for this row.
 	maxwd := lb.settings.HSize - lb.getIndent(a.Line) - lb.getIndentRight(a.Line)
-	sumExpand = lb.sumExpand - a.sumExpand
+	sumExpand = lb.sumExpand - from.sumExpand
 	if thisLineWidth < maxwd {
 		// needs to stretch. EmergencyStretch (TeX \emergencystretch) is added
 		// to the per-line stretch capacity unconditionally — it acts as a
@@ -129,7 +148,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		// remains. Treat that case as r=0 here so feasible breaks at
 		// inter-word glue aren't rejected with r=+inf just because the
 		// line itself has no normal stretch reservoir.
-		hasFilStretch := (lb.stretchFil-a.stretchFil) > 0 || (lb.stretchFill-a.stretchFill) > 0 || (lb.stretchFilll-a.stretchFilll) > 0
+		hasFilStretch := (lb.stretchFil-from.stretchFil) > 0 || (lb.stretchFill-from.stretchFill) > 0 || (lb.stretchFilll-from.stretchFilll) > 0
 		if !hasFilStretch {
 			if g := lb.settings.LineEndGlue; g != nil && g.StretchOrder >= StretchFil && g.Stretch > 0 {
 				hasFilStretch = true
@@ -141,7 +160,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		if hasFilStretch {
 			r = 0
 		} else {
-			y := lb.sumY - a.sumY + sumExpand + lb.settings.EmergencyStretch
+			y := lb.sumY - from.sumY + sumExpand + lb.settings.EmergencyStretch
 			if y > 0 {
 				r = float64(maxwd-thisLineWidth) / float64(y)
 			} else {
@@ -150,7 +169,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		}
 	} else if maxwd < thisLineWidth {
 		// needs to shrink
-		z := lb.sumZ - a.sumZ + sumExpand
+		z := lb.sumZ - from.sumZ + sumExpand
 		if z > 0 {
 			r = float64(maxwd-thisLineWidth) / float64(z)
 		} else {
@@ -176,6 +195,11 @@ compute:
 	for e := n; e != nil; e = e.Next() {
 		switch t := e.(type) {
 		case *Glue:
+			// A tab after a break stays on the line and positions what
+			// follows, so it is not discarded with the break.
+			if e != n && lb.isTab(t) {
+				break compute
+			}
 			w += t.Width
 			z += t.Shrink
 			switch t.StretchOrder {
@@ -424,6 +448,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 		}
 		if dmin == math.MaxInt && lb.activeNodesA == nil {
 			W, E, Y, Z := lb.computeSum(n)
+			lb.markFirstTab(n)
 			// Anchor the forced overfull line. Prefer the best overfull
 			// breakpoint found this round (latest position, fewest demerits)
 			// so an unbreakable run wider than HSize — e.g. a long URL, or
@@ -449,24 +474,21 @@ func (lb *linebreaker) mainLoop(n Node) {
 			}
 
 			bp := &Breakpoint{
-				id:               int(breakpointNextID.Add(1)),
-				Position:         n,
-				Pre:              pre,
-				Line:             lastInactive.Line + 1,
-				from:             lastInactive,
-				next:             active,
-				Fitness:          3,
-				Width:            lb.sumW - lastInactive.sumW,
-				sumW:             W,
-				sumExpand:        E,
-				sumY:             Y,
-				sumZ:             Z,
+				id:       int(breakpointNextID.Add(1)),
+				Position: n,
+				Pre:      pre,
+				Line:     lastInactive.Line + 1,
+				from:     lastInactive,
+				next:     active,
+				Fitness:  3,
+				Width:    lb.sumW - lastInactive.sumW,
+				lineSums: lineSums{
+					sumW: W, sumExpand: E, sumY: Y, sumZ: Z,
+					stretchFil: lb.stretchFil, stretchFill: lb.stretchFill, stretchFilll: lb.stretchFilll,
+				},
 				calculatedExpand: lb.sumExpand - lastInactive.sumExpand,
 				R:                0,
 				Demerits:         lastInactive.Demerits + 1000,
-				stretchFil:       lb.stretchFil,
-				stretchFill:      lb.stretchFill,
-				stretchFilll:     lb.stretchFilll,
 			}
 			lb.appendNewBreakpoint(bp)
 		}
@@ -475,6 +497,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 
 func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*Breakpoint, rc [4]float64, ec [4]bag.ScaledPoint, active *Breakpoint) {
 	W, E, Y, Z := lb.computeSum(n)
+	lb.markFirstTab(n)
 
 	width := lb.sumW
 	var pre Node
@@ -489,24 +512,21 @@ func (lb *linebreaker) appendBreakpointHere(n Node, dmin int, dc [4]int, ac [4]*
 	for c := range 4 {
 		if dc[c] <= dmin+lb.settings.DemeritsFitness {
 			bp := &Breakpoint{
-				id:               int(breakpointNextID.Add(1)),
-				Position:         n,
-				Pre:              pre,
-				Line:             ac[c].Line + 1,
-				from:             ac[c],
-				next:             active,
-				Fitness:          c,
-				Width:            width - ac[c].sumW,
-				sumW:             W,
-				sumExpand:        E,
-				sumY:             Y,
-				sumZ:             Z,
+				id:       int(breakpointNextID.Add(1)),
+				Position: n,
+				Pre:      pre,
+				Line:     ac[c].Line + 1,
+				from:     ac[c],
+				next:     active,
+				Fitness:  c,
+				Width:    width - ac[c].sumW,
+				lineSums: lineSums{
+					sumW: W, sumExpand: E, sumY: Y, sumZ: Z,
+					stretchFil: lb.stretchFil, stretchFill: lb.stretchFill, stretchFilll: lb.stretchFilll,
+				},
 				calculatedExpand: ec[c],
 				R:                rc[c],
 				Demerits:         dc[c],
-				stretchFil:       lb.stretchFil,
-				stretchFill:      lb.stretchFill,
-				stretchFilll:     lb.stretchFilll,
 			}
 			lb.appendNewBreakpoint(bp)
 		}
@@ -530,6 +550,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	}
 	var prevItemBox bool
 	lb := newLinebreaker(settings)
+	if len(settings.TabStops) > 0 {
+		lb.stops = sortedTabStops(settings.TabStops)
+		lb.firstTab = map[Node]int{}
+	}
 	lb.activeNodesA = &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
 	var endNode Node
 
@@ -541,6 +565,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				// b legal breakpoint
 				lb.mainLoop(t)
 			}
+			wBefore := lb.sumW
 
 			lb.sumW += t.Width
 			lb.sumZ += t.Shrink
@@ -554,6 +579,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				lb.stretchFilll += t.Stretch
 			default:
 				lb.sumY += t.Stretch
+			}
+			if lb.isTab(t) {
+				lb.tabs = append(lb.tabs, tabMark{wBefore: wBefore, after: lb.lineSums})
 			}
 			prevItemBox = false
 		case *Penalty:
@@ -636,9 +664,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		if startPos.Prev() != nil {
 			startPos = startPos.Next()
 			// If we broke at a Disc followed by a Glue (space), skip the Glue.
-			// Otherwise the space appears at the start of the next line.
+			// Otherwise the space appears at the start of the next line. A
+			// tab stays, as after any break.
 			if e.Position.Type() == TypeDisc {
-				if _, isGlue := startPos.(*Glue); isGlue {
+				if _, isGlue := startPos.(*Glue); isGlue && !lb.isTab(startPos) {
 					startPos = startPos.Next()
 				}
 			}
@@ -656,6 +685,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 		}
 		if startPos != nil {
+			tabbed := len(lb.stops) > 0 && lb.setTabs(startPos, endNode, e.Line)
 			// if PDF/UA is written, the line end should have a space at the end.
 			lineEnd := settings.LineEndGlue.Copy().(*Glue)
 			// Forced-break suppression of justification: a line that
@@ -697,6 +727,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 						lineEnd = fill
 					}
 				}
+			}
+			if tabbed {
+				lb.setFromStart(leftskip, lineEnd)
 			}
 			lineEnd.Attributes = H{"origin": "lineend"}
 			// The right-hand inset is width added to the line-end glue rather
