@@ -109,7 +109,9 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 	case *Penalty:
 		curW += t.Width
 	case *Disc:
-		if !lb.settings.HangingPunctuationEnd {
+		// A Disc followed by glue breaks at a word boundary, the second
+		// pass sets no hyphen there, so the hyphen is not measured either.
+		if _, isGlue := t.Next().(*Glue); !isGlue && !lb.settings.HangingPunctuationEnd {
 			wd, _, _ := Dimensions(t.Pre, nil, Horizontal)
 			curW += wd
 		}
@@ -195,8 +197,15 @@ func (lb *linebreaker) computeSum(n Node) (bag.ScaledPoint, bag.ScaledPoint, bag
 	w, y, z := lb.sumW, lb.sumY, lb.sumZ
 	e := lb.sumExpand
 	stretchFil, stretchFill, stretchFilll := lb.stretchFil, lb.stretchFill, lb.stretchFilll
+	// The glue after a Disc is discarded with the break like the glue after
+	// any other break, the second pass drops it from the next line. n stays
+	// the break itself, so a tab right after the Disc is kept below.
+	start := n
+	if _, isDisc := n.(*Disc); isDisc {
+		start = n.Next()
+	}
 compute:
-	for e := n; e != nil; e = e.Next() {
+	for e := start; e != nil; e = e.Next() {
 		switch t := e.(type) {
 		case *Glue:
 			// A tab after a break stays on the line and positions what

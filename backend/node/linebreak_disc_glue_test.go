@@ -105,3 +105,69 @@ func TestLinebreakDiscBeforeGlue(t *testing.T) {
 		}
 	}
 }
+
+// TestDiscBeforeGlueHyphenWidth checks that the first pass measures a break
+// at a Disc followed by glue the way the second pass sets it: without the
+// hyphen, and without the glue at the start of the next line (issue #37).
+func TestDiscBeforeGlueHyphenWidth(t *testing.T) {
+	var head, cur Node
+	add := func(n Node) { head = InsertAfter(head, cur, n); cur = n }
+	word := func(s string) { head, cur = glyphRun(head, cur, s, 6*bag.Factor) }
+	space := func() {
+		g := NewGlue()
+		g.Width, g.Stretch, g.Shrink = 3*bag.Factor, 3*bag.Factor, bag.Factor
+		add(g)
+	}
+	word("aaa")
+	space()
+	word("bbb")
+	space()
+	word("ccc")
+	d := NewDisc()
+	d.Penalty = -5000
+	d.Pre, _ = glyphRun(nil, nil, "-", 6*bag.Factor)
+	add(d)
+	space()
+	word("ddd")
+	space()
+	word("eee")
+	space()
+	word("fff")
+	space()
+	word("ggg")
+	AppendLineEndAfter(head, cur)
+	s := NewLinebreakSettings()
+	s.HSize = 75 * bag.Factor
+	s.LineHeight = 12 * bag.Factor
+	vlist, bps := Linebreak(head, s)
+	i := 0
+	for n := vlist.List; n != nil; n = n.Next() {
+		hl, ok := n.(*HList)
+		if !ok {
+			continue
+		}
+		// the last line is set with the fill at the line end, not at its ratio
+		if i < len(bps)-1 && bps[i].R != hl.GlueSet {
+			t.Errorf("line %d broken at ratio %.3f, set at %.3f", i, bps[i].R, hl.GlueSet)
+		}
+		if i == 0 {
+			if g, ok := hl.List.Next().(*Glyph); !ok || g.Components != "a" {
+				t.Errorf("line 0 starts with %v, want the glyph a", hl.List.Next())
+			}
+			for m := hl.List; m != nil; m = m.Next() {
+				if g, ok := m.(*Glyph); ok && g.Components == "-" {
+					t.Errorf("line 0 has a hyphen at a word boundary")
+				}
+			}
+		}
+		if i == 1 {
+			if g, ok := hl.List.Next().(*Glyph); !ok || g.Components != "d" {
+				t.Errorf("line 1 starts with %v, want the glyph d after the discarded space", hl.List.Next())
+			}
+		}
+		i++
+	}
+	if i != 3 {
+		t.Errorf("got %d lines, want 3", i)
+	}
+}
