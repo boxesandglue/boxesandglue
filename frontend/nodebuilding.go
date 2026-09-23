@@ -317,6 +317,12 @@ const (
 	SettingTabSizeSpaces
 	// SettingTabSize is the tab width.
 	SettingTabSize
+	// SettingTabStops are the positions tabs advance to ([]TabStop), measured
+	// from the paragraph's start edge. A tab moves to the first stop past the
+	// text before it; after the last stop it has the width of SettingTabSize
+	// or SettingTabSizeSpaces. With stops a tab is kept whatever the
+	// white-space mode.
+	SettingTabStops
 	// SettingTextDecorationLine sets underline
 	SettingTextDecorationLine
 	// SettingWidth sets alternative widths for the text.
@@ -553,6 +559,8 @@ func (st SettingType) String() string {
 		settingName = "SettingTabSize"
 	case SettingTabSizeSpaces:
 		settingName = "SettingTabSizeSpaces"
+	case SettingTabStops:
+		settingName = "SettingTabStops"
 	case SettingTextDecorationLine:
 		settingName = "SettingTextDecorationLine"
 	case SettingVAlign:
@@ -925,9 +933,13 @@ type ParagraphInfo struct {
 // nodes) from the start and end of a node list. This implements CSS
 // white-space collapsing. Non-breaking spaces (Penalty 10000 + Glue) are
 // preserved. StartStop nodes (colors, hyperlinks) are preserved.
-func stripLeadingTrailingGlue(head, tail node.Node) (node.Node, node.Node) {
+func stripLeadingTrailingGlue(head, tail node.Node, keepTabs bool) (node.Node, node.Node) {
+	isTab := func(n node.Node) bool {
+		g, ok := n.(*node.Glue)
+		return keepTabs && ok && g.Subtype == node.GlueTab
+	}
 	// Strip leading Glue/Kern, but stop at a Penalty (protects NBSP).
-	for head != nil {
+	for head != nil && !isTab(head) {
 		switch head.(type) {
 		case *node.Glue, *node.Kern:
 			next := head.Next()
@@ -942,7 +954,7 @@ func stripLeadingTrailingGlue(head, tail node.Node) (node.Node, node.Node) {
 	}
 	// Strip trailing Glue/Kern. If a Glue is preceded by a Penalty(10000),
 	// it is a non-breaking space — stop and keep both.
-	for tail != nil && tail != head {
+	for tail != nil && tail != head && !isTab(tail) {
 		switch tail.(type) {
 		case *node.Glue:
 			if p, ok := tail.Prev().(*node.Penalty); ok && p.Penalty >= 10000 {
@@ -962,7 +974,7 @@ func stripLeadingTrailingGlue(head, tail node.Node) (node.Node, node.Node) {
 		break
 	}
 	// Edge case: head == tail and it's collapsible
-	if head != nil {
+	if head != nil && !isTab(head) {
 		switch head.(type) {
 		case *node.Glue, *node.Kern:
 			return nil, nil
@@ -1333,7 +1345,9 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 
 	// Strip leading and trailing whitespace (Glue/Kern) for CSS-conformant
 	// behavior: spaces at the start/end of a paragraph should not appear.
-	hlist, tail = stripLeadingTrailingGlue(hlist, tail)
+	// With tab stops a tab at either end positions text, or a leader.
+	_, hasTabStops := te.Settings[SettingTabStops]
+	hlist, tail = stripLeadingTrailingGlue(hlist, tail, hasTabStops)
 	if hlist == nil {
 		return &paragraphPrep{done: true, early: node.NewVList()}, nil
 	}
@@ -1558,6 +1572,9 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	} else {
 		ls.LineHeight = p.Leading
 	}
+	if stops, ok := te.Settings[SettingTabStops].([]TabStop); ok {
+		ls.TabStops = fe.nodeTabStops(te, stops)
+	}
 	if p.Alignment == HAlignLeft || p.Alignment == HAlignCenter {
 		lg := node.NewGlue()
 		lg.Attributes = node.H{"origin": "glue line end"}
@@ -1575,6 +1592,39 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 		ls.LineStartGlue = lg
 	}
 	return ls
+}
+
+// TabStop is a position tabs advance to, see SettingTabStops.
+type TabStop struct {
+	// Position is the distance from the paragraph's start edge: the left
+	// edge of a left to right paragraph, the right edge of a right to left
+	// one.
+	Position bag.ScaledPoint
+	// Leader is repeated across the tab, as with SettingLeader (e.g. ".").
+	Leader string
+}
+
+// nodeTabStops converts the stops for the line breaker. The leader patterns
+// are set in the paragraph's font.
+func (fe *Document) nodeTabStops(te *Text, stops []TabStop) []node.TabStop {
+	out := make([]node.TabStop, 0, len(stops))
+	for _, s := range stops {
+		ns := node.TabStop{Position: s.Position}
+		if s.Leader != "" {
+			ts := maps.Clone(te.Settings)
+			// These would put an anchor, a link or a marker in every copy.
+			delete(ts, SettingDest)
+			delete(ts, SettingHyperlink)
+			delete(ts, SettingPrepend)
+			pattern, err := fe.leaderPattern(ts, s.Leader)
+			if err != nil {
+				bag.Logger.Error("tab stop leader", "error", err)
+			}
+			ns.Leader = pattern
+		}
+		out = append(out, ns)
+	}
+	return out
 }
 
 // formatPrepared breaks a paragraph that prepareParagraph has shaped for
@@ -1751,8 +1801,8 @@ func propagateBidiLevels(line *node.HList) {
 	}
 }
 
-// applyL1 implements UAX#9 rule L1: trailing whitespace at the end of a
-// line is reset to the paragraph embedding level. Without this, a line
+// applyL1 implements UAX#9 rule L1: tabs and trailing whitespace at the end
+// of a line are reset to the paragraph embedding level. Without this, a line
 // that ends in a Glue belonging to an embedded run (e.g. an LTR-run-final
 // space inside an RTL paragraph) would carry the run's elevated level
 // into the L2-L4 reorder and end up mis-positioned, typically as a double
@@ -1773,6 +1823,21 @@ func applyL1(line *node.HList, paragraphLevel uint8) {
 		nodes = append(nodes, n)
 	}
 	lo, hi := lineFurniture(nodes)
+	// A tab is a segment separator: it and the whitespace before it take
+	// the paragraph level too, so the reorder keeps the segments in their
+	// places between the tab stops.
+	for i := lo; i < hi; i++ {
+		if g, ok := nodes[i].(*node.Glue); ok && g.Subtype == node.GlueTab {
+			for j := i; j >= lo; j-- {
+				switch nodes[j].(type) {
+				case *node.Glue, *node.Kern:
+					nodes[j].SetBidiLevel(paragraphLevel)
+					continue
+				}
+				break
+			}
+		}
+	}
 	for i := hi - 1; i >= lo; i-- {
 		switch nodes[i].(type) {
 		case *node.Glue, *node.Kern:
@@ -2196,7 +2261,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
-		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingTabSize, SettingTabSizeSpaces:
+		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingTabSize, SettingTabSizeSpaces, SettingTabStops:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
 			// ignore
@@ -2385,25 +2450,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					cur = g
 					lastglue = g
 				case "\t":
-					// tab size...
-					g := node.NewGlue()
-					g.Attributes = node.H{"origin": "tab"}
-					hasTabsize := false
-					if wd, ok := ts[SettingTabSize]; ok {
-						if tabsize, ok := wd.(bag.ScaledPoint); ok && tabsize > 0 {
-							hasTabsize = true
-							g.Width = bag.ScaledPoint(tabsize)
-						}
-					}
-					if tw, ok := ts[SettingTabSizeSpaces]; ok && !hasTabsize {
-						if nspaces, ok := tw.(int); ok {
-							g.Width = bag.ScaledPoint(nspaces) * fnt.Space
-							hasTabsize = true
-						}
-					}
-					if !hasTabsize {
-						g.Width = 4 * fnt.Space
-					}
+					g := tabGlue(ts, fnt)
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
@@ -2432,6 +2479,18 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					cur = g
 					lastglue = g
 				}
+			} else if _, ok := ts[SettingTabStops]; ok && r.Components == "\t" {
+				if !whiteSpace.breaksAtSpace() {
+					// nowrap: no break at the tab either, as for a space
+					p := node.NewPenalty()
+					p.Penalty = 10000
+					head = node.InsertAfter(head, cur, p)
+					cur = p
+				}
+				g := tabGlue(ts, fnt)
+				head = node.InsertAfter(head, cur, g)
+				cur = g
+				lastglue = g
 			} else {
 				if r.Components == "\n" {
 					// Forced line break. The line breaker handles
@@ -2581,6 +2640,49 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	return head, nil
 }
 
+// tabGlue returns the glue for a tab, SettingTabSize or SettingTabSizeSpaces
+// wide. With tab stops the line breaker gives it another width when it
+// reaches one; without, it is ordinary glue as it always was.
+func tabGlue(ts TypesettingSettings, fnt *font.Font) *node.Glue {
+	g := node.NewGlue()
+	g.Attributes = node.H{"origin": "tab"}
+	if _, ok := ts[SettingTabStops]; ok {
+		g.Subtype = node.GlueTab
+	}
+	hasTabsize := false
+	if wd, ok := ts[SettingTabSize]; ok {
+		if tabsize, ok := wd.(bag.ScaledPoint); ok && tabsize > 0 {
+			hasTabsize = true
+			g.Width = bag.ScaledPoint(tabsize)
+		}
+	}
+	if tw, ok := ts[SettingTabSizeSpaces]; ok && !hasTabsize {
+		if nspaces, ok := tw.(int); ok {
+			g.Width = bag.ScaledPoint(nspaces) * fnt.Space
+			hasTabsize = true
+		}
+	}
+	if !hasTabsize {
+		g.Width = 4 * fnt.Space
+	}
+	return g
+}
+
+// leaderPattern builds the box a leader glue repeats from the string str.
+func (fe *Document) leaderPattern(ts TypesettingSettings, str string) (*node.HList, error) {
+	// Pattern whitespace must keep its exact widths: a thin space inside
+	// "  .  " has to render as a thin space, not collapse to the TeX
+	// inter-word fnt.Space glue. The preserve-whitespace branch in
+	// BuildNodelistFromString uses the atom's shaper-provided Advance
+	// instead of the font-wide Space default.
+	ts[SettingPreserveWhitespace] = true
+	nl, err := fe.BuildNodelistFromString(ts, str)
+	if err != nil || nl == nil {
+		return nil, err
+	}
+	return node.Hpack(nl), nil
+}
+
 // isParagraphIndentSetting reports whether k is one of the indent settings
 // paragraphOptions reads off the paragraph itself. They are not passed down
 // to child texts: an inline child has no lines of its own to indent, and a
@@ -2689,19 +2791,11 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 					}
 				}
 				delete(t.Settings, SettingLeader)
-				// Pattern whitespace must keep its exact widths: a thin
-				// space inside "  .  " has to render as a thin space, not
-				// collapse to the TeX inter-word fnt.Space glue. The
-				// preserve-whitespace branch in BuildNodelistFromString
-				// uses the atom's shaper-provided Advance instead of the
-				// font-wide Space default.
-				t.Settings[SettingPreserveWhitespace] = true
-				nl, err = fe.BuildNodelistFromString(t.Settings, leaderStr.(string))
+				pattern, err := fe.leaderPattern(t.Settings, leaderStr.(string))
 				if err != nil {
 					return nil, nil, err
 				}
-				if nl != nil {
-					pattern := node.Hpack(nl)
+				if pattern != nil {
 					g := node.NewGlue()
 					g.Stretch = bag.Factor
 					g.StretchOrder = node.StretchFilll
