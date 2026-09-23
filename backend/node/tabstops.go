@@ -71,6 +71,71 @@ type tabRun struct {
 	// reaches a right, center or decimal stop.
 	keep    bool
 	decimal map[string]bag.ScaledPoint
+	// fromSep caches, per separator, the running sums from the start of the
+	// run up to the separator, where a run that is not kept starts to
+	// justify.
+	fromSep map[string]*sepSums
+}
+
+type sepSums struct {
+	found bool
+	sums  lineSums
+}
+
+func stopSeparator(s *TabStop) string {
+	if s.Separator == "" {
+		return "."
+	}
+	return s.Separator
+}
+
+// justifiesFrom returns the separator in the nodes from first up to end at
+// which the text after a decimal tab starts to justify: the first glyph sep,
+// unless the number is a left to right one in a right to left paragraph,
+// which runs back towards the start edge past the separator. Nil if there
+// is none.
+func (lb *linebreaker) justifiesFrom(first, end Node, sep string) Node {
+	for n := first; n != nil && n != end; n = n.Next() {
+		if g, ok := n.(*Glyph); ok && g.Components == sep {
+			if lb.settings.TextDirection == TextDirRTL && g.BidiLevel()%2 == 0 {
+				return nil
+			}
+			return g
+		}
+	}
+	return nil
+}
+
+// sumsTo adds the nodes from first up to (not including) end to the running
+// sums, the way the first pass does.
+func (lb *linebreaker) sumsTo(sums lineSums, first, end Node) lineSums {
+	for n := first; n != nil && n != end; n = n.Next() {
+		switch t := n.(type) {
+		case *Glue:
+			sums.sumW += t.Width
+			sums.sumZ += t.Shrink
+			switch t.StretchOrder {
+			case StretchFil:
+				sums.stretchFil += t.Stretch
+			case StretchFill:
+				sums.stretchFill += t.Stretch
+			case StretchFilll:
+				sums.stretchFilll += t.Stretch
+			default:
+				sums.sumY += t.Stretch
+			}
+		case *Glyph:
+			sums.sumW += t.Width
+			if lb.settings.FontExpansion != 0 {
+				sums.sumExpand += bag.MultiplyFloat(t.Width, lb.settings.FontExpansion)
+			}
+		case *Penalty, *Disc, *HardBreak:
+		default:
+			w, _, _ := n.Sizes(Horizontal)
+			sums.sumW += w
+		}
+	}
+	return sums
 }
 
 func sortedTabStops(stops []TabStop) []TabStop {
@@ -126,11 +191,7 @@ func alignOffset(s *TabStop, w bag.ScaledPoint, decimal func(sep string) bag.Sca
 	case TabAlignCenter:
 		return w / 2
 	case TabAlignDecimal:
-		sep := s.Separator
-		if sep == "" {
-			sep = "."
-		}
-		return min(decimal(sep), w)
+		return min(decimal(stopSeparator(s)), w)
 	}
 	return 0
 }
@@ -241,6 +302,15 @@ func (lb *linebreaker) origin(a *Breakpoint, curW bag.ScaledPoint) *lineOrigin {
 			continue
 		}
 		*o = lineOrigin{x: target, lineSums: t.after, aligned: stop.Align != TabAlignLeft}
+		if stop.Align == TabAlignDecimal && !t.run.keep {
+			// A figure too wide to keep together: from its separator on, the
+			// line is measured and justified as after a left stop.
+			if ss := lb.sepSumsOf(t, stopSeparator(stop)); ss.found && ss.sums.sumW-t.after.sumW < runW {
+				*o = lineOrigin{x: target + ss.sums.sumW - t.after.sumW, lineSums: ss.sums}
+				ok = true
+				continue
+			}
+		}
 		if o.aligned {
 			// The run is placed by its natural width, so its glue does not
 			// stretch or shrink either, except for the paragraph's fill at
@@ -253,6 +323,25 @@ func (lb *linebreaker) origin(a *Breakpoint, curW bag.ScaledPoint) *lineOrigin {
 		return nil
 	}
 	return o
+}
+
+// sepSumsOf returns the running sums at the separator of the run after the
+// tab t, see justifiesFrom.
+func (lb *linebreaker) sepSumsOf(t tabMark, sep string) *sepSums {
+	r := t.run
+	if ss, ok := r.fromSep[sep]; ok {
+		return ss
+	}
+	ss := &sepSums{}
+	if g := lb.justifiesFrom(r.first, r.end, sep); g != nil {
+		ss.found = true
+		ss.sums = lb.sumsTo(t.after, r.first, g)
+	}
+	if r.fromSep == nil {
+		r.fromSep = map[string]*sepSums{}
+	}
+	r.fromSep[sep] = ss
+	return ss
 }
 
 // markFirstTab records the first tab on a line that starts at a break at n.
@@ -274,12 +363,13 @@ func (lb *linebreaker) markFirstTab(n Node) {
 // or decimal stop. The glue before the last stop reached loses its stretch
 // and shrink: text before a stop is set at its natural width, which is how
 // the first pass measured it. So does the finite glue in the text after a
-// right, center or decimal stop.
+// right, center or decimal stop, up to the separator where a decimal figure
+// too wide to keep together starts to justify.
 func (lb *linebreaker) setTabs(start, end Node, row int) (tabbed, aligned bool) {
 	inset := lb.startInset(row)
 	var x bag.ScaledPoint
-	// keepEnd is where the run after the last stop reached ends, if that
-	// stop is not a left one.
+	// keepEnd is where the run after the last stop reached ends, or where it
+	// starts to justify, if that stop is not a left one.
 	var last, keepEnd Node
 	for n := start; n != nil && n != end; n = n.Next() {
 		g, ok := n.(*Glue)
@@ -308,9 +398,14 @@ func (lb *linebreaker) setTabs(start, end Node, row int) (tabbed, aligned bool) 
 					g.LeaderType = LeaderAligned
 				}
 				last = g
-				keepEnd = nil
+				keepEnd, aligned = nil, false
 				if stop.Align != TabAlignLeft {
-					keepEnd = runEnd
+					keepEnd, aligned = runEnd, true
+				}
+				if stop.Align == TabAlignDecimal && !lb.runs[g].keep {
+					if sep := lb.justifiesFrom(first, runEnd, stopSeparator(stop)); sep != nil {
+						keepEnd, aligned = sep, false
+					}
 				}
 			}
 		}
@@ -330,7 +425,7 @@ func (lb *linebreaker) setTabs(start, end Node, row int) (tabbed, aligned bool) 
 			g.Stretch, g.Shrink = 0, 0
 		}
 	}
-	return true, keepEnd != nil
+	return true, aligned
 }
 
 // setFromStart moves the stretch of the edge glue at the line's start edge

@@ -836,3 +836,127 @@ func TestTabStopTooWideRunBreaks(t *testing.T) {
 		}
 	}
 }
+
+// justified reports whether the line was set justified: its line-end glue
+// has no fill, so the line's own glue took the slack.
+func justified(hl *HList) bool {
+	_, lineend := edgeGlues(hl)
+	return lineend.StretchOrder == StretchNormal
+}
+
+// A figure at a decimal stop followed by prose too long to keep together:
+// the part up to the separator is set at its natural width, and from the
+// separator on the line is justified like any other, so the breaker fills
+// it rather than taking any break in the prose at ratio 0. The space inside
+// the integer part does not stretch.
+func TestTabStopDecimalRunJustifies(t *testing.T) {
+	stop := bag.ScaledPoint(120 * bag.Factor)
+	s := tabSettings(TabStop{Position: stop, Align: TabAlignDecimal})
+	s.LineEndGlue = NewGlue()
+	head := buildTabbed("aa bb cc\t1 234.56 dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu vv ww xx")
+	// The space in "1 234" is a no-break space, as the frontend makes one.
+	var inner *Glue
+	for n := head; n != nil; n = n.Next() {
+		if g, ok := n.(*Glyph); ok && g.Components == "1" {
+			inner = g.Next().(*Glue)
+			p := NewPenalty()
+			p.Penalty = 10000
+			InsertAfter(head, g, p)
+			break
+		}
+	}
+	vlist, bps := Linebreak(head, s)
+	ls := lines(vlist)
+	if len(ls) < 3 {
+		t.Fatalf("got %d lines, want at least 3", len(ls))
+	}
+	if x, ok := glyphAt(ls[0], "."); !ok || x != stop {
+		t.Errorf("separator at %s (found %v), want %s", x, ok, stop)
+	}
+	for i, hl := range ls[:len(ls)-1] {
+		if !justified(hl) {
+			t.Errorf("line %d is not justified", i)
+		}
+		if d := bps[i].R - hl.GlueSet; d > 1e-9 || d < -1e-9 {
+			t.Errorf("line %d: broken at ratio %.3f, set at %.3f", i, bps[i].R, hl.GlueSet)
+		}
+		if bps[i].R == 0 {
+			t.Errorf("line %d: broken at ratio 0, the fixture does not need the line to stretch", i)
+		}
+	}
+	if inner.Width != 3*bag.Factor {
+		t.Errorf("space in the integer part set to %s, want its natural 3pt", inner.Width)
+	}
+}
+
+// A left to right number in a right to left paragraph runs back towards the
+// start edge past its separator, so there is no part after the separator to
+// justify: the line ends in the figure's run and takes no stretch, as before.
+func TestTabStopDecimalRunRightToLeftNotJustified(t *testing.T) {
+	stop := bag.ScaledPoint(120 * bag.Factor)
+	s := tabSettings(TabStop{Position: stop, Align: TabAlignDecimal})
+	s.TextDirection = TextDirRTL
+	s.LineStartGlue, s.LineEndGlue = NewGlue(), NewGlue()
+	head := buildTabbed("aa bb cc\t1234.56 dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr")
+	seen := false
+	for n := head; n != nil; n = n.Next() {
+		if g, ok := n.(*Glue); ok && g.Subtype == GlueTab {
+			seen = true
+		}
+		if seen {
+			n.SetBidiLevel(2)
+		} else {
+			n.SetBidiLevel(1)
+		}
+	}
+	vlist, bps := Linebreak(head, s)
+	ls := lines(vlist)
+	if len(ls) < 2 {
+		t.Fatalf("got %d lines, want at least 2", len(ls))
+	}
+	if bps[0].R != 0 {
+		t.Errorf("line 0: broken at ratio %.3f, want 0", bps[0].R)
+	}
+	if leftskip, _ := edgeGlues(ls[0]); leftskip.StretchOrder == StretchNormal {
+		t.Error("line 0: the line end (the left edge) takes no fill")
+	}
+}
+
+// A figure too wide to keep that breaks before its separator: the part on
+// the line has no separator, so it ends at the stop like a right-aligned run
+// and the line end takes the slack. Only a line that holds the separator
+// justifies from it.
+func TestTabStopDecimalRunBrokenBeforeSeparator(t *testing.T) {
+	stop := bag.ScaledPoint(120 * bag.Factor)
+	s := tabSettings(TabStop{Position: stop, Align: TabAlignDecimal})
+	s.LineEndGlue = NewGlue()
+	vlist, bps := Linebreak(buildTabbed("aa bb cc\t1 234.56 dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu vv ww xx"), s)
+	ls := lines(vlist)
+	if _, ends := tabRuns(ls[0]); len(ends) != 1 || ends[0] != stop {
+		t.Fatalf("line 0: the part of the figure ends at %v, want [%s]", ends, stop)
+	}
+	if justified(ls[0]) {
+		t.Error("line 0 is justified, want its line end to take the slack")
+	}
+	checkRatios(t, ls, bps)
+}
+
+// A figure kept together stays at its natural width after the separator
+// too, up to the next tab.
+func TestTabStopKeptDecimalRunNotJustified(t *testing.T) {
+	s := tabSettings(TabStop{Position: 60 * bag.Factor, Align: TabAlignDecimal})
+	s.LineEndGlue = NewGlue()
+	head := buildTabbed("aa\t1.5 bb\tcc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr")
+	var space *Glue
+	for n := head; n != nil; n = n.Next() {
+		if g, ok := n.(*Glyph); ok && g.Components == "5" {
+			space = g.Next().(*Glue)
+			break
+		}
+	}
+	vlist, bps := Linebreak(head, s)
+	if space.Width != 3*bag.Factor {
+		t.Errorf("space after the figure set to %s, want its natural 3pt", space.Width)
+	}
+	checkRatios(t, lines(vlist), bps)
+}
