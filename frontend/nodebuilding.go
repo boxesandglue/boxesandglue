@@ -1111,9 +1111,44 @@ func (fe *Document) breakPrepared(te *Text, prep *paragraphPrep) (*node.VList, *
 // ParagraphTailStep describes an already-consumed prefix of a paragraph from
 // a previous formatting pass: the paragraph was broken at Width and the first
 // Lines of the resulting lines were placed.
+//
+// Settings holds what was in force for that pass but is not on the Text any
+// more, such as the per-row indent a float beside the paragraph imposed on
+// its first lines. They are applied for the reproduction of that pass only
+// and removed again afterwards, so the remainder is broken without them.
 type ParagraphTailStep struct {
-	Width bag.ScaledPoint
-	Lines int
+	Width    bag.ScaledPoint
+	Lines    int
+	Settings TypesettingSettings
+}
+
+// applyStepSettings puts the settings of a tail step onto the Text and returns
+// the function that takes them off again, restoring whatever value a key had
+// before.
+func applyStepSettings(te *Text, settings TypesettingSettings) func() {
+	if len(settings) == 0 {
+		return func() {}
+	}
+	type saved struct {
+		key   SettingType
+		value any
+		had   bool
+	}
+	var prev []saved
+	for k, v := range settings {
+		old, had := te.Settings[k]
+		prev = append(prev, saved{k, old, had})
+		te.Settings[k] = v
+	}
+	return func() {
+		for _, s := range prev {
+			if s.had {
+				te.Settings[s.key] = s.value
+			} else {
+				delete(te.Settings, s.key)
+			}
+		}
+	}
 }
 
 // nodeSequence collects the nodes of a horizontal list in order. The slice
@@ -1155,8 +1190,10 @@ func (fe *Document) FormatParagraphTail(te *Text, steps []ParagraphTailStep, hsi
 		if step.Lines <= 0 {
 			continue
 		}
+		restoreStep := applyStepSettings(te, step.Settings)
 		prep, err := fe.prepareParagraph(te, step.Width, opts...)
 		restorePadding()
+		restoreStep()
 		if err != nil {
 			return nil, err
 		}
