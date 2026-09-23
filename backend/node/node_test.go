@@ -94,6 +94,30 @@ func TestHpack(t *testing.T) {
 	}
 }
 
+// TestHpackExactFit checks that a list whose natural width equals the
+// target width is packed with a glue set ratio of 0, so no glue is
+// stretched (issue #36).
+func TestHpackExactFit(t *testing.T) {
+	a := NewGlyph()
+	a.Width = 11 * bag.Factor
+	g := NewGlue()
+	g.Width = 3 * bag.Factor
+	g.Stretch = 3 * bag.Factor
+	b := NewGlyph()
+	b.Width = 11 * bag.Factor
+	head := InsertAfter(a, a, g)
+	InsertAfter(head, g, b)
+	hl := HpackTo(head, 25*bag.Factor)
+	var w bag.ScaledPoint
+	for n := hl.List; n != nil; n = n.Next() {
+		nw, _, _ := n.Sizes(Horizontal)
+		w += nw
+	}
+	if w != 25*bag.Factor || hl.GlueSet != 0 || hl.Badness != 0 {
+		t.Errorf("content %s in a %s box, glue set %v, badness %d, glue %s", w, hl.Width, hl.GlueSet, hl.Badness, g.Width)
+	}
+}
+
 func TestLinebreak(t *testing.T) {
 	str := `In olden times when wish|ing still helped one, there lived a king whose daugh|ters
 were all beau|ti|ful; and the young|est was so beau|ti|ful that the sun it|self, which

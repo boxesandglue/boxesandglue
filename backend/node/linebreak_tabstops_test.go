@@ -76,10 +76,6 @@ func checkRatios(t *testing.T, ls []*HList, bps []*Breakpoint) {
 		if _, lineend := edgeGlues(hl); lineend != nil && lineend.StretchOrder != StretchNormal {
 			set = 0 // the fill at the line end takes the slack
 		}
-		// HpackToWithEnd reports 1 for an exact fit, where the breaker has 0.
-		if bps[i].R == 0 && set == 1 {
-			continue
-		}
 		if d := bps[i].R - set; d > 1e-9 || d < -1e-9 {
 			t.Errorf("line %d: broken at ratio %.3f, set at %.3f", i, bps[i].R, set)
 		}

@@ -399,7 +399,8 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 	var r float64
 	switch {
 	case width == sumwd:
-		r = 1
+		// an exact fit, no glue is stretched or shrunk
+		r = 0
 	case sumwd < width:
 		// a short line
 		r = float64(width-sumwd) / float64(stretchability)
