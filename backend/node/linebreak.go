@@ -83,6 +83,9 @@ type linebreaker struct {
 	// allocated for every feasible break of every paragraph.
 	firstTab map[Node]int
 	org      lineOrigin
+	runs     map[*Glue]*tabRun
+	// keep is set inside a run that has no legal breakpoints.
+	keep bool
 }
 
 func newLinebreaker(settings *LinebreakSettings) *linebreaker {
@@ -122,9 +125,10 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 	// Past a tab stop the line is measured from the tab instead of from a.
 	var x bag.ScaledPoint
 	from := &a.lineSums
+	aligned := false
 	if len(lb.tabs) > 0 {
-		if o := lb.origin(a); o != nil {
-			x, from = o.x, &o.lineSums
+		if o := lb.origin(a, curW); o != nil {
+			x, from, aligned = o.x, &o.lineSums, o.aligned
 		}
 	}
 	thisLineWidth := x + curW - from.sumW
@@ -148,7 +152,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		// remains. Treat that case as r=0 here so feasible breaks at
 		// inter-word glue aren't rejected with r=+inf just because the
 		// line itself has no normal stretch reservoir.
-		hasFilStretch := (lb.stretchFil-from.stretchFil) > 0 || (lb.stretchFill-from.stretchFill) > 0 || (lb.stretchFilll-from.stretchFilll) > 0
+		hasFilStretch := aligned || (lb.stretchFil-from.stretchFil) > 0 || (lb.stretchFill-from.stretchFill) > 0 || (lb.stretchFilll-from.stretchFilll) > 0
 		if !hasFilStretch {
 			if g := lb.settings.LineEndGlue; g != nil && g.StretchOrder >= StretchFil && g.Stretch > 0 {
 				hasFilStretch = true
@@ -553,6 +557,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	if len(settings.TabStops) > 0 {
 		lb.stops = sortedTabStops(settings.TabStops)
 		lb.firstTab = map[Node]int{}
+		lb.runs = lb.measureTabRuns(n)
 	}
 	lb.activeNodesA = &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
 	var endNode Node
@@ -561,7 +566,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		// breakable after
 		switch t := e.(type) {
 		case *Glue:
-			if prevItemBox {
+			if lb.keep && lb.isTab(t) {
+				lb.keep = false
+			}
+			if prevItemBox && !lb.keep {
 				// b legal breakpoint
 				lb.mainLoop(t)
 			}
@@ -581,22 +589,30 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				lb.sumY += t.Stretch
 			}
 			if lb.isTab(t) {
-				lb.tabs = append(lb.tabs, tabMark{wBefore: wBefore, after: lb.lineSums})
+				run := lb.runs[t]
+				lb.tabs = append(lb.tabs, tabMark{wBefore: wBefore, after: lb.lineSums, run: run})
+				lb.keep = run.keep
 			}
 			prevItemBox = false
 		case *Penalty:
 			prevItemBox = false
-			if t.Penalty < 10000 {
+			if lb.keep && isForcedBreak(t) {
+				lb.keep = false
+			}
+			if t.Penalty < 10000 && !lb.keep {
 				lb.mainLoop(t)
 			}
 		case *HardBreak:
 			prevItemBox = false
+			lb.keep = false
 			lb.mainLoop(t)
 		case *Disc:
 			// NOTE: Do NOT reset prevItemBox here. A Disc is not a "box" in TeX terms.
 			// If we reset it, a Glue following a Disc won't be considered as a breakpoint,
 			// causing breaks at Disc (with hyphen) instead of at Glue (space).
-			lb.mainLoop(t)
+			if !lb.keep {
+				lb.mainLoop(t)
+			}
 		case *Glyph:
 			prevItemBox = true
 			lb.sumW += t.Width
@@ -685,7 +701,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 		}
 		if startPos != nil {
-			tabbed := len(lb.stops) > 0 && lb.setTabs(startPos, endNode, e.Line)
+			var tabbed, aligned bool
+			if len(lb.stops) > 0 {
+				tabbed, aligned = lb.setTabs(startPos, endNode, e.Line)
+			}
 			// if PDF/UA is written, the line end should have a space at the end.
 			lineEnd := settings.LineEndGlue.Copy().(*Glue)
 			// Forced-break suppression of justification: a line that
@@ -729,7 +748,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				}
 			}
 			if tabbed {
-				lb.setFromStart(leftskip, lineEnd)
+				lb.setFromStart(leftskip, lineEnd, aligned)
 			}
 			lineEnd.Attributes = H{"origin": "lineend"}
 			// The right-hand inset is width added to the line-end glue rather
