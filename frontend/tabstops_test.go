@@ -122,6 +122,23 @@ func TestTabStopsFormatParagraph(t *testing.T) {
 		}
 	})
 
+	t.Run("fraction of the measure", func(t *testing.T) {
+		// A right stop at 100% ends the text at the end of the line, one at
+		// 50% less 10mm ends it there.
+		vl := format(t, "Name\t3\nName\t3",
+			TabStop{Fraction: 1, Align: node.TabAlignRight})
+		for i, end := range runEnds(vl) {
+			if end != measure {
+				t.Errorf("line %d ends at %s, want %s", i, end, measure)
+			}
+		}
+		vl = format(t, "Name\t3",
+			TabStop{Position: -bag.MustSP("10mm"), Fraction: 0.5, Align: node.TabAlignRight})
+		if got, want := runEnds(vl), measure/2-bag.MustSP("10mm"); len(got) != 1 || got[0] != want {
+			t.Errorf("line ends at %v, want [%s]", got, want)
+		}
+	})
+
 	t.Run("leader", func(t *testing.T) {
 		vl := format(t, "Name\tAlice", TabStop{Position: stop, Leader: "."})
 		var tab *node.Glue
@@ -258,6 +275,16 @@ func TestTabStopsInTableCell(t *testing.T) {
 		te.Settings[SettingTabStops] = []TabStop{{Position: stop, Align: node.TabAlignRight}}
 		if got := cellWidth(t, te); got < stop {
 			t.Errorf("cell is %s wide, want at least %s", got, stop)
+		}
+	})
+
+	t.Run("fraction", func(t *testing.T) {
+		// The column width is not known while the cell is measured, so a
+		// stop at 100% does not widen the cell to the table's maximum.
+		te := text("Name\tAlice")
+		te.Settings[SettingTabStops] = []TabStop{{Fraction: 1, Align: node.TabAlignRight}}
+		if got := cellWidth(t, te); got >= bag.MustSP("100mm") {
+			t.Errorf("cell is %s wide, want its natural width", got)
 		}
 	})
 

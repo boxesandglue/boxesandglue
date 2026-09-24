@@ -1573,7 +1573,7 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 		ls.LineHeight = p.Leading
 	}
 	if stops, ok := te.Settings[SettingTabStops].([]TabStop); ok {
-		ls.TabStops = fe.nodeTabStops(te, stops)
+		ls.TabStops = fe.nodeTabStops(te, stops, p.hsize)
 	}
 	if p.Alignment == HAlignLeft || p.Alignment == HAlignCenter {
 		lg := node.NewGlue()
@@ -1600,6 +1600,10 @@ type TabStop struct {
 	// edge of a left to right paragraph, the right edge of a right to left
 	// one.
 	Position bag.ScaledPoint
+	// Fraction is a part of the paragraph width added to Position, 1 for a
+	// stop at the end of the line (a CSS percentage). While the width is
+	// unknown, as when a table measures its cells, it counts as zero.
+	Fraction float64
 	// Align is how the text after the tab lines up with the stop.
 	Align node.TabAlign
 	// Separator is what a node.TabAlignDecimal stop aligns on, "." if empty.
@@ -1608,12 +1612,17 @@ type TabStop struct {
 	Leader string
 }
 
-// nodeTabStops converts the stops for the line breaker. The leader patterns
-// are set in the paragraph's font.
-func (fe *Document) nodeTabStops(te *Text, stops []TabStop) []node.TabStop {
+// nodeTabStops converts the stops for the line breaker, resolving their
+// fractions against hsize. The leader patterns are set in the paragraph's
+// font.
+func (fe *Document) nodeTabStops(te *Text, stops []TabStop, hsize bag.ScaledPoint) []node.TabStop {
 	out := make([]node.TabStop, 0, len(stops))
 	for _, s := range stops {
-		ns := node.TabStop{Position: s.Position, Align: s.Align, Separator: s.Separator}
+		pos := s.Position
+		if s.Fraction != 0 && hsize < bag.MaxSP {
+			pos += bag.ScaledPoint(s.Fraction * float64(hsize))
+		}
+		ns := node.TabStop{Position: pos, Align: s.Align, Separator: s.Separator}
 		if s.Leader != "" {
 			ts := maps.Clone(te.Settings)
 			// These would put an anchor, a link or a marker in every copy.
