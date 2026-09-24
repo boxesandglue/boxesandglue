@@ -180,3 +180,96 @@ func TestTabStopsFormatParagraph(t *testing.T) {
 		}
 	})
 }
+
+// TestTabStopsInTableCell checks that a column is wide enough for a tab to
+// reach its stop: the max-content width of a cell resolves the stops as the
+// line breaker does.
+func TestTabStopsInTableCell(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := fe.NewFontFamily("test")
+	if err := ff.AddMember(
+		&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
+		FontWeight400, FontStyleNormal,
+	); err != nil {
+		t.Fatal(err)
+	}
+	text := func(s string) *Text {
+		te := NewText()
+		te.Settings[SettingFontFamily] = ff
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		te.Items = append(te.Items, s)
+		return te
+	}
+	vl, _, err := fe.FormatParagraph(text("Alice"), bag.MustSP("100mm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := runEnds(vl)[0]
+	stop := bag.MustSP("40mm")
+	cellWidth := func(t *testing.T, te *Text) bag.ScaledPoint {
+		t.Helper()
+		cell := &TableCell{Contents: []any{te}}
+		tbl := &Table{MaxWidth: bag.MustSP("200mm"), Rows: TableRows{&TableRow{Cells: []*TableCell{cell}}}}
+		if _, err := fe.BuildTable(tbl); err != nil {
+			t.Fatal(err)
+		}
+		return cell.CalculatedWidth - cell.PaddingLeft - cell.PaddingRight
+	}
+
+	t.Run("left stop", func(t *testing.T) {
+		te := text("Name\tAlice")
+		te.Settings[SettingTabStops] = []TabStop{{Position: stop}}
+		if got, want := cellWidth(t, te), stop+alice; got < want {
+			t.Errorf("cell is %s wide, want at least %s", got, want)
+		}
+	})
+
+	t.Run("tab after a forced break", func(t *testing.T) {
+		for _, s := range []string{"X\n\tAlice", "X\n \tAlice", "Name\tAlice\n\tAlice"} {
+			te := text(s)
+			te.Settings[SettingTabStops] = []TabStop{{Position: stop}}
+			if got, want := cellWidth(t, te), stop+alice; got < want {
+				t.Errorf("%q: cell is %s wide, want at least %s", s, got, want)
+			}
+		}
+	})
+
+	t.Run("second stop", func(t *testing.T) {
+		te := text("A\tB\tAlice")
+		te.Settings[SettingTabStops] = []TabStop{{Position: bag.MustSP("20mm")}, {Position: stop}}
+		if got, want := cellWidth(t, te), stop+alice; got < want {
+			t.Errorf("cell is %s wide, want at least %s", got, want)
+		}
+	})
+
+	t.Run("decimal stop", func(t *testing.T) {
+		te := text("Total\t12.50")
+		te.Settings[SettingTabStops] = []TabStop{{Position: stop, Align: node.TabAlignDecimal}}
+		if got := cellWidth(t, te); got <= stop {
+			t.Errorf("cell is %s wide, want more than %s", got, stop)
+		}
+	})
+
+	t.Run("right stop", func(t *testing.T) {
+		te := text("Name\tAlice")
+		te.Settings[SettingTabStops] = []TabStop{{Position: stop, Align: node.TabAlignRight}}
+		if got := cellWidth(t, te); got < stop {
+			t.Errorf("cell is %s wide, want at least %s", got, stop)
+		}
+	})
+
+	t.Run("right to left", func(t *testing.T) {
+		// The stop is measured from the right edge, so the left indent
+		// does not bring it closer.
+		te := text("Name\tAlice")
+		te.Settings[SettingTabStops] = []TabStop{{Position: stop}}
+		te.Settings[SettingDirection] = DirectionRTL
+		te.Settings[SettingIndentLeft] = bag.MustSP("10mm")
+		if got, want := cellWidth(t, te), stop+alice; got < want {
+			t.Errorf("cell is %s wide, want at least %s", got, want)
+		}
+	})
+}

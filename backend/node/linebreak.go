@@ -76,8 +76,8 @@ type linebreaker struct {
 	preva          *Breakpoint
 	settings       *LinebreakSettings
 	lineSums
-	stops []TabStop
-	tabs  []tabMark
+	ts   *TabStops
+	tabs []tabMark
 	// firstTab is the index of the first tab on a line that starts at a
 	// break at the node. Kept here rather than in Breakpoint, which is
 	// allocated for every feasible break of every paragraph.
@@ -563,8 +563,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	}
 	var prevItemBox bool
 	lb := newLinebreaker(settings)
-	if len(settings.TabStops) > 0 {
-		lb.stops = sortedTabStops(settings.TabStops)
+	if lb.ts = NewTabStops(settings); lb.ts != nil {
 		lb.firstTab = map[Node]int{}
 		lb.runs = lb.measureTabRuns(n)
 	}
@@ -711,7 +710,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		}
 		if startPos != nil {
 			var tabbed, aligned bool
-			if len(lb.stops) > 0 {
+			if lb.ts != nil {
 				tabbed, aligned = lb.setTabs(startPos, endNode, e.Line)
 			}
 			// if PDF/UA is written, the line end should have a space at the end.

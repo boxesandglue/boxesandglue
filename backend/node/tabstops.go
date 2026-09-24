@@ -145,21 +145,70 @@ func sortedTabStops(stops []TabStop) []TabStop {
 }
 
 func (lb *linebreaker) isTab(n Node) bool {
-	if len(lb.stops) == 0 {
-		return false
+	return lb.ts != nil && lb.ts.isTab(n)
+}
+
+// TabStops resolves the stops a tab reaches in a paragraph. The line
+// breaker uses it, and so should anything that measures a paragraph without
+// breaking it, so that both put a tab at the same stop.
+type TabStops struct {
+	settings *LinebreakSettings
+	stops    []TabStop
+}
+
+// NewTabStops returns the tab stops of the paragraph settings, or nil if
+// there are none, in which case tabs are ordinary glue.
+func NewTabStops(settings *LinebreakSettings) *TabStops {
+	if settings == nil || len(settings.TabStops) == 0 {
+		return nil
 	}
+	return &TabStops{settings: settings, stops: sortedTabStops(settings.TabStops)}
+}
+
+// startInset is the inset of the row (counted from 0) at the edge the stops
+// are measured from, which is the right edge in a right to left paragraph,
+// as for SettingIndentStart.
+func (ts *TabStops) startInset(row int) bag.ScaledPoint {
+	if ts.settings.TextDirection == TextDirRTL {
+		return ts.settings.IndentRightForRow(row)
+	}
+	return ts.settings.IndentForRow(row)
+}
+
+// Resolve returns where the tab at x in the given row ends when the line is
+// set without soft breaks, and the stop it reaches; x and target are measured
+// from the start of the row's content, after its start inset. The alignment
+// of the stop applies to the text after the tab up to the next tab or forced
+// break. ok is false when the stops have run out and the tab keeps its own
+// width.
+func (ts *TabStops) Resolve(tab *Glue, row int, x bag.ScaledPoint) (target bag.ScaledPoint, stop *TabStop, ok bool) {
+	first := tab.Next()
+	var end Node
+	var w bag.ScaledPoint
+	for e := first; e != nil; e = e.Next() {
+		if isForcedBreak(e) || ts.isTab(e) {
+			end = e
+			break
+		}
+		ew, _, _ := e.Sizes(Horizontal)
+		w += ew
+	}
+	return ts.nextStop(ts.startInset(row), x, tab.Width, ts.offset(first, end, w))
+}
+
+func (ts *TabStops) isTab(n Node) bool {
 	g, ok := n.(*Glue)
 	return ok && g.Subtype == GlueTab
 }
 
-// startInset is the inset of the row at the edge the stops are measured
-// from, which is the right edge in a right to left paragraph, as for
-// SettingIndentStart.
-func (lb *linebreaker) startInset(row int) bag.ScaledPoint {
-	if lb.settings.TextDirection == TextDirRTL {
-		return lb.getIndentRight(row)
+// offset returns the alignment offset function for the nodes from first up
+// to end, w wide.
+func (ts *TabStops) offset(first, end Node, w bag.ScaledPoint) func(*TabStop) bag.ScaledPoint {
+	return func(s *TabStop) bag.ScaledPoint {
+		return alignOffset(s, w, func(sep string) bag.ScaledPoint {
+			return ts.toSeparator(first, end, sep)
+		})
 	}
-	return lb.getIndent(row)
 }
 
 // nextStop returns the stop a tab at x reaches, x and the returned target
@@ -169,9 +218,9 @@ func (lb *linebreaker) startInset(row int) bag.ScaledPoint {
 // right, center or decimal stop the tab is at least its own width wide, tabW,
 // the width it has once the stops run out. Text that has reached or passed a
 // stop goes on to the next; ok is false when the stops have run out.
-func (lb *linebreaker) nextStop(inset, x, tabW bag.ScaledPoint, off func(*TabStop) bag.ScaledPoint) (target bag.ScaledPoint, stop *TabStop, ok bool) {
-	for i := range lb.stops {
-		s := &lb.stops[i]
+func (ts *TabStops) nextStop(inset, x, tabW bag.ScaledPoint, off func(*TabStop) bag.ScaledPoint) (target bag.ScaledPoint, stop *TabStop, ok bool) {
+	for i := range ts.stops {
+		s := &ts.stops[i]
 		if pos := s.Position - inset; pos > x {
 			if s.Align == TabAlignLeft {
 				return pos, s, true
@@ -201,11 +250,11 @@ func alignOffset(s *TabStop, w bag.ScaledPoint, decimal func(sep string) bag.Sca
 // if there is none. A left to right number in a right to left paragraph
 // runs away from the start edge in the other direction, so there it is the
 // width after the separator.
-func (lb *linebreaker) toSeparator(first, end Node, sep string) bag.ScaledPoint {
+func (ts *TabStops) toSeparator(first, end Node, sep string) bag.ScaledPoint {
 	var w bag.ScaledPoint
 	for n := first; n != nil && n != end; n = n.Next() {
 		if g, ok := n.(*Glyph); ok && g.Components == sep {
-			if lb.settings.TextDirection != TextDirRTL || g.BidiLevel()%2 == 1 {
+			if ts.settings.TextDirection != TextDirRTL || g.BidiLevel()%2 == 1 {
 				return w
 			}
 			w = 0
@@ -253,7 +302,7 @@ func (lb *linebreaker) measureTabRuns(head Node) map[*Glue]*tabRun {
 			r.width += w
 		}
 		runs[g] = r
-		if target, stop, ok := lb.nextStop(lb.startInset(row), x, g.Width, lb.offset(r, r.width)); ok {
+		if target, stop, ok := lb.ts.Resolve(g, row, x); ok {
 			x = target
 			measure := lb.settings.HSize - lb.getIndent(row) - lb.getIndentRight(row)
 			r.keep = stop.Align != TabAlignLeft && target+r.width <= measure
@@ -270,7 +319,7 @@ func (lb *linebreaker) offset(r *tabRun, w bag.ScaledPoint) func(*TabStop) bag.S
 		return alignOffset(s, w, func(sep string) bag.ScaledPoint {
 			d, ok := r.decimal[sep]
 			if !ok {
-				d = lb.toSeparator(r.first, r.end, sep)
+				d = lb.ts.toSeparator(r.first, r.end, sep)
 				if r.decimal == nil {
 					r.decimal = map[string]bag.ScaledPoint{}
 				}
@@ -289,7 +338,7 @@ func (lb *linebreaker) origin(a *Breakpoint, curW bag.ScaledPoint) *lineOrigin {
 	o := &lb.org
 	*o = lineOrigin{lineSums: lineSums{sumW: a.sumW}}
 	ok := false
-	inset := lb.startInset(a.Line)
+	inset := lb.ts.startInset(a.Line)
 	first := lb.firstTab[a.Position]
 	for i, t := range lb.tabs[first:] {
 		// The last tab's run may go on past the end of this line.
@@ -297,7 +346,7 @@ func (lb *linebreaker) origin(a *Breakpoint, curW bag.ScaledPoint) *lineOrigin {
 		if first+i == len(lb.tabs)-1 {
 			runW = min(runW, curW-t.after.sumW)
 		}
-		target, stop, reached := lb.nextStop(inset, o.x+t.wBefore-o.sumW, t.after.sumW-t.wBefore, lb.offset(t.run, runW))
+		target, stop, reached := lb.ts.nextStop(inset, o.x+t.wBefore-o.sumW, t.after.sumW-t.wBefore, lb.offset(t.run, runW))
 		if !reached {
 			continue
 		}
@@ -366,7 +415,7 @@ func (lb *linebreaker) markFirstTab(n Node) {
 // right, center or decimal stop, up to the separator where a decimal figure
 // too wide to keep together starts to justify.
 func (lb *linebreaker) setTabs(start, end Node, row int) (tabbed, aligned bool) {
-	inset := lb.startInset(row)
+	inset := lb.ts.startInset(row)
 	var x bag.ScaledPoint
 	// keepEnd is where the run after the last stop reached ends, or where it
 	// starts to justify, if that stop is not a left one.
@@ -385,12 +434,7 @@ func (lb *linebreaker) setTabs(start, end Node, row int) (tabbed, aligned bool) 
 				w, _, _ := e.Sizes(Horizontal)
 				runW += w
 			}
-			off := func(s *TabStop) bag.ScaledPoint {
-				return alignOffset(s, runW, func(sep string) bag.ScaledPoint {
-					return lb.toSeparator(first, runEnd, sep)
-				})
-			}
-			if target, stop, ok := lb.nextStop(inset, x, g.Width, off); ok {
+			if target, stop, ok := lb.ts.nextStop(inset, x, g.Width, lb.ts.offset(first, runEnd, runW)); ok {
 				g.Width = target - x
 				g.Stretch, g.Shrink = 0, 0
 				if stop.Leader != nil {
