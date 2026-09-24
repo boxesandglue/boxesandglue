@@ -1674,13 +1674,18 @@ func (fe *Document) formatPrepared(te *Text, prep *paragraphPrep, hsize bag.Scal
 // the longest unbreakable segment made of glyphs, glue and kerns plus the
 // hyphen at a discretionary and the indents of that row; the max-content
 // width is the longest line between forced breaks, without indents.
+//
+// For the max-content width a tab reaches its stop as the line breaker would
+// set the line. The min-content width keeps its natural width: whether the
+// text after an aligned stop is kept together depends on the column width.
 func measureParagraph(prep *paragraphPrep) (minwd, maxwd bag.ScaledPoint) {
 	if prep.done || prep.hlist == nil {
 		return 0, 0
 	}
 	ls := prep.ls
+	stops := node.NewTabStops(ls)
 	var seg, line bag.ScaledPoint
-	row := 0
+	row, lineRow := 0, 0
 	var prevItemBox bool
 	// Discardable glue after a break opportunity starts no segment, after
 	// a forced break no line either.
@@ -1699,6 +1704,7 @@ func measureParagraph(prep *paragraphPrep) (minwd, maxwd bag.ScaledPoint) {
 			maxwd = wd
 		}
 		line = 0
+		lineRow++
 		skipLine = true
 	}
 	for e := prep.hlist; e != nil; e = e.Next() {
@@ -1710,7 +1716,16 @@ func measureParagraph(prep *paragraphPrep) (minwd, maxwd bag.ScaledPoint) {
 			if !skipSeg {
 				seg += t.Width
 			}
-			if !skipLine {
+			if stops != nil && t.Subtype == node.GlueTab {
+				// Unlike other glue, the line breaker keeps a tab after a
+				// forced break.
+				wd := t.Width
+				if target, _, ok := stops.Resolve(t, lineRow, line); ok {
+					wd = target - line
+				}
+				line += wd
+				skipLine = false
+			} else if !skipLine {
 				line += t.Width
 			}
 			prevItemBox = false
