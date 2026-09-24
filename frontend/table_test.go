@@ -214,3 +214,56 @@ func TestCellKeepsSoleBlockAttributes(t *testing.T) {
 		t.Errorf(`origin = %v, want "cell contents"`, got)
 	}
 }
+
+// TestRowspanKeepsRowsTogether checks that a row a rowspan joins to the next
+// carries _keepWithNext, so a page breaker does not split the spanned rows:
+// the spanning cell is drawn whole with its first row, and a break between the
+// rows would leave it hanging past the end of the page.
+func TestRowspanKeepsRowsTogether(t *testing.T) {
+	cell := func(rowspan int) *TableCell {
+		return &TableCell{ExtraRowspan: rowspan, Contents: []any{fixedBox(bag.MustSP("30pt"), bag.MustSP("10pt"))}}
+	}
+	for _, tc := range []struct {
+		name string
+		rows TableRows
+		want []bool
+	}{
+		{"two rows", TableRows{
+			&TableRow{Cells: []*TableCell{cell(1), cell(0)}},
+			&TableRow{Cells: []*TableCell{cell(0)}},
+			&TableRow{Cells: []*TableCell{cell(0), cell(0)}},
+		}, []bool{true, false, false}},
+		{"three rows", TableRows{
+			&TableRow{Cells: []*TableCell{cell(2), cell(0)}},
+			&TableRow{Cells: []*TableCell{cell(0)}},
+			&TableRow{Cells: []*TableCell{cell(0)}},
+			&TableRow{Cells: []*TableCell{cell(0), cell(0)}},
+		}, []bool{true, true, false, false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fe, err := NewForWriter(io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			vls, err := fe.BuildTable(&Table{MaxWidth: bag.MustSP("200pt"), Rows: tc.rows})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []bool
+			for n := vls[0].List; n != nil; n = n.Next() {
+				if hl, ok := n.(*node.HList); ok {
+					keep, _ := hl.Attributes["_keepWithNext"].(bool)
+					got = append(got, keep)
+				}
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("found %d rows, want %d", len(got), len(tc.want))
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("row %d keep with next = %v, want %v (all: %v)", i, got[i], tc.want[i], got)
+				}
+			}
+		})
+	}
+}
