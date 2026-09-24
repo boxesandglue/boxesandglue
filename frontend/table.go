@@ -1214,6 +1214,16 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 	if tbl.BorderModel == BorderModelSeparate {
 		spacingV = tbl.BorderSpacingVertical
 	}
+	// A row a rowspan joins to the next is marked, so a page breaker can keep
+	// them together: the spanning cell is drawn whole with its first row.
+	keepWithNext := make([]bool, len(tbl.Rows))
+	for _, row := range tbl.Rows {
+		for _, cell := range row.Cells {
+			for r := cell.rowStart; r < cell.rowStart+cell.ExtraRowspan && r < len(keepWithNext); r++ {
+				keepWithNext[r] = true
+			}
+		}
+	}
 	buildRow := func(i int) (*node.HList, error) {
 		hl, err := tbl.Rows[i].build()
 		if err != nil {
@@ -1223,6 +1233,9 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		hl.Depth = spacingV
 		if i == 0 {
 			hl.Height += spacingV
+		}
+		if keepWithNext[i] {
+			hl.Attributes["_keepWithNext"] = true
 		}
 		return hl, nil
 	}
