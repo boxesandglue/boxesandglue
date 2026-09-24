@@ -782,9 +782,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// the glyph a different width (hanging punctuation zeroes it),
 			// the TJ array takes the difference back so the PDF's position
 			// and sumX agree again. A glyph that still carries the width
-			// font.Shape assigned (the advance scaled by the integer Mag)
+			// font.Shape assigned (the advance scaled by Mag)
 			// is left alone: that value is off from the exact advance by a
-			// fraction of a font unit, and correcting it would sprinkle
+			// fraction of a scaled point, and correcting it would sprinkle
 			// every text run with adjustments. Everything else is measured
 			// against the exact advance in text space, so widths the math
 			// engine derives with full precision round to zero as well.

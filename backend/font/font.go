@@ -42,7 +42,7 @@ type Font struct {
 	SpaceShrink      bag.ScaledPoint
 	Size             bag.ScaledPoint
 	Depth            bag.ScaledPoint
-	Mag              int
+	Mag              float64
 	MissingGlyphFunc MissingGlyphFunc
 }
 
@@ -60,7 +60,7 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		SpaceShrink:  size * 111 / 1000,
 		Size:         size,
 		Face:         face,
-		Mag:          int(size) / int(face.UnitsPerEM),
+		Mag:          float64(size) / float64(face.UnitsPerEM),
 		Depth:        bag.ScaledPointFromFloat(factor * descend),
 	}
 	hyphenchar := fnt.Shape("-", nil, nil)
@@ -142,7 +142,6 @@ func (f *Font) ShapeDir(text string, features []ot.Feature, variations map[strin
 	for i, r := range buf.Info {
 		char := runes[r.Cluster]
 		adv := buf.Pos[i].XAdvance
-		advanceCalculated := int32(adv) * int32(f.Mag)
 		advanceWant := float32(face.HorizontalAdvance(r.GlyphID)) * float32(f.Mag)
 
 		if r.GlyphID == 0 && !unicode.IsSpace(char) && f.MissingGlyphFunc != nil {
@@ -163,13 +162,13 @@ func (f *Font) ShapeDir(text string, features []ot.Feature, variations map[strin
 			// only add kern if the next item is not a space
 			if i < len(buf.Info)-1 {
 				if int(buf.Info[i+1].GlyphID) != space {
-					bdelta = bag.ScaledPoint(float32(advanceCalculated) - advanceWant)
+					bdelta = bag.ScaledPoint(float64(int32(adv)-int32(face.HorizontalAdvance(r.GlyphID))) * f.Mag)
 				}
 			}
 
 			// Get GPOS positioning offsets and scale them
-			xOffset := bag.ScaledPoint(int32(buf.Pos[i].XOffset) * int32(f.Mag))
-			yOffset := bag.ScaledPoint(int32(buf.Pos[i].YOffset) * int32(f.Mag))
+			xOffset := bag.ScaledPoint(float64(buf.Pos[i].XOffset) * f.Mag)
+			yOffset := bag.ScaledPoint(float64(buf.Pos[i].YOffset) * f.Mag)
 
 			g := Atom{
 				Advance:   bag.ScaledPoint(advanceWant),
@@ -261,7 +260,7 @@ func (f *Font) ItalicCorrection(gid int) bag.ScaledPoint {
 	if v == 0 {
 		return 0
 	}
-	return bag.ScaledPoint(v * int32(f.Mag))
+	return bag.ScaledPoint(float64(v) * f.Mag)
 }
 
 // MathKernCorner returns the per-corner math kern for the given glyph at the
@@ -287,7 +286,7 @@ func (f *Font) MathKernCorner(gid int, corner ot.MathKernCorner, height bag.Scal
 	}
 	// SP/Mag = FUnit. Clamp to int16 range; out-of-range heights mean "very
 	// tall" → use the last kern step, which is the engine's intent anyway.
-	hFU := int32(height) / int32(f.Mag)
+	hFU := int32(float64(height) / f.Mag)
 	if hFU > 32767 {
 		hFU = 32767
 	} else if hFU < -32768 {
@@ -297,5 +296,5 @@ func (f *Font) MathKernCorner(gid int, corner ot.MathKernCorner, height bag.Scal
 	if k == 0 {
 		return 0
 	}
-	return bag.ScaledPoint(k * int32(f.Mag))
+	return bag.ScaledPoint(float64(k) * f.Mag)
 }
