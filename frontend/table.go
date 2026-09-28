@@ -475,6 +475,12 @@ func (cell *TableCell) build() (*node.VList, error) {
 	}
 
 	vl = node.Vpack(head)
+	// The content area is paraWidth wide whatever the content reports.
+	// Narrower content would otherwise pull the right padding and border in
+	// from the cell's edge.
+	if vl.Width < paraWidth {
+		vl.Width = paraWidth
+	}
 	vl.Attributes = node.H{"origin": "vertical cell part"}
 	vl.Height = vl.Height + vl.Depth
 	vl.Depth = 0
