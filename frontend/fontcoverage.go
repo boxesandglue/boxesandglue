@@ -20,7 +20,7 @@ import (
 // the document defaults) and per-call setting features (from
 // SettingOpenTypeFeature) / variations (from SettingFontVariationSettings).
 //
-// Registers the resulting face in fe.usedFonts so PDF subsetting picks up
+// Registers the resulting font in fe.usedFonts so PDF subsetting picks up
 // glyphs emitted via the returned font — same as the primary path.
 func (fe *Document) shapeFontFor(
 	fs *FontSource,
@@ -51,41 +51,48 @@ func (fe *Document) shapeFontFor(
 	if err != nil {
 		return nil, 0, nil, nil, err
 	}
-	if fs.Metrics != nil {
-		// A cache of its own: the same face without the override, or with
-		// another, keeps its metrics.
-		key := metricFontKey{face: face, size: fontsize, metrics: *fs.Metrics}
-		fnt, found := fe.metricFonts[key]
-		if !found {
-			fnt = font.NewFont(face, fontsize)
-			fnt.MissingGlyphFunc = fe.MissingGlyphFunc
-			fs.Metrics.apply(fnt)
-			if fe.metricFonts == nil {
-				fe.metricFonts = make(map[metricFontKey]*font.Font)
-			}
-			fe.metricFonts[key] = fnt
-		}
-		return fnt, fontsize, features, variations, nil
-	}
-	if fe.usedFonts[face] == nil {
-		fe.usedFonts[face] = make(map[bag.ScaledPoint]*font.Font)
-	}
-	fnt, found := fe.usedFonts[face][fontsize]
+	key := fontKey{face: face, size: fontsize, metrics: fs.Metrics.key()}
+	fnt, found := fe.usedFonts[key]
 	if !found {
 		fnt = font.NewFont(face, fontsize)
 		fnt.MissingGlyphFunc = fe.MissingGlyphFunc
-		fe.usedFonts[face][fontsize] = fnt
+		fs.Metrics.apply(fnt)
+		fe.usedFonts[key] = fnt
 	}
 	return fnt, fontsize, features, variations, nil
 }
 
-type metricFontKey struct {
+// fontKey identifies a font.Font: the same face at the same size with the
+// same effective metrics shares one.
+type fontKey struct {
 	face    *pdf.Face
 	size    bag.ScaledPoint
 	metrics MetricsOverride
 }
 
-func (m MetricsOverride) apply(f *font.Font) {
+// key is m with every "keep the face's" value as -1, so equivalent overrides,
+// and none at all, share a font.
+func (m *MetricsOverride) key() MetricsOverride {
+	k := MetricsOverride{Ascent: -1, Descent: -1, LineGap: -1}
+	if m == nil {
+		return k
+	}
+	if m.Ascent >= 0 {
+		k.Ascent = m.Ascent
+	}
+	if m.Descent >= 0 {
+		k.Descent = m.Descent
+	}
+	if m.LineGap >= 0 {
+		k.LineGap = m.LineGap
+	}
+	return k
+}
+
+func (m *MetricsOverride) apply(f *font.Font) {
+	if m == nil {
+		return
+	}
 	em := f.Size.ToPT()
 	if m.Ascent >= 0 {
 		f.Ascent = bag.ScaledPointFromFloat(em * m.Ascent)

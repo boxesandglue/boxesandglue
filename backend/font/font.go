@@ -46,7 +46,8 @@ type Font struct {
 	MissingGlyphFunc MissingGlyphFunc
 	// Ascent, Descent and LineGap are the face's hhea ascender, descender
 	// and line gap at Size, all positive, or the source's overrides of them
-	// (frontend.MetricsOverride).
+	// (frontend.MetricsOverride). hhea is a starting point: browsers on
+	// Windows use the OS/2 win metrics instead unless USE_TYPO_METRICS is set.
 	Ascent, Descent, LineGap bag.ScaledPoint
 }
 

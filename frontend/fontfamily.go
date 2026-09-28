@@ -190,8 +190,9 @@ type FontSource struct {
 
 // MetricsOverride is a face's ascent, descent and line gap as fractions of
 // the em, in place of the face's hhea values; a negative one keeps the
-// face's. A fallback font takes the metrics of the font it stands in for this
-// way.
+// face's. hhea is a starting point, not what every browser reads: on Windows
+// they use the OS/2 win metrics unless USE_TYPO_METRICS is set. A fallback
+// font takes the metrics of the font it stands in for this way.
 type MetricsOverride struct {
 	Ascent, Descent, LineGap float64
 }
