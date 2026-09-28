@@ -100,3 +100,36 @@ func TestKernedWidthIsTheSameAtAnyUpem(t *testing.T) {
 		t.Errorf("kerned width at 1024 upem = %s, at 2048 upem = %s (off by %dsp)", w1, w2, d)
 	}
 }
+
+// TestVerticalMetrics checks the face's hhea ascender, descender and line gap
+// at the font's size, all positive.
+func TestVerticalMetrics(t *testing.T) {
+	const fontFile = "../../qa/fonts/upem/fonts/texgyreheros-regular.otf"
+	doc := document.NewDocument(io.Discard)
+	face, err := doc.LoadFace(fontFile, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := bag.MustSP("10pt")
+	fnt := font.NewFont(face, size)
+	otf := face.OTFace()
+	upem := float64(otf.Upem())
+	at := func(units int16) bag.ScaledPoint {
+		return bag.ScaledPointFromFloat(size.ToPT() * float64(units) / upem)
+	}
+	for _, m := range []struct {
+		name      string
+		got, want bag.ScaledPoint
+	}{
+		{"Ascent", fnt.Ascent, at(otf.Ascender())},
+		{"Descent", fnt.Descent, at(-otf.Descender())},
+		{"LineGap", fnt.LineGap, at(max(0, otf.LineGap()))},
+	} {
+		if d := m.got - m.want; d > 2 || d < -2 {
+			t.Errorf("%s = %s, want %s", m.name, m.got, m.want)
+		}
+	}
+	if fnt.Ascent <= 0 || fnt.Descent <= 0 {
+		t.Errorf("Ascent %s, Descent %s: want both positive", fnt.Ascent, fnt.Descent)
+	}
+}

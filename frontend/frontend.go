@@ -24,7 +24,7 @@ type Document struct {
 	fontlocal             map[string]*FontSource
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
-	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
+	usedFonts             map[fontKey]*font.Font
 	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
 	DefaultFeatures       []ot.Feature
 	MissingGlyphFunc      font.MissingGlyphFunc // Called when a character is not found in the font during shaping. If nil, missing glyphs are silently rendered as .notdef.
@@ -45,7 +45,7 @@ func initDocument(w io.Writer) (*Document, error) {
 	d := &Document{
 		usedSpotcolors: make(map[*color.Color]bool),
 		usedcolors:     make(map[string]*color.Color),
-		usedFonts:      make(map[*pdf.Face]map[bag.ScaledPoint]*font.Font),
+		usedFonts:      make(map[fontKey]*font.Font),
 		variationFaces: make(map[string]*pdf.Face),
 		FontFamilies:   make(map[string]*FontFamily),
 		fontlocal:      make(map[string]*FontSource),
