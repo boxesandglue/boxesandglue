@@ -628,6 +628,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				extend := bag.MultiplyFloat(t.Width, settings.FontExpansion)
 				lb.sumExpand += extend
 			}
+		case *StartStop, *Lang:
+			// A marker takes no room, so a glue after it is breakable only if
+			// what came before the marker was a box. Otherwise a paragraph of
+			// only white space breaks at its own markers.
 		default:
 			prevItemBox = true
 			wd, _, _ := e.Sizes(Horizontal)
