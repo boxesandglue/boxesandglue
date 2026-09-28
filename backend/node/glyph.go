@@ -28,6 +28,10 @@ type Glyph struct {
 	// Vertical displacement. Positive values move the glyph towards the top of
 	// the page.
 	YOffset bag.ScaledPoint
+	// LineShift is the part of YOffset that is meant to move the glyph's
+	// share of the line with it, as a word processor's raised or lowered
+	// text does. The built-in leading ignores it; a LineModel may read it.
+	LineShift bag.ScaledPoint
 	// This allows the glyph to be part of word hyphenation.
 	Hyphenate bool
 }
@@ -71,6 +75,7 @@ func (g *Glyph) Copy() Node {
 	n.Hyphenate = g.Hyphenate
 	n.XOffset = g.XOffset
 	n.YOffset = g.YOffset
+	n.LineShift = g.LineShift
 	n.Attributes = cloneAttributes(g.Attributes)
 	return n
 }
