@@ -96,6 +96,9 @@ func (g *Glue) Copy() Node {
 	n.Shrink = g.Shrink
 	n.StretchOrder = g.StretchOrder
 	n.ShrinkOrder = g.ShrinkOrder
+	n.Subtype = g.Subtype
+	n.Leader = g.Leader
+	n.LeaderType = g.LeaderType
 	n.Attributes = cloneAttributes(g.Attributes)
 	return n
 }
