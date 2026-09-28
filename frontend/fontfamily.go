@@ -50,6 +50,16 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	if fs.face != nil {
 		return fs.face, nil
 	}
+	if fs.upright != nil {
+		// A face loaded from data is not cached by the document, and the
+		// oblique must not embed the font a second time.
+		f, err := fe.LoadFace(fs.upright)
+		if err != nil {
+			return nil, err
+		}
+		fs.face = f
+		return f, nil
+	}
 	var err error
 	var f *pdf.Face
 	if len(fs.VariationSettings) > 0 {
@@ -186,6 +196,13 @@ type FontSource struct {
 	// Metrics, when set, replaces the face's own vertical metrics, as CSS's
 	// ascent-override, descent-override and line-gap-override do.
 	Metrics *MetricsOverride
+	// Slant shears the face into an oblique, as the tangent of the angle
+	// (see font.Font.Slant). GetFontSource sets it to SyntheticSlant on the
+	// copy of an upright it makes for a missing italic.
+	Slant float64
+	// upright is the source a synthetic oblique was copied from, whose face
+	// it shares.
+	upright *FontSource
 }
 
 // MetricsOverride is a face's ascent, descent and line gap as fractions of
@@ -196,6 +213,10 @@ type FontSource struct {
 type MetricsOverride struct {
 	Ascent, Descent, LineGap float64
 }
+
+// SyntheticSlant is the shear of a synthesised oblique: tan 12°, the angle
+// browsers and word processors slant an upright face by.
+const SyntheticSlant = 0.2126
 
 func (fs *FontSource) String() string {
 	name := fs.Name
@@ -214,6 +235,11 @@ type FontFamily struct {
 	// wght axis. They are matched by containment and instantiated per
 	// used weight.
 	rangeMembers []rangeMember
+	// synthetic caches the slanted copy of each upright standing in for a
+	// missing italic.
+	synthetic map[*FontSource]*FontSource
+	// synthesizeStyle is the family's default for SettingSynthesizeStyle.
+	synthesizeStyle bool
 	// rangeInstances caches the per-weight FontSource derived from a
 	// range member, so repeated lookups return pointer-identical sources:
 	// the face cache and the coverage cache key by identity.
@@ -226,8 +252,9 @@ type FontFamily struct {
 }
 
 type missingStyle struct {
-	weight FontWeight
-	style  FontStyle
+	weight      FontWeight
+	style       FontStyle
+	synthesized bool
 }
 
 // rangeMember is a family member covering [min, max] instead of a single
@@ -350,7 +377,31 @@ func (ff *FontFamily) instanceAt(base *FontSource, w FontWeight) *FontSource {
 }
 
 // GetFontSource tries to get the face closest to the requested face.
+// A style the family lacks is synthesised as the family's default says (see
+// SetSynthesizeStyle).
 func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
+	return ff.lookup(weight, style, synthesisSetting{})
+}
+
+// synthesisSetting is SettingSynthesizeStyle as a text sets it; unset leaves
+// each family's default.
+type synthesisSetting struct{ on, set bool }
+
+func synthesisOf(ts TypesettingSettings) synthesisSetting {
+	on, set := ts[SettingSynthesizeStyle].(bool)
+	return synthesisSetting{on: on, set: set}
+}
+
+// lookup is GetFontSource under the text's synthesis setting.
+func (ff *FontFamily) lookup(weight FontWeight, style FontStyle, s synthesisSetting) (*FontSource, error) {
+	synthesize := ff != nil && ff.synthesizeStyle
+	if s.set {
+		synthesize = s.on
+	}
+	return ff.fontSource(weight, style, synthesize)
+}
+
+func (ff *FontFamily) fontSource(weight FontWeight, style FontStyle, synthesize bool) (*FontSource, error) {
 	bag.Logger.Log(context.Background(), -8, "FontFamily#GetFontSource", "weight", weight, "style", style)
 	if ff == nil {
 		return nil, fmt.Errorf("no font family specified")
@@ -414,7 +465,9 @@ found:
 	if ff := ffMemberWeight[style]; ff != nil {
 		return ff, nil
 	}
-	if key := (missingStyle{weight, style}); !ff.missingStyles[key] {
+	synthetic := ff.synthesize(ffMemberWeight, style, synthesize)
+	slanted := synthetic != nil && synthetic.Slant != 0
+	if key := (missingStyle{weight, style, slanted}); !ff.missingStyles[key] {
 		if ff.missingStyles == nil {
 			ff.missingStyles = make(map[missingStyle]bool)
 		}
@@ -423,7 +476,14 @@ found:
 		for k := range ffMemberWeight {
 			keys = append(keys, k.String())
 		}
-		bag.Logger.Warn(fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", ")))
+		msg := fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", "))
+		if slanted {
+			msg += "; synthesised by slanting the upright 12°"
+		}
+		bag.Logger.Warn(msg)
+	}
+	if synthetic != nil {
+		return synthetic, nil
 	}
 	// fallback to normal
 	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
@@ -502,4 +562,42 @@ func (ff FontFamily) String() string {
 	ret := []string{}
 	ret = append(ret, fmt.Sprintf("id: %d, name: %s", ff.ID, ff.Name))
 	return strings.Join(ret, "")
+}
+
+// synthesize returns the upright of members slanted by SyntheticSlant when
+// style is an italic or oblique members lack and on is set, and nil
+// otherwise. An oblique takes a real italic before a synthetic one, as CSS
+// font matching does.
+func (ff *FontFamily) synthesize(members map[FontStyle]*FontSource, style FontStyle, on bool) *FontSource {
+	if !on || (style != FontStyleItalic && style != FontStyleOblique) {
+		return nil
+	}
+	if italic := members[FontStyleItalic]; italic != nil {
+		return italic
+	}
+	upright := members[FontStyleNormal]
+	if upright == nil {
+		return nil
+	}
+	s := ff.synthetic[upright]
+	if s == nil {
+		c := *upright
+		c.Slant = SyntheticSlant
+		c.upright = upright
+		s = &c
+		if ff.synthetic == nil {
+			ff.synthetic = make(map[*FontSource]*FontSource)
+		}
+		ff.synthetic[upright] = s
+	}
+	return s
+}
+
+// SetSynthesizeStyle sets the family's default for SettingSynthesizeStyle,
+// which a text's own setting overrides: on, an italic or oblique the family
+// lacks is its upright slanted by SyntheticSlant, as CSS's
+// font-synthesis-style: auto does. Off, as by default, the upright is used as
+// it is.
+func (ff *FontFamily) SetSynthesizeStyle(on bool) {
+	ff.synthesizeStyle = on
 }

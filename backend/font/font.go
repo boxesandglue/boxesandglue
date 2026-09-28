@@ -49,6 +49,10 @@ type Font struct {
 	// (frontend.MetricsOverride). hhea is a starting point: browsers on
 	// Windows use the OS/2 win metrics instead unless USE_TYPO_METRICS is set.
 	Ascent, Descent, LineGap bag.ScaledPoint
+	// Slant is a synthetic oblique: the horizontal shear, tan of the angle,
+	// the text matrix applies to an upright face standing in for an italic
+	// the family was not cut with. 0 for a face drawn as it is.
+	Slant float64
 }
 
 // NewFont creates a new font instance.
