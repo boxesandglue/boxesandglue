@@ -8,6 +8,7 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,6 +225,7 @@ type objectContext struct {
 	currentVShift     bag.ScaledPoint
 	currentTmY        bag.ScaledPoint // last y written via Tm; used to detect Y changes inside an open TJ
 	currentTmYValid   bool            // false until the first Tm in a content stream
+	currentSlant      float64         // the shear the last Tm applied (font.Font.Slant)
 	shiftX            bag.ScaledPoint
 	textmode          TextScope
 	hasNewline        bool
@@ -273,7 +275,16 @@ func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
 		oc.gotoTextMode(ScopeText)
 	}
 	oc.newline()
-	oc.writef("1 0 0 1 %s %s Tm ", x, y)
+	slant := 0.0
+	if oc.currentFont != nil {
+		slant = oc.currentFont.Slant
+	}
+	if slant != 0 {
+		oc.writef("1 0 %s 1 %s %s Tm ", strconv.FormatFloat(slant, 'f', 4, 64), x, y)
+	} else {
+		oc.writef("1 0 0 1 %s %s Tm ", x, y)
+	}
+	oc.currentSlant = slant
 	oc.currentTmY = y
 	oc.currentTmYValid = true
 }
@@ -611,6 +622,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.writef("%s %s Tf ", v.Font.Face.InternalName(), bag.MultiplyFloat(v.Font.Size, v.Font.Face.Scale))
 				oc.usedFaces[v.Font.Face] = true
 				oc.currentFont = v.Font
+				if v.Font.Slant != oc.currentSlant {
+					// The shear lives in the text matrix: a glyph after a
+					// change of slant needs a fresh Tm.
+					oc.currentTmYValid = false
+				}
 			}
 			if exp, ok := hlist.Attributes["expand"]; ok {
 				if ex, ok := exp.(int); ok {

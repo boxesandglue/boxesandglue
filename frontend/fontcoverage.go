@@ -51,11 +51,14 @@ func (fe *Document) shapeFontFor(
 	if err != nil {
 		return nil, 0, nil, nil, err
 	}
-	key := fontKey{face: face, size: fontsize, metrics: fs.Metrics.key()}
+	// A synthetic oblique shares its upright's face but not its font: the
+	// PDF writer applies the shear per font.
+	key := fontKey{face: face, size: fontsize, metrics: fs.Metrics.key(), slant: fs.Slant}
 	fnt, found := fe.usedFonts[key]
 	if !found {
 		fnt = font.NewFont(face, fontsize)
 		fnt.MissingGlyphFunc = fe.MissingGlyphFunc
+		fnt.Slant = fs.Slant
 		fs.Metrics.apply(fnt)
 		fe.usedFonts[key] = fnt
 	}
@@ -63,11 +66,12 @@ func (fe *Document) shapeFontFor(
 }
 
 // fontKey identifies a font.Font: the same face at the same size with the
-// same effective metrics shares one.
+// same effective metrics and slant shares one.
 type fontKey struct {
 	face    *pdf.Face
 	size    bag.ScaledPoint
 	metrics MetricsOverride
+	slant   float64
 }
 
 // key is m with every "keep the face's" value as -1, so equivalent overrides,

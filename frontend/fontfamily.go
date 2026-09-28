@@ -50,6 +50,16 @@ func (fe *Document) LoadFace(fs *FontSource) (*pdf.Face, error) {
 	if fs.face != nil {
 		return fs.face, nil
 	}
+	if fs.upright != nil {
+		// A face loaded from data is not cached by the document, and the
+		// oblique must not embed the font a second time.
+		f, err := fe.LoadFace(fs.upright)
+		if err != nil {
+			return nil, err
+		}
+		fs.face = f
+		return f, nil
+	}
 	var err error
 	var f *pdf.Face
 	if len(fs.VariationSettings) > 0 {
@@ -186,6 +196,13 @@ type FontSource struct {
 	// Metrics, when set, replaces the face's own vertical metrics, as CSS's
 	// ascent-override, descent-override and line-gap-override do.
 	Metrics *MetricsOverride
+	// Slant shears the face into an oblique, as the tangent of the angle
+	// (see font.Font.Slant). GetFontSource sets it to SyntheticSlant on the
+	// copy of an upright it makes for a missing italic.
+	Slant float64
+	// upright is the source a synthetic oblique was copied from, whose face
+	// it shares.
+	upright *FontSource
 }
 
 // MetricsOverride is a face's ascent, descent and line gap as fractions of
@@ -196,6 +213,10 @@ type FontSource struct {
 type MetricsOverride struct {
 	Ascent, Descent, LineGap float64
 }
+
+// SyntheticSlant is the shear of a synthesised oblique: tan 12°, the angle
+// browsers and word processors slant an upright face by.
+const SyntheticSlant = 0.2126
 
 func (fs *FontSource) String() string {
 	name := fs.Name
@@ -214,6 +235,9 @@ type FontFamily struct {
 	// wght axis. They are matched by containment and instantiated per
 	// used weight.
 	rangeMembers []rangeMember
+	// synthetic caches the slanted copy of each upright standing in for a
+	// missing italic, and is nil unless SetSynthesizeItalic turned that on.
+	synthetic map[*FontSource]*FontSource
 	// rangeInstances caches the per-weight FontSource derived from a
 	// range member, so repeated lookups return pointer-identical sources:
 	// the face cache and the coverage cache key by identity.
@@ -414,6 +438,7 @@ found:
 	if ff := ffMemberWeight[style]; ff != nil {
 		return ff, nil
 	}
+	synthetic := ff.synthesize(ffMemberWeight, style)
 	if key := (missingStyle{weight, style}); !ff.missingStyles[key] {
 		if ff.missingStyles == nil {
 			ff.missingStyles = make(map[missingStyle]bool)
@@ -423,7 +448,14 @@ found:
 		for k := range ffMemberWeight {
 			keys = append(keys, k.String())
 		}
-		bag.Logger.Warn(fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", ")))
+		msg := fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", "))
+		if synthetic != nil && synthetic.Slant != 0 {
+			msg += "; synthesised by slanting the upright 12°"
+		}
+		bag.Logger.Warn(msg)
+	}
+	if synthetic != nil {
+		return synthetic, nil
 	}
 	// fallback to normal
 	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
@@ -502,4 +534,42 @@ func (ff FontFamily) String() string {
 	ret := []string{}
 	ret = append(ret, fmt.Sprintf("id: %d, name: %s", ff.ID, ff.Name))
 	return strings.Join(ret, "")
+}
+
+// synthesize returns the upright of members slanted by SyntheticSlant when
+// style is an italic or oblique members lack and SetSynthesizeItalic is on,
+// and nil otherwise. An oblique takes a real italic before a synthetic
+// one, as CSS font matching does.
+func (ff *FontFamily) synthesize(members map[FontStyle]*FontSource, style FontStyle) *FontSource {
+	if ff.synthetic == nil || (style != FontStyleItalic && style != FontStyleOblique) {
+		return nil
+	}
+	if italic := members[FontStyleItalic]; italic != nil {
+		return italic
+	}
+	upright := members[FontStyleNormal]
+	if upright == nil {
+		return nil
+	}
+	s := ff.synthetic[upright]
+	if s == nil {
+		c := *upright
+		c.Slant = SyntheticSlant
+		c.upright = upright
+		s = &c
+		ff.synthetic[upright] = s
+	}
+	return s
+}
+
+// SetSynthesizeItalic makes the family answer an italic or oblique it lacks
+// with its upright slanted by SyntheticSlant, as CSS's font-synthesis-style:
+// auto does. Off, as by default, the upright is used as it is.
+func (ff *FontFamily) SetSynthesizeItalic(on bool) {
+	switch {
+	case !on:
+		ff.synthetic = nil
+	case ff.synthetic == nil:
+		ff.synthetic = map[*FontSource]*FontSource{}
+	}
 }
