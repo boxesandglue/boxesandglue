@@ -206,8 +206,16 @@ type FontFamily struct {
 	// range member, so repeated lookups return pointer-identical sources:
 	// the face cache and the coverage cache key by identity.
 	rangeInstances map[rangeInstanceKey]*FontSource
-	Name           string
-	ID             int
+	// missingStyles records the weight and style requests already reported
+	// as missing, so each is said once rather than at every lookup.
+	missingStyles map[missingStyle]bool
+	Name          string
+	ID            int
+}
+
+type missingStyle struct {
+	weight FontWeight
+	style  FontStyle
 }
 
 // rangeMember is a family member covering [min, max] instead of a single
@@ -393,11 +401,17 @@ found:
 	if ff := ffMemberWeight[style]; ff != nil {
 		return ff, nil
 	}
-	keys := []string{}
-	for k := range ffMemberWeight {
-		keys = append(keys, k.String())
+	if key := (missingStyle{weight, style}); !ff.missingStyles[key] {
+		if ff.missingStyles == nil {
+			ff.missingStyles = make(map[missingStyle]bool)
+		}
+		ff.missingStyles[key] = true
+		keys := []string{}
+		for k := range ffMemberWeight {
+			keys = append(keys, k.String())
+		}
+		bag.Logger.Warn(fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", ")))
 	}
-	bag.Logger.Warn(fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", ")))
 	// fallback to normal
 	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
 		return ff, nil
