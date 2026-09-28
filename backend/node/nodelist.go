@@ -413,7 +413,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		// Badness 1000000 for overfull boxes
 		badness = 1000000
 	} else if r >= -1 {
-		badness = min(int(math.Round(math.Pow(math.Abs(r), 3)*100.0)), 10000)
+		badness = int(min(math.Round(math.Pow(math.Abs(r), 3)*100.0), 10000))
 	}
 	useExpand := false
 	if hs.fontexpansion != 0 {
@@ -421,6 +421,12 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 			r = -1
 			useExpand = true
 		}
+	}
+	if math.IsInf(r, 0) {
+		// Nothing can stretch or shrink, so as in TeX the glue keeps its
+		// width. Inf × 0 is NaN, which converts to 0 on arm64 but to
+		// math.MinInt64 on amd64.
+		r = 0
 	}
 	for _, g := range glues {
 		switch {
