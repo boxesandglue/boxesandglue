@@ -44,6 +44,10 @@ type Font struct {
 	Depth            bag.ScaledPoint
 	Mag              float64
 	MissingGlyphFunc MissingGlyphFunc
+	// Ascent, Descent and LineGap are the face's hhea ascender, descender
+	// and line gap at Size, all positive, or the source's overrides of them
+	// (frontend.MetricsOverride).
+	Ascent, Descent, LineGap bag.ScaledPoint
 }
 
 // NewFont creates a new font instance.
@@ -62,6 +66,9 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Face:         face,
 		Mag:          float64(size) / float64(face.UnitsPerEM),
 		Depth:        bag.ScaledPointFromFloat(factor * descend),
+		Ascent:       bag.ScaledPointFromFloat(size.ToPT() * ascend / 1000),
+		Descent:      bag.ScaledPointFromFloat(size.ToPT() * descend / 1000),
+		LineGap:      bag.ScaledPointFromFloat(size.ToPT() * max(0, float64(f.LineGap())*scale) / 1000),
 	}
 	hyphenchar := fnt.Shape("-", nil, nil)
 	if len(hyphenchar) == 1 {

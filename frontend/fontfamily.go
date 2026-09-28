@@ -183,6 +183,17 @@ type FontSource struct {
 	SizeAdjust   float64 // 1 - SizeAdjust is the relative adjustment.
 	// The sub font index within the font file.
 	Index int
+	// Metrics, when set, replaces the face's own vertical metrics, as CSS's
+	// ascent-override, descent-override and line-gap-override do.
+	Metrics *MetricsOverride
+}
+
+// MetricsOverride is a face's ascent, descent and line gap as fractions of
+// the em, in place of the face's hhea values; a negative one keeps the
+// face's. A fallback font takes the metrics of the font it stands in for this
+// way.
+type MetricsOverride struct {
+	Ascent, Descent, LineGap float64
 }
 
 func (fs *FontSource) String() string {
@@ -328,6 +339,7 @@ func (ff *FontFamily) instanceAt(base *FontSource, w FontWeight) *FontSource {
 		SizeAdjust:        base.SizeAdjust,
 		Index:             base.Index,
 		VariationSettings: vs,
+		Metrics:           base.Metrics,
 	}
 	if ff.rangeInstances == nil {
 		ff.rangeInstances = make(map[rangeInstanceKey]*FontSource)

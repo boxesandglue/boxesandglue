@@ -5,6 +5,7 @@ import (
 	"sync"
 	"unicode"
 
+	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/textshape/ot"
@@ -50,6 +51,22 @@ func (fe *Document) shapeFontFor(
 	if err != nil {
 		return nil, 0, nil, nil, err
 	}
+	if fs.Metrics != nil {
+		// A cache of its own: the same face without the override, or with
+		// another, keeps its metrics.
+		key := metricFontKey{face: face, size: fontsize, metrics: *fs.Metrics}
+		fnt, found := fe.metricFonts[key]
+		if !found {
+			fnt = font.NewFont(face, fontsize)
+			fnt.MissingGlyphFunc = fe.MissingGlyphFunc
+			fs.Metrics.apply(fnt)
+			if fe.metricFonts == nil {
+				fe.metricFonts = make(map[metricFontKey]*font.Font)
+			}
+			fe.metricFonts[key] = fnt
+		}
+		return fnt, fontsize, features, variations, nil
+	}
 	if fe.usedFonts[face] == nil {
 		fe.usedFonts[face] = make(map[bag.ScaledPoint]*font.Font)
 	}
@@ -60,6 +77,25 @@ func (fe *Document) shapeFontFor(
 		fe.usedFonts[face][fontsize] = fnt
 	}
 	return fnt, fontsize, features, variations, nil
+}
+
+type metricFontKey struct {
+	face    *pdf.Face
+	size    bag.ScaledPoint
+	metrics MetricsOverride
+}
+
+func (m MetricsOverride) apply(f *font.Font) {
+	em := f.Size.ToPT()
+	if m.Ascent >= 0 {
+		f.Ascent = bag.ScaledPointFromFloat(em * m.Ascent)
+	}
+	if m.Descent >= 0 {
+		f.Descent = bag.ScaledPointFromFloat(em * m.Descent)
+	}
+	if m.LineGap >= 0 {
+		f.LineGap = bag.ScaledPointFromFloat(em * m.LineGap)
+	}
 }
 
 // coverageRun is one contiguous, grapheme-cluster-aligned slice of source text

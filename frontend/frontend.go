@@ -25,7 +25,8 @@ type Document struct {
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
 	usedFonts             map[*pdf.Face]map[bag.ScaledPoint]*font.Font
-	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
+	metricFonts           map[metricFontKey]*font.Font // fonts under a source's MetricsOverride
+	variationFaces        map[string]*pdf.Face         // cache for faces with specific variations
 	DefaultFeatures       []ot.Feature
 	MissingGlyphFunc      font.MissingGlyphFunc // Called when a character is not found in the font during shaping. If nil, missing glyphs are silently rendered as .notdef.
 	coverageCache         fontCoverageCache     // per-FontSource cmap probe cache for per-glyph fallback; zero-value is valid
