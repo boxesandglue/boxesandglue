@@ -269,6 +269,24 @@ func TestTabStopLeader(t *testing.T) {
 	}
 }
 
+// A copied line keeps its tab and the tab's leader, as when a paragraph is
+// copied before it is placed.
+func TestTabStopLeaderSurvivesCopy(t *testing.T) {
+	var dot Node
+	dot, _ = glyphRun(nil, nil, ".", 3*bag.Factor)
+	pattern := Hpack(dot)
+	vlist, _ := Linebreak(buildTabbed("ab\tx"), tabSettings(TabStop{Position: 40 * bag.Factor, Leader: pattern}))
+	var tab *Glue
+	for n := lines(vlist.Copy().(*VList))[0].List; n != nil; n = n.Next() {
+		if g, ok := n.(*Glue); ok && g.Subtype == GlueTab {
+			tab = g
+		}
+	}
+	if tab == nil || tab.Leader != pattern {
+		t.Errorf("copied tab %v, want a tab with the stop's leader", tab)
+	}
+}
+
 // Tabs inside a paragraph that breaks into several lines: the breaker has to
 // measure a line with the width the tab will get, not its natural width, or
 // it fills the line as if the tab were narrow and the line comes out
