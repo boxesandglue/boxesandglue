@@ -397,6 +397,11 @@ const (
 	// to, with the same sign convention as SettingIndentLeftRows. Unset
 	// means the first row.
 	SettingIndentStartRows
+	// SettingSynthesizeStyle is CSS's font-synthesis-style (bool): true
+	// answers an italic or oblique the family lacks with its upright slanted
+	// by SyntheticSlant, false with the upright as it is. Unset leaves the
+	// family's default (FontFamily.SetSynthesizeStyle).
+	SettingSynthesizeStyle
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -585,6 +590,8 @@ func (st SettingType) String() string {
 		settingName = "SettingHalfLeading"
 	case SettingItalicCorrection:
 		settingName = "SettingItalicCorrection"
+	case SettingSynthesizeStyle:
+		settingName = "SettingSynthesizeStyle"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -2327,6 +2334,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if s, ok := v.(string); ok {
 				hyphensMode = s
 			}
+		case SettingSynthesizeStyle:
+			// read with the font lookup below
 		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
@@ -2337,7 +2346,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 
 	var fs *FontSource
 	var err error
-	if fs, err = fontfamily.GetFontSource(fontweight, fontstyle); err != nil {
+	synth := synthesisOf(ts)
+	if fs, err = fontfamily.lookup(fontweight, fontstyle, synth); err != nil {
 		return nil, err
 	}
 	bag.Logger.Log(context.Background(), -8, "GetFontSource", "fs", fs.Name)
@@ -2448,7 +2458,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	// by coverage, each segment is shaped with its own face, and the
 	// per-atom font is recorded in atomFonts. Single-family inputs
 	// (len(stack) < 2) keep the original single-shape path.
-	atoms, atomLevels, atomFonts := fe.shapeForBuild(fnt, str, fontfeatures, variations, direction, fontfamilyStack, fontweight, fontstyle, fontsize, fontfeatures, settingFontFeatures, settingVariations)
+	atoms, atomLevels, atomFonts := fe.shapeForBuild(fnt, str, fontfeatures, variations, direction, fontfamilyStack, fontweight, fontstyle, synth, fontsize, fontfeatures, settingFontFeatures, settingVariations)
 	for i, r := range atoms {
 		atomFnt := atomFonts[i]
 		level := atomLevels[i]

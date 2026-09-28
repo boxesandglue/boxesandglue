@@ -49,7 +49,7 @@ func TestCoverageSegmentsWhitespacePinsToPrimary(t *testing.T) {
 	pFam := seedFamily(fe, "primary", primary)
 	sFam := seedFamily(fe, "secondary", secondary)
 
-	runs := fe.coverageSegments("hi "+emoji+" yo", []*FontFamily{pFam, sFam}, FontWeight400, FontStyleNormal)
+	runs := fe.coverageSegments("hi "+emoji+" yo", []*FontFamily{pFam, sFam}, FontWeight400, FontStyleNormal, synthesisSetting{})
 	wantTexts := []string{"hi ", emoji, " yo"}
 	wantIdx := []int{0, 1, 0}
 	if len(runs) != len(wantTexts) {
@@ -79,7 +79,7 @@ func TestCoverageSegmentsMergesAdjacent(t *testing.T) {
 	seedCoverage(fe, primary, "abcdef", true)
 	pFam := seedFamily(fe, "primary", primary)
 
-	runs := fe.coverageSegments("abcdef", []*FontFamily{pFam, pFam}, FontWeight400, FontStyleNormal)
+	runs := fe.coverageSegments("abcdef", []*FontFamily{pFam, pFam}, FontWeight400, FontStyleNormal, synthesisSetting{})
 	if len(runs) != 1 {
 		t.Fatalf("got %d runs, want 1: %#v", len(runs), runs)
 	}
@@ -109,7 +109,7 @@ func TestCoverageSegmentsKeepsZWJCluster(t *testing.T) {
 	sFam := seedFamily(fe, "secondary", secondary)
 
 	const family = "\U0001F468‍\U0001F469‍\U0001F467" // 👨‍👩‍👧
-	runs := fe.coverageSegments(family, []*FontFamily{pFam, sFam}, FontWeight400, FontStyleNormal)
+	runs := fe.coverageSegments(family, []*FontFamily{pFam, sFam}, FontWeight400, FontStyleNormal, synthesisSetting{})
 	if len(runs) != 1 {
 		t.Fatalf("ZWJ family split across %d runs: %#v", len(runs), runs)
 	}
@@ -138,7 +138,7 @@ func TestCoverageSegmentsVariationSelectorIgnored(t *testing.T) {
 	fe.coverageCache.store(primary, 0xFE0F, false)
 	pFam := seedFamily(fe, "primary", primary)
 
-	runs := fe.coverageSegments(heart, []*FontFamily{pFam}, FontWeight400, FontStyleNormal)
+	runs := fe.coverageSegments(heart, []*FontFamily{pFam}, FontWeight400, FontStyleNormal, synthesisSetting{})
 	if len(runs) != 1 {
 		t.Fatalf("VS-only veto: split into %d runs: %#v", len(runs), runs)
 	}
@@ -155,14 +155,14 @@ func TestCoverageSegmentsEmptyInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewForWriter: %v", err)
 	}
-	if got := fe.coverageSegments("", nil, FontWeight400, FontStyleNormal); got != nil {
+	if got := fe.coverageSegments("", nil, FontWeight400, FontStyleNormal, synthesisSetting{}); got != nil {
 		t.Errorf("empty stack + empty string: got %v, want nil", got)
 	}
-	if got := fe.coverageSegments("x", nil, FontWeight400, FontStyleNormal); got != nil {
+	if got := fe.coverageSegments("x", nil, FontWeight400, FontStyleNormal, synthesisSetting{}); got != nil {
 		t.Errorf("nil stack: got %v, want nil", got)
 	}
 	pFam := seedFamily(fe, "p", &FontSource{Name: "p"})
-	if got := fe.coverageSegments("", []*FontFamily{pFam}, FontWeight400, FontStyleNormal); got != nil {
+	if got := fe.coverageSegments("", []*FontFamily{pFam}, FontWeight400, FontStyleNormal, synthesisSetting{}); got != nil {
 		t.Errorf("empty string: got %v, want nil", got)
 	}
 }
@@ -185,7 +185,7 @@ func TestCoverageSegmentsPinsToPrimaryOnTotalMiss(t *testing.T) {
 	pFam := seedFamily(fe, "p", primary)
 	sFam := seedFamily(fe, "s", secondary)
 
-	runs := fe.coverageSegments("\U0001F600", []*FontFamily{pFam, sFam}, FontWeight400, FontStyleNormal)
+	runs := fe.coverageSegments("\U0001F600", []*FontFamily{pFam, sFam}, FontWeight400, FontStyleNormal, synthesisSetting{})
 	if len(runs) != 1 {
 		t.Fatalf("total miss: got %d runs, want 1: %#v", len(runs), runs)
 	}

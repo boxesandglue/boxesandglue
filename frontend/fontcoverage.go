@@ -197,7 +197,7 @@ func (fe *Document) hasGlyph(fs *FontSource, cp ot.Codepoint) bool {
 // stack entry covered the cluster — caller falls back to the primary so a
 // .notdef glyph is at least visible (parity with current single-family
 // behaviour where any uncovered codepoint goes straight to .notdef).
-func (fe *Document) resolveClusterSource(cluster string, stack []*FontFamily, weight FontWeight, style FontStyle) (*FontSource, int) {
+func (fe *Document) resolveClusterSource(cluster string, stack []*FontFamily, weight FontWeight, style FontStyle, synth synthesisSetting) (*FontSource, int) {
 	// Strip variation selectors and other default-ignorables for the
 	// coverage decision; we keep them in the cluster string because shape
 	// time still consumes them (HarfBuzz handles VS internally).
@@ -210,11 +210,11 @@ func (fe *Document) resolveClusterSource(cluster string, stack []*FontFamily, we
 	}
 	if len(probeRunes) == 0 {
 		// All-ignorable cluster (rare: standalone VS, ZWJ). Stay on primary.
-		fs, _ := stack[0].GetFontSource(weight, style)
+		fs, _ := stack[0].lookup(weight, style, synth)
 		return fs, 0
 	}
 	for i, ff := range stack {
-		fs, err := ff.GetFontSource(weight, style)
+		fs, err := ff.lookup(weight, style, synth)
 		if err != nil || fs == nil {
 			continue
 		}
@@ -232,7 +232,7 @@ func (fe *Document) resolveClusterSource(cluster string, stack []*FontFamily, we
 	// No coverage: pin to primary so the .notdef stays attached to the
 	// originally-intended face (matches single-family behaviour exactly).
 	if len(stack) > 0 {
-		fs, _ := stack[0].GetFontSource(weight, style)
+		fs, _ := stack[0].lookup(weight, style, synth)
 		return fs, 0
 	}
 	return nil, 0
@@ -281,7 +281,7 @@ func isCoverageIgnorable(r rune) bool {
 // Returns nil if stack is empty or has only the primary; the caller should
 // check `len(stack) >= 2` BEFORE entering coverage so single-family inputs
 // take the unchanged single-shape path.
-func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontWeight, style FontStyle) []coverageRun {
+func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontWeight, style FontStyle, synth synthesisSetting) []coverageRun {
 	if len(stack) == 0 || s == "" {
 		return nil
 	}
@@ -292,10 +292,10 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 		var src *FontSource
 		var idx int
 		if isWhitespaceCluster(cluster) {
-			fs, _ := stack[0].GetFontSource(weight, style)
+			fs, _ := stack[0].lookup(weight, style, synth)
 			src, idx = fs, 0
 		} else {
-			src, idx = fe.resolveClusterSource(cluster, stack, weight, style)
+			src, idx = fe.resolveClusterSource(cluster, stack, weight, style, synth)
 		}
 		if n := len(runs); n > 0 && runs[n-1].Source == src && runs[n-1].StackIndex == idx {
 			runs[n-1].Text += cluster
@@ -337,6 +337,7 @@ func (fe *Document) shapeForBuild(
 	stack []*FontFamily,
 	weight FontWeight,
 	style FontStyle,
+	synth synthesisSetting,
 	fontsize bag.ScaledPoint,
 	baseFeatures []ot.Feature,
 	settingFeatures []ot.Feature,
@@ -350,7 +351,7 @@ func (fe *Document) shapeForBuild(
 		}
 		return atoms, levels, atomFonts
 	}
-	runs := fe.coverageSegments(str, stack, weight, style)
+	runs := fe.coverageSegments(str, stack, weight, style, synth)
 	var atoms []font.Atom
 	var levels []uint8
 	var atomFonts []*font.Font

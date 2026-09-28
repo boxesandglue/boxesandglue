@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
@@ -21,7 +22,7 @@ func TestMissingItalicIsSynthesised(t *testing.T) {
 		t.Fatal(err)
 	}
 	ff := fe.NewFontFamily("upright only")
-	ff.SetSynthesizeItalic(true)
+	ff.SetSynthesizeStyle(true)
 	upright := &FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"}
 	if err := ff.AddMember(upright, FontWeight400, FontStyleNormal); err != nil {
 		t.Fatal(err)
@@ -106,7 +107,7 @@ func TestSyntheticObliqueSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	ff := fe.NewFontFamily("from data")
-	ff.SetSynthesizeItalic(true)
+	ff.SetSynthesizeStyle(true)
 	upright := &FontSource{Data: data}
 	if err := ff.AddMember(upright, FontWeight400, FontStyleNormal); err != nil {
 		t.Fatal(err)
@@ -130,4 +131,88 @@ func TestSyntheticObliqueSources(t *testing.T) {
 	if s, _ := ff.GetFontSource(FontWeight400, FontStyleOblique); s != italic {
 		t.Errorf("oblique: got %+v, want the family's italic", s)
 	}
+}
+
+// SettingSynthesizeStyle belongs to the text, as CSS's font-synthesis-style
+// belongs to the element: it wins over the family's default either way, and
+// one paragraph's choice does not carry over to the next.
+func TestSynthesizeStyleSetting(t *testing.T) {
+	for _, familyDefault := range []bool{false, true} {
+		fe, err := NewForWriter(io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ff := fe.NewFontFamily("upright only")
+		ff.SetSynthesizeStyle(familyDefault)
+		if err := ff.AddMember(&FontSource{Location: metricsTestFont}, FontWeight400, FontStyleNormal); err != nil {
+			t.Fatal(err)
+		}
+		for _, setting := range []any{nil, !familyDefault, familyDefault, !familyDefault} {
+			te := NewText()
+			te.Settings[SettingStyle] = FontStyleItalic
+			if setting != nil {
+				te.Settings[SettingSynthesizeStyle] = setting
+			}
+			want := familyDefault
+			if setting != nil {
+				want = setting.(bool)
+			}
+			if got := firstGlyphFontWith(t, fe, ff, te).Slant != 0; got != want {
+				t.Errorf("family default %v, setting %v: slanted = %v, want %v", familyDefault, setting, got, want)
+			}
+		}
+	}
+}
+
+// The slant is part of the font's cache key: the synthetic oblique and its
+// upright share a face but not a font, and two slanted runs share one.
+func TestFontKeySlant(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := fe.NewFontFamily("upright only")
+	if err := ff.AddMember(&FontSource{Location: metricsTestFont}, FontWeight400, FontStyleNormal); err != nil {
+		t.Fatal(err)
+	}
+	styled := func(style FontStyle) *Text {
+		te := NewText()
+		te.Settings[SettingStyle] = style
+		te.Settings[SettingSynthesizeStyle] = true
+		return te
+	}
+	upright := firstGlyphFontWith(t, fe, ff, styled(FontStyleNormal))
+	a := firstGlyphFontWith(t, fe, ff, styled(FontStyleItalic))
+	b := firstGlyphFontWith(t, fe, ff, styled(FontStyleOblique))
+	if a == upright || a.Slant == 0 || upright.Slant != 0 {
+		t.Errorf("the oblique shares the upright's font: slants %v, %v", a.Slant, upright.Slant)
+	}
+	if a.Face != upright.Face {
+		t.Error("the oblique has a face of its own")
+	}
+	if a != b {
+		t.Error("two slanted runs got separate fonts")
+	}
+}
+
+func firstGlyphFontWith(t *testing.T, fe *Document, ff *FontFamily, te *Text) *font.Font {
+	t.Helper()
+	te.Settings[SettingFontFamily] = ff
+	te.Settings[SettingSize] = bag.MustSP("10pt")
+	te.Items = append(te.Items, "x")
+	vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := vl.List; n != nil; n = n.Next() {
+		if hl, ok := n.(*node.HList); ok {
+			for m := hl.List; m != nil; m = m.Next() {
+				if g, ok := m.(*node.Glyph); ok {
+					return g.Font
+				}
+			}
+		}
+	}
+	t.Fatal("no glyph")
+	return nil
 }

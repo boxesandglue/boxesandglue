@@ -6,7 +6,6 @@ import (
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/font"
-	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
 // A source's MetricsOverride replaces its face's ascent, descent and line gap
@@ -79,23 +78,5 @@ const metricsTestFont = "../qa/fonts/upem/fonts/texgyreheros-regular.otf"
 
 func firstGlyphFont(t *testing.T, fe *Document, ff *FontFamily) *font.Font {
 	t.Helper()
-	te := NewText()
-	te.Settings[SettingFontFamily] = ff
-	te.Settings[SettingSize] = bag.MustSP("10pt")
-	te.Items = append(te.Items, "x")
-	vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for n := vl.List; n != nil; n = n.Next() {
-		if hl, ok := n.(*node.HList); ok {
-			for m := hl.List; m != nil; m = m.Next() {
-				if g, ok := m.(*node.Glyph); ok {
-					return g.Font
-				}
-			}
-		}
-	}
-	t.Fatal("no glyph")
-	return nil
+	return firstGlyphFontWith(t, fe, ff, NewText())
 }
