@@ -1,8 +1,13 @@
 package frontend
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
+	"strings"
 	"testing"
+
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
 func Test(t *testing.T) {
@@ -89,5 +94,32 @@ func TestRangeMember(t *testing.T) {
 	}
 	if got := it.VariationSettings["wght"]; got != 600 {
 		t.Errorf("wght = %v, want 600 (overrides base)", got)
+	}
+}
+
+// A family without an italic says so once per weight and style, not at
+// every lookup: a document of italic runs logged one warning per run.
+func TestMissingStyleWarnsOnce(t *testing.T) {
+	upright := &FontSource{}
+	ff := &FontFamily{Name: "upright only"}
+	ff.doc, _ = initDocument(io.Discard)
+	if err := ff.AddMember(upright, FontWeight400, FontStyleNormal); err != nil {
+		t.Fatal(err)
+	}
+	var logged bytes.Buffer
+	prev := bag.Logger
+	bag.Logger = slog.New(slog.NewTextHandler(&logged, nil))
+	defer func() { bag.Logger = prev }()
+	for range 3 {
+		for _, style := range []FontStyle{FontStyleItalic, FontStyleOblique} {
+			if fs, err := ff.GetFontSource(FontWeight400, style); err != nil || fs != upright {
+				t.Fatalf("%s: got %v, %v; want the upright", style, fs, err)
+			}
+		}
+	}
+	for _, style := range []string{"italic", "oblique"} {
+		if n := strings.Count(logged.String(), "Style "+style+" not found"); n != 1 {
+			t.Errorf("%s: warned %d times, want once:\n%s", style, n, logged.String())
+		}
 	}
 }
