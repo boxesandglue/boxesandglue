@@ -210,7 +210,7 @@ const (
 type objectContext struct {
 	s                 io.Writer
 	p                 *Page
-	currentFont       *font.Font
+	text              textState // text state the PDF has, see syncText
 	usedFaces         map[*pdf.Face]bool
 	usedImages        map[*pdf.Imagefile]bool
 	pendingShadings   []pendingShading
@@ -221,8 +221,6 @@ type objectContext struct {
 	outputDebug       *outputDebug
 	curOutputDebug    *outputDebug
 	pageObjectnumber  pdf.Objectnumber
-	currentExpand     int
-	currentVShift     bag.ScaledPoint
 	currentTmY        bag.ScaledPoint // last y written via Tm; used to detect Y changes inside an open TJ
 	currentTmYValid   bool            // false until the first Tm in a content stream
 	currentSlant      float64         // the shear the last Tm applied (font.Font.Slant)
@@ -269,6 +267,47 @@ func (oc *objectContext) newline() {
 	}
 }
 
+// textState holds the text state parameters the glyph output sets. The
+// objectContext keeps the values the PDF currently has, a glyph asks for
+// the values it needs, and syncText writes the difference.
+type textState struct {
+	font   *font.Font
+	expand int             // font expansion in percent, Tz is 100+expand
+	rise   bag.ScaledPoint // Ts
+}
+
+// syncText enters the text object and writes the operators for the
+// parameters of want that differ from the current text state. The text
+// object is opened first because BT resets Tz and Ts: comparing against the
+// state before it would skip an operator the glyph needs.
+func (oc *objectContext) syncText(want textState) {
+	if oc.textmode > ScopeText {
+		oc.gotoTextMode(ScopeText)
+	}
+	if want.font != oc.text.font {
+		oc.gotoTextMode(ScopeText)
+		oc.newline()
+		oc.writef("%s %s Tf ", want.font.Face.InternalName(), bag.MultiplyFloat(want.font.Size, want.font.Face.Scale))
+		oc.usedFaces[want.font.Face] = true
+		oc.text.font = want.font
+		if want.font.Slant != oc.currentSlant {
+			// The shear lives in the text matrix: a glyph after a
+			// change of slant needs a fresh Tm.
+			oc.currentTmYValid = false
+		}
+	}
+	if want.expand != oc.text.expand {
+		oc.gotoTextMode(ScopeText)
+		oc.writef("%d Tz ", 100+want.expand)
+		oc.text.expand = want.expand
+	}
+	if want.rise != oc.text.rise {
+		oc.gotoTextMode(ScopeText)
+		oc.writef("%s Ts ", want.rise)
+		oc.text.rise = want.rise
+	}
+}
+
 func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
 	// Tm must be inside a BT...ET block, so ensure we're in ScopeText
 	if oc.textmode > ScopeText {
@@ -276,8 +315,8 @@ func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
 	}
 	oc.newline()
 	slant := 0.0
-	if oc.currentFont != nil {
-		slant = oc.currentFont.Slant
+	if oc.text.font != nil {
+		slant = oc.text.font.Slant
 	}
 	if slant != 0 {
 		oc.writef("1 0 %s 1 %s %s Tm ", strconv.FormatFloat(slant, 'f', 4, 64), x, y)
@@ -557,14 +596,14 @@ func (oc *objectContext) gotoTextMode(newMode TextScope) {
 			// at the start of each text object. PDF text state persists
 			// across BT...ET blocks AND across separate content-stream
 			// objects within a page, but objectContext is created fresh for
-			// each object with the Go zero value (currentExpand=0,
-			// currentVShift=0). Without an unconditional reset, a non-zero
+			// each object with the Go zero value (text.expand=0,
+			// text.rise=0). Without an unconditional reset, a non-zero
 			// Tz/Ts left active by the previous object stays in effect on
 			// the next object's first glyphs — silent ~5–10pt drift between
 			// glyph runs when the inherited Tz mismatches the new Go state.
 			oc.writef("100 Tz 0 Ts ")
-			oc.currentExpand = 0
-			oc.currentVShift = 0
+			oc.text.expand = 0
+			oc.text.rise = 0
 			oc.textmode = ScopeText
 		}
 		if oc.textmode == ScopeText && newMode < oc.textmode {
@@ -616,45 +655,13 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			if v.Font != oc.currentFont {
-				oc.gotoTextMode(ScopeText)
-				oc.newline()
-				oc.writef("%s %s Tf ", v.Font.Face.InternalName(), bag.MultiplyFloat(v.Font.Size, v.Font.Face.Scale))
-				oc.usedFaces[v.Font.Face] = true
-				oc.currentFont = v.Font
-				if v.Font.Slant != oc.currentSlant {
-					// The shear lives in the text matrix: a glyph after a
-					// change of slant needs a fresh Tm.
-					oc.currentTmYValid = false
-				}
+			want := textState{font: v.Font, expand: oc.text.expand, rise: v.YOffset}
+			if exp, ok := hlist.Attributes["expand"]; !ok {
+				want.expand = 0
+			} else if ex, ok := exp.(int); ok {
+				want.expand = ex
 			}
-			// Open the text object before comparing Tz and Ts: BT resets
-			// both, so a page level operator in between (a color switch)
-			// would otherwise leave the cached values stale and the glyph
-			// drawn without its expansion or rise.
-			if oc.textmode > ScopeText {
-				oc.gotoTextMode(ScopeText)
-			}
-			if exp, ok := hlist.Attributes["expand"]; ok {
-				if ex, ok := exp.(int); ok {
-					if ex != oc.currentExpand {
-						oc.gotoTextMode(ScopeText)
-						oc.writef("%d Tz ", 100+ex)
-						oc.currentExpand = ex
-					}
-				}
-			} else {
-				if oc.currentExpand != 0 {
-					oc.gotoTextMode(ScopeText)
-					oc.writef("100 Tz ")
-					oc.currentExpand = 0
-				}
-			}
-			if v.YOffset != oc.currentVShift {
-				oc.gotoTextMode(ScopeText)
-				oc.writef("%s Ts ", v.YOffset)
-				oc.currentVShift = v.YOffset
-			}
+			oc.syncText(want)
 			// Glyph 0 here means no font in the stack had the character.
 			// PDF/UA forbids text-showing operators that reference .notdef
 			// (Matterhorn 10-004), so show the font's space glyph instead
@@ -689,7 +696,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.writef("EMC")
 					oc.newline()
 				}
-				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 				continue
 			}
 			// Bitmap-color path (sbix or CBDT). Tried first because a
@@ -712,7 +719,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						oc.emitColorBitmapGlyph(v, x+oc.shiftX+sumX, yPos, pngGlyph)
 						oc.shiftX = 0
 						oc.usedFaces[v.Font.Face] = true
-						sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+						sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 						continue
 					}
 				}
@@ -738,7 +745,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.emitColorSVGGlyph(v, x+oc.shiftX+sumX, yPos, svgBytes)
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
-					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 					continue
 				}
 			}
@@ -757,7 +764,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.emitColorGlyph(v, x+oc.shiftX+sumX, yPos, layers, palette)
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
-					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 					continue
 				}
 			}
@@ -784,9 +791,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			v.Font.Face.RegisterGlyph(v.Codepoint, v.Components)
 			// Handle GPOS XOffset for mark positioning (visual shift without affecting text flow)
 			var xOffsetMove int
-			if v.XOffset != 0 && oc.currentFont != nil && oc.currentFont.Size != 0 {
-				adv := v.XOffset.ToPT() / oc.currentFont.Size.ToPT()
-				scale := oc.currentFont.Face.Scale
+			if v.XOffset != 0 && oc.text.font != nil && oc.text.font.Size != 0 {
+				adv := v.XOffset.ToPT() / oc.text.font.Size.ToPT()
+				scale := oc.text.font.Face.Scale
 				xOffsetMove = int(math.Round(-1 * 1000 / scale * adv))
 				if xOffsetMove != 0 {
 					oc.gotoTextMode(ScopeArray)
@@ -818,7 +825,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.gotoTextMode(ScopeArray)
 				oc.writef(" %d ", post)
 			}
-			sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+			sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 		case *node.Glue:
 			var od *outputDebug
 			if oc.p.document.DumpOutput {
@@ -852,8 +859,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				sumX += v.Width
 			} else {
 				if oc.textmode < ScopeText {
-					if curFont := oc.currentFont; curFont != nil {
-						if oc.currentFont.Size != 0 {
+					if curFont := oc.text.font; curFont != nil {
+						if oc.text.font.Size != 0 {
 							// Emit a space glyph so that PDF readers can
 							// extract proper word boundaries.
 							spaceGID := curFont.Face.Codepoint(' ')
@@ -862,7 +869,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 								oc.gotoTextMode(ScopeGlyph)
 								oc.writef("%04x", spaceGID)
 							}
-							adv := v.Width.ToPT() / oc.currentFont.Size.ToPT()
+							adv := v.Width.ToPT() / oc.text.font.Size.ToPT()
 							scale := curFont.Face.Scale
 							// Subtract space glyph advance from the move
 							var spaceAdv float64
@@ -877,7 +884,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						}
 					}
 				}
-				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.currentExpand)/100.0)
+				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 			}
 		case *node.Rule:
 			if oc.p.document.DumpOutput {
@@ -1123,8 +1130,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.shiftX = 0
 			}
 
-			if oc.currentFont != nil {
-				y := v.Kern.ToPT() / oc.currentFont.Size.ToPT()
+			if oc.text.font != nil {
+				y := v.Kern.ToPT() / oc.text.font.Size.ToPT()
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
 					oc.gotoTextMode(ScopeArray)
 					oc.writef(" %d ", kern)
