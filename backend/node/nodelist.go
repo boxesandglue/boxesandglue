@@ -38,18 +38,54 @@ func (d TextDirection) String() string {
 	return "ltr"
 }
 
-// LinebreakSettings controls the line breaking algorithm.
+// LinebreakSettings controls the line breaking algorithm. Start from
+// NewLinebreakSettings: it sets the defaults named below, and Linebreak needs
+// the LineStartGlue and LineEndGlue it creates.
 type LinebreakSettings struct {
-	LineEndGlue          *Glue
-	LineStartGlue        *Glue
-	DemeritsFitness      int
+	// LineEndGlue is put at the right end of every line, TeX's \rightskip.
+	// Stretch of order fil or higher sets the lines ragged right, and
+	// centered together with the same stretch in LineStartGlue. IndentRight
+	// is added to its width. It must not be nil; the default is a glue of
+	// zero width.
+	LineEndGlue *Glue
+	// LineStartGlue is put at the left end of every line, TeX's \leftskip.
+	// Stretch of order fil or higher sets the lines ragged left. Indent is
+	// added to its width. It must not be nil; the default is a glue of zero
+	// width.
+	LineStartGlue *Glue
+	// DemeritsFitness is added to the demerits of a line whose fitness
+	// class (tight, decent, loose or very loose) is more than one class
+	// away from the line before, TeX's \adjdemerits. Default 100.
+	DemeritsFitness int
+	// DoublehyphenDemerits is added when two lines in a row end at a
+	// discretionary, TeX's \doublehyphendemerits. Default 3000.
 	DoublehyphenDemerits int
-	EmergencyStretch     bag.ScaledPoint
-	FontExpansion        float64
-	HSize                bag.ScaledPoint
-	Hyphenpenalty        int
-	Indent               bag.ScaledPoint
-	IndentRows           int
+	// EmergencyStretch is stretch the line breaker adds to every line it
+	// measures, TeX's \emergencystretch. Unlike TeX, which uses it in a
+	// last pass only, it counts for every line. Packing a line does not
+	// know it, so a line that needs it comes out loose. Default 0.
+	EmergencyStretch bag.ScaledPoint
+	// FontExpansion is the fraction of its width by which a glyph may be
+	// narrowed or widened, 0.02 for 2 percent (hz, microtype's expansion).
+	// The line breaker counts it as stretch and shrink; packing a line uses
+	// it only to narrow the glyphs of a line that is still too wide when
+	// its glue has shrunk all it can. Default 0, off.
+	FontExpansion float64
+	// HSize is the width of every line, TeX's \hsize. Indent and IndentRight
+	// are taken off it.
+	HSize bag.ScaledPoint
+	// Hyphenpenalty is added to a discretionary's own penalty when a line
+	// breaks there, TeX's \hyphenpenalty. Default 50.
+	Hyphenpenalty int
+	// Indent is the left inset of the rows IndentRows selects. It moves their
+	// content to the right and shortens them, as a paragraph indent or a
+	// hanging indent does.
+	Indent bag.ScaledPoint
+	// IndentRows selects the rows Indent applies to: 0 all rows, a positive
+	// n the first n rows, a negative n every row but the first n. That is
+	// TeX's \hangafter with the sign turned around. IndentForRow returns
+	// the inset of a row.
+	IndentRows int
 	// IndentRight is the mirror of Indent: it narrows a line from the right
 	// without moving where the line starts. IndentRightRows selects the rows it
 	// applies to with the same sign convention as IndentRows (positive: the
@@ -58,16 +94,37 @@ type LinebreakSettings struct {
 	// The two are separate because they are not the same operation. Indent
 	// shifts the line's content to the right as well as shortening it, which is
 	// what a paragraph indent means; IndentRight only takes width away from the
-	// end, which is what is needed to lay text beside something on the right —
+	// end, which is what is needed to lay text beside something on the right:
 	// the line box still spans the full HSize, so alignment inside the narrowed
 	// measure keeps working.
-	IndentRight           bag.ScaledPoint
-	IndentRightRows       int
-	LineHeight            bag.ScaledPoint
-	Tolerance             float64
-	SqueezeOverfullBoxes  bool
+	IndentRight     bag.ScaledPoint
+	IndentRightRows int
+	// LineHeight is the room a line takes up, its box and the glue below it
+	// together: Linebreak pads each line to LineHeight with glue. Lines of
+	// the same height are therefore LineHeight apart from baseline to
+	// baseline. A line taller than LineHeight gets no glue. HalfLeading and
+	// LineModel change how the room is made.
+	LineHeight bag.ScaledPoint
+	// Tolerance is the largest adjustment ratio a line may have, the amount
+	// its glue stretches as a multiple of its stretchability. A break that
+	// needs more is not feasible; if no break is, Linebreak still breaks
+	// and leaves a line overfull. Unlike TeX's \tolerance it is a ratio,
+	// not a badness: the default 4.0 is a badness of 6400, and TeX's 200
+	// is a ratio of about 1.26.
+	Tolerance float64
+	// SqueezeOverfullBoxes lets the glue of a line that is still too wide
+	// shrink past its shrinkability, so the line keeps to HSize with spaces
+	// narrower than allowed. It has no effect with FontExpansion, which
+	// narrows the glyphs instead. Default false.
+	SqueezeOverfullBoxes bool
+	// HangingPunctuationEnd lets punctuation at the end of a line, and the
+	// hyphen of a hyphenated line, hang into the margin: it takes no width
+	// there. Default false.
 	HangingPunctuationEnd bool
-	OmitLastLeading       bool
+	// OmitLastLeading leaves out the glue below the last line (with a
+	// LineModel, its Leading there), so the paragraph ends at the last
+	// line's depth. Default false.
+	OmitLastLeading bool
 	// HalfLeading distributes the leading (LineHeight minus the line's
 	// natural Height+Depth) into the line box itself, half above and half
 	// below (CSS 2.1 section 10.8.1), instead of emitting lineskip glue
@@ -80,7 +137,7 @@ type LinebreakSettings struct {
 	HalfLeading bool
 	// LineModel, when set, places each line in its line box and decides the
 	// glue between lines, in place of HalfLeading and the lineskip glue
-	// (see LineModel). Nil keeps the built-in behaviour.
+	// (see LineModel). Nil keeps the built-in behavior.
 	LineModel LineModel
 	// TextDirection is the paragraph's base direction. The insets and the
 	// edge glues are physical whatever it says; what it decides is which
