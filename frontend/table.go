@@ -83,7 +83,8 @@ type TableRow struct {
 	VAlign    VerticalAlignment
 	// BreakInside lets the row break across pages or frames: BuildTable
 	// gives its hlist a RowSplitter in Attributes["_split"]. A row a rowspan
-	// reaches into or out of stays whole.
+	// reaches into or out of stays whole. When a nested table in the row
+	// breaks, its header rows are not repeated in the rest.
 	BreakInside bool
 	row         int
 }
