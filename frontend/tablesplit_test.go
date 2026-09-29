@@ -394,3 +394,22 @@ func TestARowWithNoLineAboveTheBreakStaysWhole(t *testing.T) {
 		t.Errorf("12pt holds the padding but no line, yet the row split with a %s first part", first.Height+first.Depth)
 	}
 }
+
+// Splitting a rest must not change it: a split whose result is dropped, as
+// when widows and orphans try a break and step back, leaves the rest whole.
+func TestASplitLeavesTheRestUntouched(t *testing.T) {
+	row := splitRow(t, true)
+	_, rest, ok := row.Attributes["_split"].(RowSplitter)(bag.MustSP("45pt"))
+	if !ok {
+		t.Fatal("the row did not split")
+	}
+	before := rules(rest.List)
+	split := rest.Attributes["_split"].(RowSplitter)
+	split(bag.MustSP("45pt"))
+	if after := rules(rest.List); after != before {
+		t.Errorf("a dropped split changed the rest: %d boxes, then %d", before, after)
+	}
+	if _, _, ok := split(bag.MustSP("45pt")); !ok {
+		t.Error("the rest no longer splits after a dropped split")
+	}
+}

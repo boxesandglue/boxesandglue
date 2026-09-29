@@ -90,7 +90,9 @@ func (p *rowPart) split(avail bag.ScaledPoint) (*node.HList, *node.HList, bool) 
 	rest := &rowPart{row: p.row, cont: true, spacingV: p.spacingV}
 	any, left := false, false
 	for k, cell := range p.row.Cells {
-		a, b := splitVList(p.contents[k], avail-p.frame(cell))
+		// splitVList relinks the list it is given, and p.contents are the
+		// lists this part's cells show, so it splits a copy.
+		a, b := splitVList(p.contents[k].Copy().(*node.VList), avail-p.frame(cell))
 		if hasContent(a) {
 			any = true
 		}
