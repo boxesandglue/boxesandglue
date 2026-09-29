@@ -187,13 +187,15 @@ func orEmpty(vl *node.VList) *node.VList {
 	return vl
 }
 
-// hasContent reports whether a list holds anything but discardable space.
+// hasContent reports whether a list holds anything but discardable space. An
+// item with no height, such as a paragraph's zero-size anchor rule, is not a
+// line: a part holding only that would split a row with nothing above the break.
 func hasContent(vl *node.VList) bool {
 	if vl == nil {
 		return false
 	}
 	for n := vl.List; n != nil; n = n.Next() {
-		if !discardable(n) {
+		if !discardable(n) && vsize(n) > 0 {
 			return true
 		}
 	}

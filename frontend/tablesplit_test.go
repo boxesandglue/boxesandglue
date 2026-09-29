@@ -359,3 +359,38 @@ func TestANestedRowspanGroupStaysTogether(t *testing.T) {
 		}
 	}
 }
+
+// A cell paragraph opens with a zero-size rule; a part holding only that and
+// the padding is no line, so a row offered room for no line moves whole.
+func TestARowWithNoLineAboveTheBreakStaysWhole(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	para := func(bag.ScaledPoint) (*node.VList, error) {
+		anchor := node.NewRule()
+		line := node.NewRule()
+		line.Width, line.Height = bag.MustSP("20pt"), bag.MustSP("12pt")
+		node.InsertAfter(anchor, anchor, line)
+		return node.Vpack(anchor), nil
+	}
+	pad := bag.MustSP("3pt")
+	cell := func() *TableCell {
+		return &TableCell{PaddingTop: pad, PaddingBottom: pad, Contents: []any{FormatToVList(para)}}
+	}
+	tbl := &Table{
+		ColSpec: []ColSpec{{ColumnWidth: &node.Glue{Width: bag.MustSP("50pt")}}, {ColumnWidth: &node.Glue{Width: bag.MustSP("50pt")}}},
+		Rows:    TableRows{&TableRow{BreakInside: true, Cells: []*TableCell{cell(), cell()}}},
+	}
+	vls, err := fe.BuildTable(tbl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	split, _ := vls[0].List.(*node.HList).Attributes["_split"].(RowSplitter)
+	if split == nil {
+		t.Fatal("a row that may break inside has no splitter")
+	}
+	if first, _, ok := split(bag.MustSP("12pt")); ok {
+		t.Errorf("12pt holds the padding but no line, yet the row split with a %s first part", first.Height+first.Depth)
+	}
+}
