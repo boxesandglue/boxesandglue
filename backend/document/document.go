@@ -269,21 +269,36 @@ func (oc *objectContext) newline() {
 
 // textState holds the text state parameters the glyph output sets. The
 // objectContext keeps the values the PDF currently has, a glyph asks for
-// the values it needs, and syncText writes the difference.
+// the values it needs, and syncText writes the difference. PDF keeps the
+// text state across ET and BT, only Q restores it.
 type textState struct {
 	font   *font.Font
 	expand int             // font expansion in percent, Tz is 100+expand
 	rise   bag.ScaledPoint // Ts
+	// known reports whether expand and rise hold what the PDF has. All
+	// objects of a page write into one content stream, each with a fresh
+	// objectContext, so the Tz and Ts an earlier object left behind are
+	// unknown until the first glyph writes them.
+	known bool
 }
 
 // syncText enters the text object and writes the operators for the
-// parameters of want that differ from the current text state. The text
-// object is opened first because BT resets Tz and Ts: comparing against the
-// state before it would skip an operator the glyph needs.
+// parameters of want that differ from the text state the PDF has.
 func (oc *objectContext) syncText(want textState) {
 	if oc.textmode > ScopeText {
 		oc.gotoTextMode(ScopeText)
 	}
+	if !oc.text.known || want.expand != oc.text.expand {
+		oc.gotoTextMode(ScopeText)
+		oc.writef("%d Tz ", 100+want.expand)
+		oc.text.expand = want.expand
+	}
+	if !oc.text.known || want.rise != oc.text.rise {
+		oc.gotoTextMode(ScopeText)
+		oc.writef("%s Ts ", want.rise)
+		oc.text.rise = want.rise
+	}
+	oc.text.known = true
 	if want.font != oc.text.font {
 		oc.gotoTextMode(ScopeText)
 		oc.newline()
@@ -295,16 +310,6 @@ func (oc *objectContext) syncText(want textState) {
 			// change of slant needs a fresh Tm.
 			oc.currentTmYValid = false
 		}
-	}
-	if want.expand != oc.text.expand {
-		oc.gotoTextMode(ScopeText)
-		oc.writef("%d Tz ", 100+want.expand)
-		oc.text.expand = want.expand
-	}
-	if want.rise != oc.text.rise {
-		oc.gotoTextMode(ScopeText)
-		oc.writef("%s Ts ", want.rise)
-		oc.text.rise = want.rise
 	}
 }
 
@@ -592,18 +597,6 @@ func (oc *objectContext) gotoTextMode(newMode TextScope) {
 	if newMode < oc.textmode {
 		if oc.textmode == ScopePage {
 			oc.writef("BT ")
-			// Reset Tz (horizontal scaling, font expansion) and Ts (text rise)
-			// at the start of each text object. PDF text state persists
-			// across BT...ET blocks AND across separate content-stream
-			// objects within a page, but objectContext is created fresh for
-			// each object with the Go zero value (text.expand=0,
-			// text.rise=0). Without an unconditional reset, a non-zero
-			// Tz/Ts left active by the previous object stays in effect on
-			// the next object's first glyphs — silent ~5–10pt drift between
-			// glyph runs when the inherited Tz mismatches the new Go state.
-			oc.writef("100 Tz 0 Ts ")
-			oc.text.expand = 0
-			oc.text.rise = 0
 			oc.textmode = ScopeText
 		}
 		if oc.textmode == ScopeText && newMode < oc.textmode {
