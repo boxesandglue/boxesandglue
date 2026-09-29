@@ -628,6 +628,13 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.currentTmYValid = false
 				}
 			}
+			// Open the text object before comparing Tz and Ts: BT resets
+			// both, so a page level operator in between (a color switch)
+			// would otherwise leave the cached values stale and the glyph
+			// drawn without its expansion or rise.
+			if oc.textmode > ScopeText {
+				oc.gotoTextMode(ScopeText)
+			}
 			if exp, ok := hlist.Attributes["expand"]; ok {
 				if ex, ok := exp.(int); ok {
 					if ex != oc.currentExpand {
@@ -647,9 +654,6 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.gotoTextMode(ScopeText)
 				oc.writef("%s Ts ", v.YOffset)
 				oc.currentVShift = v.YOffset
-			}
-			if oc.textmode > ScopeText {
-				oc.gotoTextMode(ScopeText)
 			}
 			// Glyph 0 here means no font in the stack had the character.
 			// PDF/UA forbids text-showing operators that reference .notdef
