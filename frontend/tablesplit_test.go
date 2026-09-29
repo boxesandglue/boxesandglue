@@ -238,3 +238,124 @@ func TestARowspanRowStaysWhole(t *testing.T) {
 		t.Fatalf("%d rows, want 3", i)
 	}
 }
+
+// nestedTable is a table in a cell: its rows are 20pt, 20pt and 10pt with a
+// 40pt cell spanning the first two, after a 10pt row if lead is set.
+func nestedTable(lead bool) *Table {
+	box := func(h string) any { return fixedBox(bag.MustSP("20pt"), bag.MustSP(h)) }
+	var rows TableRows
+	if lead {
+		rows = append(rows, &TableRow{Cells: []*TableCell{{Contents: []any{box("10pt")}}, {Contents: []any{box("10pt")}}}})
+	}
+	rows = append(rows,
+		&TableRow{Cells: []*TableCell{{ExtraRowspan: 1, Contents: []any{box("40pt")}}, {Contents: []any{box("20pt")}}}},
+		&TableRow{Cells: []*TableCell{{Contents: []any{box("20pt")}}}},
+		&TableRow{Cells: []*TableCell{{Contents: []any{box("10pt")}}, {Contents: []any{box("10pt")}}}},
+	)
+	return &Table{
+		ColSpec: []ColSpec{{ColumnWidth: &node.Glue{Width: bag.MustSP("30pt")}}, {ColumnWidth: &node.Glue{Width: bag.MustSP("30pt")}}},
+		Rows:    rows,
+	}
+}
+
+// inRow is a one-row table whose row may break inside and whose only cell
+// holds inner.
+func inRow(fe *Document, width string, inner *Table) *Table {
+	cell := &TableCell{Contents: []any{FormatToVList(func(bag.ScaledPoint) (*node.VList, error) {
+		vls, err := fe.BuildTable(inner)
+		if err != nil {
+			return nil, err
+		}
+		return vls[0], nil
+	})}}
+	return &Table{
+		ColSpec: []ColSpec{{ColumnWidth: &node.Glue{Width: bag.MustSP(width)}}},
+		Rows:    TableRows{&TableRow{BreakInside: true, Cells: []*TableCell{cell}}},
+	}
+}
+
+// nestedRows is the rows of the table depth levels of nesting below n,
+// following the last row at each level.
+func nestedRows(n node.Node, depth int) []*node.HList {
+	for ; n != nil; n = n.Next() {
+		var rows []*node.HList
+		var list node.Node
+		switch v := n.(type) {
+		case *node.VList:
+			for c := v.List; c != nil; c = c.Next() {
+				if hl, ok := c.(*node.HList); ok && hl.Attributes["origin"] == "table row" {
+					rows = append(rows, hl)
+				}
+			}
+			list = v.List
+		case *node.HList:
+			list = v.List
+		}
+		if len(rows) > 0 {
+			if depth == 0 {
+				return rows
+			}
+			return nestedRows(rows[len(rows)-1].List, depth-1)
+		}
+		if r := nestedRows(list, depth); r != nil {
+			return r
+		}
+	}
+	return nil
+}
+
+func splitAt(t *testing.T, fe *Document, tbl *Table, avail string) (*node.HList, bool) {
+	t.Helper()
+	vls, err := fe.BuildTable(tbl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	split, _ := vls[0].List.(*node.HList).Attributes["_split"].(RowSplitter)
+	first, _, ok := split(bag.MustSP(avail))
+	return first, ok
+}
+
+// A nested table does not break between the rows a rowspan joins: the break
+// moves back before the group, and when nothing is left above it, nothing of
+// the row fits.
+func TestANestedRowspanGroupStaysTogether(t *testing.T) {
+	for _, avail := range []string{"25pt", "30pt", "35pt"} {
+		fe, err := NewForWriter(io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first, ok := splitAt(t, fe, inRow(fe, "80pt", nestedTable(false)), avail); ok {
+			rows := nestedRows(first.List, 0)
+			t.Errorf("%s: the row split with %d nested rows in the first part, want no split", avail, len(rows))
+		}
+	}
+	for _, c := range []struct {
+		avail string
+		want  int
+	}{{"35pt", 1}, {"45pt", 1}, {"55pt", 3}} {
+		avail, want := c.avail, c.want
+		for depth := range 3 {
+			fe, err := NewForWriter(io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tbl := nestedTable(true)
+			for range depth + 1 {
+				tbl = inRow(fe, "80pt", tbl)
+			}
+			first, ok := splitAt(t, fe, tbl, avail)
+			if !ok {
+				t.Errorf("%s, depth %d: the row did not split", avail, depth)
+				continue
+			}
+			rows := nestedRows(first.List, depth)
+			if len(rows) != want {
+				t.Errorf("%s, depth %d: %d nested rows in the first part, want %d", avail, depth, len(rows), want)
+				continue
+			}
+			if keep, _ := rows[len(rows)-1].Attributes["_keepWithNext"].(bool); keep {
+				t.Errorf("%s, depth %d: the first part ends inside a rowspan group", avail, depth)
+			}
+		}
+	}
+}

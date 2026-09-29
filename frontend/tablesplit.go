@@ -206,8 +206,9 @@ func discardable(n node.Node) bool {
 
 // splitVList breaks a vertical list so its first part is at most h high,
 // between its items or inside one: a list stacked at its natural height (a
-// paragraph, a nested table) or a row that may break inside. The space at the
-// break is dropped, as TeX drops it. first is nil when nothing fits, rest when
+// paragraph, a nested table) or a row that may break inside, but never
+// between the rows a rowspan joins. The space at the break is dropped, as TeX
+// drops it. first is nil when nothing fits, rest when
 // everything does.
 func splitVList(vl *node.VList, h bag.ScaledPoint) (first, rest *node.VList) {
 	var items []node.Node
@@ -246,6 +247,9 @@ func splitVList(vl *node.VList, h bag.ScaledPoint) (first, rest *node.VList) {
 		}
 		break
 	}
+	if a == nil {
+		cut = groupStart(items, cut)
+	}
 	head := slicesOf(items[:cut], a)
 	tail := items[cut:]
 	if b != nil {
@@ -261,6 +265,25 @@ func splitVList(vl *node.VList, h bag.ScaledPoint) (first, rest *node.VList) {
 		return nil, vl
 	}
 	return piece(vl, head), piece(vl, tail)
+}
+
+// groupStart moves a break before items[cut] back before the first row of
+// the rowspan group it would fall in, found by _keepWithNext.
+func groupStart(items []node.Node, cut int) int {
+	for i := cut - 1; i >= 0; i-- {
+		if discardable(items[i]) {
+			continue
+		}
+		hl, ok := items[i].(*node.HList)
+		if !ok {
+			break
+		}
+		if keep, _ := hl.Attributes["_keepWithNext"].(bool); !keep {
+			break
+		}
+		cut = i
+	}
+	return cut
 }
 
 func slicesOf(items []node.Node, extra node.Node) []node.Node {
