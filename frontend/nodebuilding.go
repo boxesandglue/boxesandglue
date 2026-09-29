@@ -353,11 +353,13 @@ const (
 	// is 50; lower (5–25) helps long compound words in German typesetting,
 	// higher (200+) discourages hyphenation in narrow English columns.
 	SettingHyphenPenalty
-	// SettingLinebreakTolerance carries the Knuth-Plass tolerance (badness
-	// ceiling) as float64. Higher values accept looser lines. TeX defaults
-	// to 200 for \fussy and 10000 for \sloppy. The boxesandglue default is
-	// conservative (4); set higher per paragraph or per element to allow
-	// the line breaker more flexibility (e.g. for narrow columns or text
+	// SettingLinebreakTolerance carries node.LinebreakSettings.Tolerance as
+	// float64: the largest adjustment ratio a line may have, how far its
+	// spaces may stretch as a multiple of their stretchability. Higher
+	// values accept looser lines. It is a ratio, not a badness as TeX's
+	// \tolerance: TeX's 200 is a ratio of about 1.26 and its 10000 one of
+	// about 4.64. The default is 4; set higher per paragraph or per element
+	// to give the line breaker more room (e.g. for narrow columns or text
 	// with few hyphenation opportunities).
 	SettingLinebreakTolerance
 	// SettingLinebreakEmergencyStretch carries TeX's \emergencystretch as
@@ -848,11 +850,11 @@ func HyphenPenalty(penalty int) TypesettingOption {
 	}
 }
 
-// Tolerance sets how much the line can deviate from the ideal spacing
-// before the algorithm considers it unacceptable. Default is 4.0.
-// Higher values allow looser/tighter lines, which may be needed for
-// narrow columns or text with few hyphenation opportunities.
-// TeX uses 200 for \sloppy and 10000 for \emergencystretch.
+// Tolerance sets the largest adjustment ratio a line may have, how far its
+// spaces may stretch as a multiple of their stretchability (see
+// node.LinebreakSettings.Tolerance). Default is 4.0. Higher values allow
+// looser lines, which may be needed for narrow columns or text with few
+// hyphenation opportunities.
 func Tolerance(tolerance float64) TypesettingOption {
 	return func(p *Options) {
 		p.Tolerance = tolerance
