@@ -81,7 +81,12 @@ type TableRow struct {
 	// to fit its cells but never shrinks below it.
 	MinHeight bag.ScaledPoint
 	VAlign    VerticalAlignment
-	row       int
+	// BreakInside lets the row break across pages or frames: BuildTable
+	// gives its hlist a RowSplitter in Attributes["_split"]. A row a rowspan
+	// reaches into or out of stays whole. When a nested table in the row
+	// breaks, its header rows are not repeated in the rest.
+	BreakInside bool
+	row         int
 }
 
 // TableCell represents a table cell
@@ -1242,6 +1247,9 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		}
 		if keepWithNext[i] {
 			hl.Attributes["_keepWithNext"] = true
+		}
+		if tbl.splitsInside(i) {
+			hl.Attributes["_split"] = tbl.rowSplitter(i, spacingV)
 		}
 		return hl, nil
 	}
