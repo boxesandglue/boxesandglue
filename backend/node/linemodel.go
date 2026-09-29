@@ -1,0 +1,25 @@
+package node
+
+import "github.com/boxesandglue/boxesandglue/backend/bag"
+
+// LineModel places each line of a paragraph in its line box and decides the
+// glue between the lines. When LinebreakSettings.LineModel is set, Linebreak
+// asks it for every line it builds, in place of HalfLeading and the lineskip
+// glue, so a caller can set lines by rules of its own (a word processor's
+// line spacing, say) without changing the line breaker. A model is the
+// caller's own value and carries whatever it needs, such as the paragraph's
+// font size.
+//
+// A nil LineModel keeps the built-in behaviour: HalfLeading, or lineskip glue
+// padding each line to LineHeight.
+type LineModel interface {
+	// LineBox returns the height above the baseline and the depth below it
+	// of line, a line Linebreak has just packed to HSize. line.Height and
+	// line.Depth are its natural extent; each glyph on it carries its font
+	// (with the size and the face's vertical metrics) and its LineShift.
+	LineBox(line *HList, settings *LinebreakSettings) (height, depth bag.ScaledPoint)
+	// Leading returns the glue Linebreak puts next to line, whose line box
+	// is already set: above each line but the first, and below the last
+	// line unless OmitLastLeading is set. A nil glue puts nothing there.
+	Leading(line *HList, settings *LinebreakSettings) *Glue
+}

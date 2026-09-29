@@ -402,6 +402,15 @@ const (
 	// by SyntheticSlant, false with the upright as it is. Unset leaves the
 	// family's default (FontFamily.SetSynthesizeStyle).
 	SettingSynthesizeStyle
+	// SettingLineModel places each line of a paragraph in its line box by a
+	// caller's model (a node.LineModel), in place of the leading model
+	// SettingHalfLeading selects. Read at the paragraph level.
+	SettingLineModel
+	// SettingLineShift raises the glyphs by a length (a bag.ScaledPoint,
+	// negative lowers), as SettingYOffset does, and records it as each
+	// glyph's LineShift, so a LineModel can move the run's share of the line
+	// with it. The built-in leading treats it as a YOffset.
+	SettingLineShift
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -592,6 +601,10 @@ func (st SettingType) String() string {
 		settingName = "SettingItalicCorrection"
 	case SettingSynthesizeStyle:
 		settingName = "SettingSynthesizeStyle"
+	case SettingLineModel:
+		settingName = "SettingLineModel"
+	case SettingLineShift:
+		settingName = "SettingLineShift"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -1558,6 +1571,9 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 			ls.HalfLeading = hlead
 		}
 	}
+	if lm, ok := te.Settings[SettingLineModel].(node.LineModel); ok {
+		ls.LineModel = lm
+	}
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
@@ -2226,6 +2242,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	whiteSpace := WhiteSpaceNormal
 	letterSpacing := bag.ScaledPoint(0)
 	yoffset := bag.ScaledPoint(0)
+	lineShift := bag.ScaledPoint(0)
 	direction := DirectionLTR
 	hyphensMode := "" // CSS hyphens: "" (auto), "auto", "manual", "none"
 	var settingFontFeatures []ot.Feature
@@ -2323,6 +2340,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		case SettingYOffset:
 			yoffset = v.(bag.ScaledPoint)
+		case SettingLineShift:
+			lineShift = v.(bag.ScaledPoint)
 		case SettingDirection:
 			if d, ok := v.(Direction); ok {
 				direction = d
@@ -2336,7 +2355,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		case SettingSynthesizeStyle:
 			// read with the font lookup below
-		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection:
+		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection, SettingLineModel:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
 		default:
@@ -2618,7 +2637,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			if atomFnt != fnt {
 				baselineShift = atomFnt.Depth - fnt.Depth
 			}
-			n.YOffset = yoffset + r.YOffset + baselineShift
+			n.YOffset = yoffset + lineShift + r.YOffset + baselineShift
+			n.LineShift = lineShift
 			head = node.InsertAfter(head, cur, n)
 			cur = n
 			lastglue = nil

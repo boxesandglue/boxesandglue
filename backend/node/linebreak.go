@@ -781,7 +781,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				hl.Attributes["origin"] = "line"
 			}
 			hl.TextDir = settings.TextDirection
-			if settings.HalfLeading {
+			if settings.LineModel != nil {
+				hl.Height, hl.Depth = settings.LineModel.LineBox(hl, settings)
+			} else if settings.HalfLeading {
 				// CSS half-leading: grow the line box symmetrically to
 				// LineHeight instead of emitting lineskip glue below. The
 				// output positions each line by its Height, so the baseline
@@ -798,7 +800,11 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {
-				if !settings.HalfLeading {
+				if settings.LineModel != nil {
+					if lineskip := settings.LineModel.Leading(hl, settings); lineskip != nil {
+						vert = InsertBefore(vert, vert, lineskipOrigin(lineskip, "lineskip"))
+					}
+				} else if !settings.HalfLeading {
 					lineskip := NewGlue()
 					lineskip.Attributes = H{"origin": "lineskip"}
 					if totalHeightHL := hl.Height + hl.Depth; totalHeightHL < settings.LineHeight {
@@ -818,7 +824,14 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	// In half-leading mode there is no trailing glue to omit: half the
 	// leading sits in the last line's depth by construction, so
 	// OmitLastLeading has no meaning there.
-	if !settings.OmitLastLeading && !settings.HalfLeading {
+	if settings.LineModel != nil {
+		if !settings.OmitLastLeading {
+			hl := Tail(vert).(*HList)
+			if lineskip := settings.LineModel.Leading(hl, settings); lineskip != nil {
+				vert = InsertAfter(vert, hl, lineskipOrigin(lineskip, "last lineskip"))
+			}
+		}
+	} else if !settings.OmitLastLeading && !settings.HalfLeading {
 		lineskip := NewGlue()
 		lineskip.Attributes = H{"origin": "last lineskip"}
 		hl := Tail(vert).(*HList)
@@ -832,6 +845,15 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 	vl.Attributes = H{"origin": "Linebreak"}
 	vl.TextDir = settings.TextDirection
 	return vl, bps
+}
+
+// lineskipOrigin marks a model's leading glue as the built-in lineskip is
+// marked, unless the model gave it attributes of its own.
+func lineskipOrigin(g *Glue, origin string) *Glue {
+	if g.Attributes == nil {
+		g.Attributes = H{"origin": origin}
+	}
+	return g
 }
 
 // AppendLineEndAfter adds a penalty 10000, glue 0pt plus 1fil, penalty -10000

@@ -78,6 +78,10 @@ type LinebreakSettings struct {
 	// OmitLastLeading has no meaning: half the leading sits in the last
 	// line's depth by construction.
 	HalfLeading bool
+	// LineModel, when set, places each line in its line box and decides the
+	// glue between lines, in place of HalfLeading and the lineskip glue
+	// (see LineModel). Nil keeps the built-in behaviour.
+	LineModel LineModel
 	// TextDirection is the paragraph's base direction. The insets and the
 	// edge glues are physical whatever it says; what it decides is which
 	// side is the line end: where a forced break leaves its slack, and
