@@ -48,7 +48,7 @@ See the [boxesandglue-examples](https://github.com/boxesandglue/boxesandglue-exa
 
 For a starter here is a simple `main.go` to play with. The result is
 
-<img src="https://i.imgur.com/cwGQTzQ.png" alt="typeset text from the frog king" width="200"/>
+<img src="readme-sample.png" alt="typeset text from the frog king" width="200"/>
 
 
 
@@ -103,7 +103,7 @@ func typesetSample() error {
 
 	// Format the text into a paragraph. Some of these settings (font family and
 	// font size) can be part of the typesetting element.
-	vlist, _, err := f.FormatParagraph(para, bag.MustSP("125pt"),
+	vlist, _, err := f.FormatParagraph(para, bag.MustSP("150pt"),
 		frontend.Leading(bag.MustSP("14pt")),
 		frontend.FontSize(bag.MustSP("12pt")),
 		frontend.Family(ff),
