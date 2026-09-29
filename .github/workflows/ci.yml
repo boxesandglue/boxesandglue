@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Both architectures: a float to int conversion of NaN gave 0 on arm64
+    # and MinInt64 on amd64 (#50), and Go may fuse x*y+z into one FMA
+    # instruction on arm64 and not on amd64. Both Go versions: the go line
+    # of go.mod is the oldest one we promise, stable the one users get.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, ubuntu-24.04]
+        go: [go.mod, stable]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go from go.mod
+        if: matrix.go == 'go.mod'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up the latest Go
+        if: matrix.go == 'stable'
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        # The node arena guards its slabs with a mutex each, so run the
+        # race detector as well.
+        run: go test -race ./...
