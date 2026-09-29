@@ -166,6 +166,10 @@ func (p *rowPart) build() (*node.HList, error) {
 // buildCell builds cell with contents as its content, height high, drawing the
 // line above as topEdge says. build is reused as it is: the cell's own fields
 // are what it reads, so they are set for the call and restored after.
+//
+// The restore is a shallow copy of the cell. It is only safe while build
+// changes nothing through a pointer, slice or map in the cell (its colors,
+// Contents, the row or the table): such a change would outlive the call.
 func (p *rowPart) buildCell(cell *TableCell, contents *node.VList, height bag.ScaledPoint) (*node.VList, error) {
 	saved := *cell
 	defer func() { *cell = saved }()
