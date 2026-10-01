@@ -32,6 +32,11 @@ type Glyph struct {
 	// share of the line with it, as a word processor's raised or lowered
 	// text does. The built-in leading ignores it; a LineModel may read it.
 	LineShift bag.ScaledPoint
+	// HorizontalScale is a fixed horizontal scale of the glyph, a factor
+	// (0.9 draws it at 90% of its natural width). Width, XOffset and the
+	// kerns around the glyph already hold scaled values; the PDF writer
+	// only draws the glyph to match. 0 means 1.
+	HorizontalScale float64
 	// This allows the glyph to be part of word hyphenation.
 	Hyphenate bool
 }
@@ -76,6 +81,7 @@ func (g *Glyph) Copy() Node {
 	n.XOffset = g.XOffset
 	n.YOffset = g.YOffset
 	n.LineShift = g.LineShift
+	n.HorizontalScale = g.HorizontalScale
 	n.Attributes = cloneAttributes(g.Attributes)
 	return n
 }

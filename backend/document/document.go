@@ -273,9 +273,10 @@ func (oc *objectContext) newline() {
 // text state across ET and BT, only Q restores it.
 type textState struct {
 	font   *font.Font
-	expand int             // font expansion in percent, Tz is 100+expand
+	expand int             // font expansion in percent
+	scale  float64         // the glyph's fixed horizontal scale; Tz is scale*(100+expand)
 	rise   bag.ScaledPoint // Ts
-	// known reports whether expand and rise hold what the PDF has. All
+	// known reports whether expand, scale and rise hold what the PDF has. All
 	// objects of a page write into one content stream, each with a fresh
 	// objectContext, so the Tz and Ts an earlier object left behind are
 	// unknown until the first glyph writes them.
@@ -288,10 +289,16 @@ func (oc *objectContext) syncText(want textState) {
 	if oc.textmode > ScopeText {
 		oc.gotoTextMode(ScopeText)
 	}
-	if !oc.text.known || want.expand != oc.text.expand {
+	if !oc.text.known || want.expand != oc.text.expand || want.scale != oc.text.scale {
 		oc.gotoTextMode(ScopeText)
-		oc.writef("%d Tz ", 100+want.expand)
+		if want.scale == 1 {
+			oc.writef("%d Tz ", 100+want.expand)
+		} else {
+			tz := math.Round(want.scale*float64(100+want.expand)*1000) / 1000
+			oc.writef("%s Tz ", strconv.FormatFloat(tz, 'f', -1, 64))
+		}
 		oc.text.expand = want.expand
+		oc.text.scale = want.scale
 	}
 	if !oc.text.known || want.rise != oc.text.rise {
 		oc.gotoTextMode(ScopeText)
@@ -311,6 +318,14 @@ func (oc *objectContext) syncText(want textState) {
 			oc.currentTmYValid = false
 		}
 	}
+}
+
+// glyphScale is the glyph's fixed horizontal scale, 1 when it has none.
+func glyphScale(g *node.Glyph) float64 {
+	if g.HorizontalScale == 0 {
+		return 1
+	}
+	return g.HorizontalScale
 }
 
 func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
@@ -648,7 +663,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			want := textState{font: v.Font, expand: oc.text.expand, rise: v.YOffset}
+			want := textState{font: v.Font, expand: oc.text.expand, scale: glyphScale(v), rise: v.YOffset}
 			if exp, ok := hlist.Attributes["expand"]; !ok {
 				want.expand = 0
 			} else if ex, ok := exp.(int); ok {
@@ -785,7 +800,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// Handle GPOS XOffset for mark positioning (visual shift without affecting text flow)
 			var xOffsetMove int
 			if v.XOffset != 0 && oc.text.font != nil && oc.text.font.Size != 0 {
-				adv := v.XOffset.ToPT() / oc.text.font.Size.ToPT()
+				adv := v.XOffset.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
 				scale := oc.text.font.Face.Scale
 				xOffsetMove = int(math.Round(-1 * 1000 / scale * adv))
 				if xOffsetMove != 0 {
@@ -808,11 +823,18 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// every text run with adjustments. Everything else is measured
 			// against the exact advance in text space, so widths the math
 			// engine derives with full precision round to zero as well.
+			// A scaled glyph is compared with its scaled advance, and its
+			// width taken back to text space, where Tz scales it again.
 			post := -xOffsetMove
-			if v.Width != v.Font.GlyphAdvance(v.Codepoint) && v.Font.Size != 0 {
+			gs := oc.text.scale
+			adv := v.Font.GlyphAdvance(v.Codepoint)
+			if gs != 1 {
+				adv = bag.MultiplyFloat(adv, gs)
+			}
+			if v.Width != adv && v.Font.Size != 0 {
 				em := v.Font.Size.ToPT() * v.Font.Face.Scale
 				advTJ := v.Font.Face.AdvanceWidth(v.Codepoint) * 1000 / v.Font.Face.Scale
-				post += int(math.Round(advTJ - v.Width.ToPT()/em*1000))
+				post += int(math.Round(advTJ - v.Width.ToPT()/gs/em*1000))
 			}
 			if post != 0 {
 				oc.gotoTextMode(ScopeArray)
@@ -862,7 +884,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 								oc.gotoTextMode(ScopeGlyph)
 								oc.writef("%04x", spaceGID)
 							}
-							adv := v.Width.ToPT() / oc.text.font.Size.ToPT()
+							// Tz scales the move by the scale of the glyph
+							// before; v.Width already holds its run's.
+							adv := v.Width.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
 							scale := curFont.Face.Scale
 							// Subtract space glyph advance from the move
 							var spaceAdv float64
@@ -1124,7 +1148,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 
 			if oc.text.font != nil {
-				y := v.Kern.ToPT() / oc.text.font.Size.ToPT()
+				y := v.Kern.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
 					oc.gotoTextMode(ScopeArray)
 					oc.writef(" %d ", kern)

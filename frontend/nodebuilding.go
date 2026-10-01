@@ -413,6 +413,12 @@ const (
 	// glyph's LineShift, so a LineModel can move the run's share of the line
 	// with it. The built-in leading treats it as a YOffset.
 	SettingLineShift
+	// SettingHorizontalScale draws the glyphs of a run narrower or wider by
+	// a fixed factor (a float64, 0.9 is 90%), as a word processor's
+	// character scale does. The glyph advances, kerns and spaces of the run
+	// are scaled, so the line breaker sees the width the run takes on the
+	// page. Font expansion applies on top of it.
+	SettingHorizontalScale
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -607,6 +613,8 @@ func (st SettingType) String() string {
 		settingName = "SettingLineModel"
 	case SettingLineShift:
 		settingName = "SettingLineShift"
+	case SettingHorizontalScale:
+		settingName = "SettingHorizontalScale"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -2245,6 +2253,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	letterSpacing := bag.ScaledPoint(0)
 	yoffset := bag.ScaledPoint(0)
 	lineShift := bag.ScaledPoint(0)
+	hscale := 1.0
 	direction := DirectionLTR
 	hyphensMode := "" // CSS hyphens: "" (auto), "auto", "manual", "none"
 	var settingFontFeatures []ot.Feature
@@ -2344,6 +2353,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			yoffset = v.(bag.ScaledPoint)
 		case SettingLineShift:
 			lineShift = v.(bag.ScaledPoint)
+		case SettingHorizontalScale:
+			if f, ok := v.(float64); ok && f > 0 {
+				hscale = f
+			} else {
+				bag.Logger.Error("SettingHorizontalScale needs a positive float64", "value", v)
+			}
 		case SettingDirection:
 			if d, ok := v.(Direction); ok {
 				direction = d
@@ -2479,6 +2494,16 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	if colStart != nil {
 		cur = colStart
 	}
+	scaled := func(wd bag.ScaledPoint) bag.ScaledPoint {
+		if hscale == 1 {
+			return wd
+		}
+		return bag.MultiplyFloat(wd, hscale)
+	}
+	var glyphScale float64
+	if hscale != 1 {
+		glyphScale = hscale
+	}
 	var lastglue node.Node
 	// When a CSS prioritised font-family list resolves to two or more
 	// families, the input is segmented along grapheme-cluster boundaries
@@ -2504,11 +2529,11 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 						// pre-wrap: the width is fixed but the position is
 						// still a legal breakpoint, which a Rule is not.
 						gl := node.NewGlue()
-						gl.Width = fnt.SpaceChar.Advance
+						gl.Width = scaled(fnt.SpaceChar.Advance)
 						g = gl
 					} else {
 						r := node.NewRule()
-						r.Width = fnt.SpaceChar.Advance
+						r.Width = scaled(fnt.SpaceChar.Advance)
 						g = r
 					}
 					head = node.InsertAfter(head, cur, g)
@@ -2539,7 +2564,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					// fnt.Space default. The rule renders nothing (the
 					// font's glyph is typically blank).
 					g := node.NewRule()
-					g.Width = r.Advance
+					g.Width = scaled(r.Advance)
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
@@ -2595,9 +2620,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 						}
 						g := node.NewGlue()
 						g.Attributes = node.H{"origin": "lastglue=nil"}
-						g.Width = fnt.Space
-						g.Stretch = fnt.SpaceStretch
-						g.Shrink = fnt.SpaceShrink
+						g.Width = scaled(fnt.Space)
+						g.Stretch = scaled(fnt.SpaceStretch)
+						g.Shrink = scaled(fnt.SpaceShrink)
 						head = node.InsertAfter(head, cur, g)
 						cur = g
 						lastglue = g
@@ -2616,7 +2641,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 				disc := node.NewDisc()
 				hyphen := node.NewGlyph()
 				hyphen.Font = fnt
-				hyphen.Width = fnt.Hyphenchar.Advance
+				hyphen.Width = scaled(fnt.Hyphenchar.Advance)
+				hyphen.HorizontalScale = glyphScale
 				hyphen.Components = fnt.Hyphenchar.Components
 				hyphen.Codepoint = fnt.Hyphenchar.Codepoint
 				disc.Pre = hyphen
@@ -2630,7 +2656,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			n.Codepoint = r.Codepoint
 			n.Components = r.Components
 			n.Font = atomFnt
-			n.Width = r.Advance
+			n.Width = scaled(r.Advance)
+			n.HorizontalScale = glyphScale
 			n.Height = r.Height
 			n.Depth = r.Depth
 			// Apply GPOS positioning offsets for mark attachment.
@@ -2640,7 +2667,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// glyph sits on the primary's baseline. Visually this keeps
 			// emoji and CJK characters aligned with the surrounding Latin.
 			// For single-family runs atomFnt == fnt so the delta is zero.
-			n.XOffset = r.XOffset
+			n.XOffset = scaled(r.XOffset)
 			baselineShift := bag.ScaledPoint(0)
 			if atomFnt != fnt {
 				baselineShift = atomFnt.Depth - fnt.Depth
@@ -2653,7 +2680,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 
 			if r.Kernafter != 0 {
 				k := node.NewKern()
-				k.Kern = r.Kernafter
+				k.Kern = scaled(r.Kernafter)
 				head = node.InsertAfter(head, cur, k)
 				cur = k
 			}

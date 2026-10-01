@@ -167,6 +167,11 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 				hyphen.Components = fnt.Hyphenchar.Components
 				hyphen.Codepoint = fnt.Hyphenchar.Codepoint
 			}
+			// The hyphen takes the scale of the run it breaks.
+			if g, ok := cur.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
+				hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
+				hyphen.HorizontalScale = g.HorizontalScale
+			}
 
 			disc.Pre = hyphen
 			node.InsertBefore(wordstart, cur, disc)
