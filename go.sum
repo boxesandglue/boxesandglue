@@ -1,11 +1,11 @@
-github.com/boxesandglue/baseline-pdf v1.1.24 h1:iWd9xz9Uc4HwdvKDVL3Ziyx73o5v+i98skJDq8xHrjE=
-github.com/boxesandglue/baseline-pdf v1.1.24/go.mod h1:9y7Akv50sRl/v5LO1j+t6n1NvKAgh8oGme3WyQL5MIs=
+github.com/boxesandglue/baseline-pdf v1.1.25 h1:8e1c00V5s8LAhTBd9gmvQzo7ZuWHkMUUnG90a7Ks6Aw=
+github.com/boxesandglue/baseline-pdf v1.1.25/go.mod h1:s4HKQ1fw78LlJNCrJuinrLcm0RXD0M/PhQcqLbqRm2k=
 github.com/boxesandglue/gofpdi v1.0.24 h1:7Q0v4dkmByemj8PyIYi8ylIYrUnNhY/L/Ed6MRGwlro=
 github.com/boxesandglue/gofpdi v1.0.24/go.mod h1:U26faV5/yQf8ivQS0Tt2TdpU7Y8X9wpLLB2T/5oI+u4=
 github.com/boxesandglue/svgreader v0.0.5 h1:yUvFP+T66l2YjRjFs7aLQ4lAfimDSLRssy6wZcfOTGc=
 github.com/boxesandglue/svgreader v0.0.5/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
-github.com/boxesandglue/textshape v0.0.16 h1:UEAqQS4LY7/1fHKiVp73qdWwYBYiq9l6zR3TD5Emnjc=
-github.com/boxesandglue/textshape v0.0.16/go.mod h1:DdRw4tpKs6xFaulvBfut/ICZGXgZeibMhoLrQycmVh8=
+github.com/boxesandglue/textshape v0.0.17 h1:w0lJNSjw6mJ+a0cbiHcahbOAHlSzQkwpUB5XC1MeWhM=
+github.com/boxesandglue/textshape v0.0.17/go.mod h1:DdRw4tpKs6xFaulvBfut/ICZGXgZeibMhoLrQycmVh8=
 github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
