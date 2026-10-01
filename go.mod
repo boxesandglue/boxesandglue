@@ -8,7 +8,7 @@ require (
 	github.com/boxesandglue/textshape v0.0.17
 	github.com/clipperhouse/uax29/v2 v2.7.0
 	github.com/google/uuid v1.6.0
-	github.com/speedata/hyphenation v1.0.1
+	github.com/speedata/hyphenation v1.0.3
 	github.com/speedata/optionparser v1.2.1
 )
 
