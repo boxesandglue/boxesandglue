@@ -140,6 +140,10 @@ type TableCell struct {
 	calculatedBorderRightWidth  bag.ScaledPoint
 	calculatedBorderTopWidth    bag.ScaledPoint
 	calculatedBorderBottomWidth bag.ScaledPoint
+	// leftSeamReach is how far the line this cell draws on its left reaches
+	// into the cell before it, which leaves that half to it: a seam drawn
+	// in two halves shows a hairline where they meet once antialiased.
+	leftSeamReach bag.ScaledPoint
 	// The formatted contents of the last build() call and the width they
 	// were formatted for. BuildTable builds every cell twice with the same
 	// width, once to find the row height and once to pack the row, and the
@@ -513,6 +517,13 @@ func (cell *TableCell) build() (*node.VList, error) {
 			r.Post = pdfdraw.New().Restore().String()
 		}
 		r.Attributes = node.H{"origin": "left rule"}
+		if reach := cell.leftSeamReach; reach > 0 && !r.Hide {
+			// The cell before draws its half underneath; this draws the
+			// whole line on top of it, over the cell before's background.
+			r.Hide = true
+			r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderLeftColor).Rect(-reach, -r.Depth, r.Width+reach, r.Height+r.Depth).Fill().Restore().String()
+			r.Post = ""
+		}
 		head = r
 	}
 
@@ -885,6 +896,7 @@ func (tbl *Table) analyzeTable() {
 			cell.calculatedBorderRightWidth = cell.BorderRightWidth
 			cell.calculatedBorderBottomWidth = cell.BorderBottomWidth
 			cell.calculatedBorderTopWidth = cell.BorderTopWidth
+			cell.leftSeamReach = 0
 			for i := 0; i <= cell.ExtraColspan; i++ {
 				for r := 0; r <= cell.ExtraRowspan; r++ {
 					tbl.cellMatrix[x+i+extraCol][y+r] = cellptr{cell: cell, colspan: cell.ExtraColspan - i, rowspan: cell.ExtraRowspan - r}
@@ -978,7 +990,8 @@ func (tbl *Table) analyzeTable() {
 	// columns each cell draws half of it, so the line sits on the column
 	// boundary; between rows the upper cell draws all of it and the lower
 	// cell nothing, so a table split between pages keeps a full line at the
-	// bottom of the page.
+	// bottom of the page. The cell after a column boundary paints the whole
+	// line in one piece over its own height (leftSeamReach).
 	for _, row := range tbl.Rows {
 		for _, cell := range row.Cells {
 			if len(cell.nextCell) > 0 {
@@ -996,6 +1009,7 @@ func (tbl *Table) analyzeTable() {
 				for _, nc := range cell.nextCell {
 					nc.calculatedBorderLeftWidth = half
 					nc.BorderLeftColor = col
+					nc.leftSeamReach = want - half
 				}
 			}
 			if len(cell.nextRow) > 0 {
