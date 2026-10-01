@@ -2390,6 +2390,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		return nil, err
 	}
 	fontsize = primaryFontsize
+	// Under a background, a space remembers its font: a run of spaces alone
+	// has no glyph to size the box from (see drawBackground).
+	var bgSpace *spaceBox
+	if ts[SettingBackgroundColor] != nil {
+		bgSpace = &spaceBox{font: fnt, yoffset: yoffset + lineShift}
+	}
 
 	var head, cur node.Node
 	// Insert a destination anchor if SettingDest is set.
@@ -2669,6 +2675,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		}
 		for n := startNode; n != nil; n = n.Next() {
 			n.SetBidiLevel(level)
+			if bgSpace != nil && (r.IsSpace || r.Components == "\t") {
+				switch n.(type) {
+				case *node.Glue, *node.Rule:
+					n.SetAttribute(attrSpaceBox, bgSpace)
+				}
+			}
 			if n == cur {
 				break
 			}

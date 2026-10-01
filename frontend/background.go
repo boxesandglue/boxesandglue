@@ -3,6 +3,7 @@ package frontend
 import (
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 )
@@ -11,6 +12,18 @@ import (
 // Text with its own background colour. The opener carries the *color.Color,
 // the closer carries nil and points back to the opener via StartNode.
 const attrInlineBackground = "inlinebackground"
+
+// attrSpaceBox is set on the glue (or rule) of a space set under a background
+// to its *spaceBox. The leading underscore keeps it out of --dumpoutput.
+const attrSpaceBox = "_inlinebackgroundspace"
+
+// spaceBox is the font a space was set in and the run's vertical offset, so
+// that a background over spaces alone gets the box its text would have:
+// CSS paints an inline box's content area whatever it holds.
+type spaceBox struct {
+	font    *font.Font
+	yoffset bag.ScaledPoint
+}
 
 // inlineBackground is one background box that is open while walking a line.
 type inlineBackground struct {
@@ -79,18 +92,29 @@ type bgSegment struct {
 // get the same box. Glyphs raised or lowered by vertical-align carry the box
 // with them. Where the font box changes within the run, a nested Text in a
 // larger size say, the box is split so that each part fits its own text; the
-// same text therefore gets the same box on every line it lands on. Spaces,
-// kerns and markers belong to the part before them, or to the first part when
-// nothing precedes them. A run without any glyph, an inline image say, falls
-// back to the dimensions of its nodes.
+// same text therefore gets the same box on every line it lands on. A space set
+// under the background has its font's box like a glyph (attrSpaceBox), so a
+// run of spaces alone is painted too; kerns, markers and other spaces belong
+// to the part before them, or to the first part when nothing precedes them. A
+// run without any glyph or such space, an inline image say, falls back to the
+// dimensions of its nodes.
 func drawBackground(head, start, stop node.Node, col *color.Color) node.Node {
 	var segs []*bgSegment
 	var cur *bgSegment
 	for e := start; e != nil; e = e.Next() {
 		wd, ht, dp := e.Sizes(node.Horizontal)
+		var f *font.Font
+		var yoffset bag.ScaledPoint
 		if g, ok := e.(*node.Glyph); ok && g.Font != nil {
-			ht = g.YOffset + g.Font.Size - g.Font.Depth
-			dp = g.Font.Depth - g.YOffset
+			f, yoffset = g.Font, g.YOffset
+		} else if v, ok := e.GetAttribute(attrSpaceBox); ok {
+			if sb, ok := v.(*spaceBox); ok && sb.font != nil {
+				f, yoffset = sb.font, sb.yoffset
+			}
+		}
+		if f != nil {
+			ht = yoffset + f.Size - f.Depth
+			dp = f.Depth - yoffset
 			switch {
 			case cur == nil:
 				cur = &bgSegment{start: e}

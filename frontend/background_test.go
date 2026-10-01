@@ -153,6 +153,34 @@ func TestInlineBackground(t *testing.T) {
 		}
 	})
 
+	t.Run("a span of spaces alone gets its font's box", func(t *testing.T) {
+		// <b style="background:yellow">one</b><span style="background:yellow"> </span>...
+		te := NewText()
+		for _, s := range []string{"one", " ", "two"} {
+			span := NewText()
+			span.Settings[SettingBackgroundColor] = yellow
+			span.Items = append(span.Items, s)
+			te.Items = append(te.Items, span)
+		}
+		lines := backgroundRules(format(t, te, "200pt"))
+		if len(lines) != 1 || len(lines[0]) != 3 {
+			t.Fatalf("got %d lines / %d rules, want one line with three rules", len(lines), countRules(lines))
+		}
+		// "x y w h re f": the space's box is as tall as its neighbours'.
+		box := func(r *node.Rule) string {
+			f := strings.Fields(r.Pre)
+			for i, w := range f {
+				if w == "re" && i >= 4 {
+					return f[i-3] + " " + f[i-1]
+				}
+			}
+			return r.Pre
+		}
+		if got, want := box(lines[0][1]), box(lines[0][0]); got != want {
+			t.Errorf("space box y/height = %s, want %s as for the glyphs", got, want)
+		}
+	})
+
 	t.Run("re-formatting the same Text paints once per pass", func(t *testing.T) {
 		// Table layout formats a cell's Text several times; the inherited
 		// settings that Mknodes copies into the child must not turn the
