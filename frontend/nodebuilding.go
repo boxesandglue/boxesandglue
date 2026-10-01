@@ -2540,7 +2540,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					cur = g
 					lastglue = g
 				case "\t":
-					g := tabGlue(ts, fnt)
+					g := tabGlue(ts, fnt, scaled)
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
@@ -2577,7 +2577,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					head = node.InsertAfter(head, cur, p)
 					cur = p
 				}
-				g := tabGlue(ts, fnt)
+				g := tabGlue(ts, fnt, scaled)
 				head = node.InsertAfter(head, cur, g)
 				cur = g
 				lastglue = g
@@ -2741,8 +2741,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 
 // tabGlue returns the glue for a tab, SettingTabSize or SettingTabSizeSpaces
 // wide. With tab stops the line breaker gives it another width when it
-// reaches one; without, it is ordinary glue as it always was.
-func tabGlue(ts TypesettingSettings, fnt *font.Font) *node.Glue {
+// reaches one; without, it is ordinary glue as it always was. A width
+// counted in spaces is counted in the run's spaces as rendered, so scaled
+// tells it the run's horizontal scale.
+func tabGlue(ts TypesettingSettings, fnt *font.Font, scaled func(bag.ScaledPoint) bag.ScaledPoint) *node.Glue {
 	g := node.NewGlue()
 	g.Attributes = node.H{"origin": "tab"}
 	if _, ok := ts[SettingTabStops]; ok {
@@ -2757,12 +2759,12 @@ func tabGlue(ts TypesettingSettings, fnt *font.Font) *node.Glue {
 	}
 	if tw, ok := ts[SettingTabSizeSpaces]; ok && !hasTabsize {
 		if nspaces, ok := tw.(int); ok {
-			g.Width = bag.ScaledPoint(nspaces) * fnt.Space
+			g.Width = scaled(bag.ScaledPoint(nspaces) * fnt.Space)
 			hasTabsize = true
 		}
 	}
 	if !hasTabsize {
-		g.Width = 4 * fnt.Space
+		g.Width = scaled(4 * fnt.Space)
 	}
 	return g
 }

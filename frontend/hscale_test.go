@@ -61,3 +61,53 @@ func TestSettingHorizontalScale(t *testing.T) {
 		t.Errorf("the run is %.3fpt wide, want %.3fpt", got, want)
 	}
 }
+
+// A tab counted in spaces is as wide as that many of the run's spaces, so it
+// follows the scale; a tab size given as a length does not.
+func TestHorizontalScaleOfTab(t *testing.T) {
+	const scale = 0.9
+	tab := func(s float64, setting SettingType, value any) bag.ScaledPoint {
+		fe, ff := lineModelDocument(t)
+		te := NewText()
+		te.Settings[SettingFontFamily] = ff
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		te.Settings[SettingPreserveWhitespace] = true
+		if s != 1 {
+			te.Settings[SettingHorizontalScale] = s
+		}
+		if value != nil {
+			te.Settings[setting] = value
+		}
+		te.Items = append(te.Items, "a\tb")
+		head, _, err := fe.Mknodes(te)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for n := head; n != nil; n = n.Next() {
+			if g, ok := n.(*node.Glue); ok {
+				return g.Width
+			}
+		}
+		t.Fatal("no tab glue")
+		return 0
+	}
+	for _, tc := range []struct {
+		name    string
+		setting SettingType
+		value   any
+		scales  bool
+	}{
+		{"default", SettingTabSizeSpaces, nil, true},
+		{"two spaces", SettingTabSizeSpaces, 2, true},
+		{"length", SettingTabSize, bag.MustSP("20pt"), false},
+	} {
+		plain, scaled := tab(1, tc.setting, tc.value), tab(scale, tc.setting, tc.value)
+		want := plain
+		if tc.scales {
+			want = bag.MultiplyFloat(plain, scale)
+		}
+		if scaled != want {
+			t.Errorf("%s: tab %s at %g, want %s (%s unscaled)", tc.name, scaled, scale, want, plain)
+		}
+	}
+}
