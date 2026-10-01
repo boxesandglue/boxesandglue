@@ -114,3 +114,54 @@ func TestHyphenate(t *testing.T) {
 		head = head.Next()
 	}
 }
+
+// A word that spans two runs with different scales gets a hyphen in the
+// scale of the glyph before the break, the one the hyphen follows on the
+// line. A kern between the two glyphs does not count as the glyph.
+func TestHyphenTakesScaleOfGlyphBeforeBreak(t *testing.T) {
+	for _, tc := range []struct{ first, second, want float64 }{
+		{0.8, 0, 0.8},
+		{0, 1.2, 0},
+	} {
+		var head, cur node.Node
+		for i, r := range "computer" {
+			n := node.NewGlyph()
+			n.Hyphenate = true
+			n.Codepoint = 123
+			n.Components = string(r)
+			n.Width = 5 * bag.Factor
+			n.HorizontalScale = tc.first
+			if i >= 3 {
+				n.HorizontalScale = tc.second
+			}
+			head = node.InsertAfter(head, cur, n)
+			cur = n
+			if i == 2 {
+				k := node.NewKern()
+				k.Kern = bag.Factor
+				head = node.InsertAfter(head, cur, k)
+				cur = k
+			}
+		}
+		var dummy bytes.Buffer
+		doc := document.NewDocument(&dummy)
+		l, err := doc.LoadPatternFile(filepath.Join("testdata", "hyph-en-us.pat.txt"), "dummylang")
+		if err != nil {
+			t.Fatal(err)
+		}
+		Hyphenate(head, l)
+		var disc *node.Disc
+		for n := head; n != nil; n = n.Next() {
+			if d, ok := n.(*node.Disc); ok {
+				disc = d
+				break
+			}
+		}
+		if disc == nil {
+			t.Fatal("no hyphenation point in computer")
+		}
+		if g, ok := disc.Pre.(*node.Glyph); !ok || g.HorizontalScale != tc.want {
+			t.Errorf("com|puter at %g|%g: hyphen %v, want scale %g", tc.first, tc.second, disc.Pre, tc.want)
+		}
+	}
+}

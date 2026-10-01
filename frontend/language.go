@@ -153,7 +153,9 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 		word.Reset()
 		bp := l.Hyphenate(str)
 		for _, step := range bp {
+			var before node.Node
 			for i := 0; i <= step-1; i++ {
+				before = cur
 				cur = cur.Next()
 				if cur.Type() == node.TypeKern {
 					cur = cur.Next()
@@ -167,8 +169,9 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 				hyphen.Components = fnt.Hyphenchar.Components
 				hyphen.Codepoint = fnt.Hyphenchar.Codepoint
 			}
-			// The hyphen takes the scale of the run it breaks.
-			if g, ok := cur.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
+			// The hyphen ends the line after the glyph before the break, so
+			// it takes that glyph's scale when a word spans two runs.
+			if g, ok := before.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
 				hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
 				hyphen.HorizontalScale = g.HorizontalScale
 			}
