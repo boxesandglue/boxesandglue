@@ -24,11 +24,11 @@ type rowPart struct {
 	spacingV  bag.ScaledPoint
 }
 
-// splitsInside reports whether row i may break inside: it asks to, and no
-// rowspan reaches into or out of it.
+// splitsInside reports whether row i may break inside: it asks to, its height
+// is not fixed, and no rowspan reaches into or out of it.
 func (tbl *Table) splitsInside(i int) bool {
 	row := tbl.Rows[i]
-	if !row.BreakInside {
+	if !row.BreakInside || row.FixedHeight > 0 {
 		return false
 	}
 	for x := 0; x < tbl.nCol; x++ {

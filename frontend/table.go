@@ -80,7 +80,16 @@ type TableRow struct {
 	// <tr>). CSS 2.1 §17.5.3 treats it as a lower bound: the row grows
 	// to fit its cells but never shrinks below it.
 	MinHeight bag.ScaledPoint
-	VAlign    VerticalAlignment
+	// FixedHeight, when not zero, is the height of the row whatever its
+	// cells hold (Word's "exact" row height), and MinHeight on the row and
+	// its cells is ignored. Content that does not fit draws past the row in
+	// the direction its VAlign leaves open, while background and borders
+	// keep the row height. Rows are drawn in order, so content that runs
+	// into the next row is painted over by that row's background. A row
+	// with a fixed height never breaks inside, and a rowspan's missing
+	// height goes to the rows of the span that are not fixed.
+	FixedHeight bag.ScaledPoint
+	VAlign      VerticalAlignment
 	// BreakInside lets the row break across pages or frames: BuildTable
 	// gives its hlist a RowSplitter in Attributes["_split"]. A row a rowspan
 	// reaches into or out of stays whole. When a nested table in the row
@@ -610,7 +619,10 @@ func (row *TableRow) setHeight() ([]span, error) {
 		if err != nil {
 			return nil, err
 		}
-		ht := max(vl.Height+vl.Depth, cell.MinHeight)
+		ht := vl.Height + vl.Depth
+		if row.FixedHeight == 0 || cell.ExtraRowspan > 0 {
+			ht = max(ht, cell.MinHeight)
+		}
 		if cell.ExtraRowspan == 0 {
 			if ht > maxht {
 				maxht = ht
@@ -619,7 +631,11 @@ func (row *TableRow) setHeight() ([]span, error) {
 			rowspans = append(rowspans, span{start: cell.rowStart, end: cell.rowStart + cell.ExtraRowspan, size: ht})
 		}
 	}
-	row.table.rowHeights[row.row] = max(maxht, row.MinHeight)
+	if row.FixedHeight > 0 {
+		row.table.rowHeights[row.row] = row.FixedHeight
+	} else {
+		row.table.rowHeights[row.row] = max(maxht, row.MinHeight)
+	}
 	return rowspans, nil
 }
 
@@ -734,13 +750,20 @@ func (tr *TableRows) calculateHeights() error {
 	}
 	for _, rs := range rowspans {
 		sumHT := bag.ScaledPoint(0)
+		free := 0
 		for r := rs.start; r <= rs.end; r++ {
 			sumHT += tbl.rowHeights[r]
+			if tbl.Rows[r].FixedHeight == 0 {
+				free++
+			}
 		}
-		if rs.size > sumHT {
-			stretch := (rs.size - sumHT) / bag.ScaledPoint(rs.end-rs.start+1)
+		// With every row of the span fixed the cell overflows.
+		if rs.size > sumHT && free > 0 {
+			stretch := (rs.size - sumHT) / bag.ScaledPoint(free)
 			for r := rs.start; r <= rs.end; r++ {
-				tbl.rowHeights[r] = tbl.rowHeights[r] + stretch
+				if tbl.Rows[r].FixedHeight == 0 {
+					tbl.rowHeights[r] = tbl.rowHeights[r] + stretch
+				}
 			}
 		}
 	}
