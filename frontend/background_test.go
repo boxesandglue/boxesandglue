@@ -195,6 +195,62 @@ func TestInlineBackground(t *testing.T) {
 			t.Errorf("second pass: got %d background rules, want 1", got)
 		}
 	})
+
+	t.Run("spaces at a paragraph's edge inside a span are stripped", func(t *testing.T) {
+		// issue #55: spaces at paragraph edge should be stripped even inside spans with background
+		span := func(s string) *Text {
+			x := NewText()
+			x.Settings[SettingBackgroundColor] = yellow
+			x.Items = append(x.Items, s)
+			return x
+		}
+
+		// Baseline: span("one") without spaces
+		teWord := NewText()
+		teWord.Items = append(teWord.Items, span("one"))
+		vlWord := format(t, teWord, "200pt")
+		rulesWord := backgroundRules(vlWord)
+		if len(rulesWord) != 1 || len(rulesWord[0]) != 1 {
+			t.Fatalf("span('one') got %d rules, want 1", countRules(rulesWord))
+		}
+		wantWidth := rulesWord[0][0].Width
+
+		// Case 1: span(" one ") has leading and trailing spaces stripped
+		te1 := NewText()
+		te1.Items = append(te1.Items, span(" one "))
+		vl1 := format(t, te1, "200pt")
+		rules1 := backgroundRules(vl1)
+		if len(rules1) != 1 || len(rules1[0]) != 1 {
+			t.Fatalf("span(' one ') got %d rules, want 1", countRules(rules1))
+		}
+		if got := rules1[0][0].Width; got != wantWidth {
+			t.Errorf("span(' one ') rule width = %v, want %v (same as span('one'))", got, wantWidth)
+		}
+
+		// Case 2: span("one"), span(" ") at paragraph end (trailing space in span stripped)
+		teEnd := NewText()
+		teEnd.Items = append(teEnd.Items, span("one"), span(" "))
+		vlEnd := format(t, teEnd, "200pt")
+		rulesEnd := backgroundRules(vlEnd)
+		if len(rulesEnd) != 1 || len(rulesEnd[0]) != 1 {
+			t.Fatalf("span('one'), span(' ') got %d rules, want 1", countRules(rulesEnd))
+		}
+		if got := rulesEnd[0][0].Width; got != wantWidth {
+			t.Errorf("span('one'), span(' ') rule width = %v, want %v", got, wantWidth)
+		}
+
+		// Case 3: span(" "), span("one") at paragraph start (leading space in span stripped)
+		teStart := NewText()
+		teStart.Items = append(teStart.Items, span(" "), span("one"))
+		vlStart := format(t, teStart, "200pt")
+		rulesStart := backgroundRules(vlStart)
+		if len(rulesStart) != 1 || len(rulesStart[0]) != 1 {
+			t.Fatalf("span(' '), span('one') got %d rules, want 1", countRules(rulesStart))
+		}
+		if got := rulesStart[0][0].Width; got != wantWidth {
+			t.Errorf("span(' '), span('one') rule width = %v, want %v", got, wantWidth)
+		}
+	})
 }
 
 // TestDecorationDrawnOncePerLine guards postLinebreak against walking the
