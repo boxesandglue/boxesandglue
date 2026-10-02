@@ -1425,6 +1425,9 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	node.AppendLineEndAfter(hlist, tail)
 
 	ls := fe.linebreakSettings(te, p)
+	if p.Alignment != HAlignJustified {
+		setRigidSpaces(hlist, ls)
+	}
 	// The UAX#9 paragraph embedding level (0 = LTR, 1 = RTL) drives the
 	// per-line bidi reorder after line breaking.
 	var paragraphLevel uint8
@@ -1434,6 +1437,19 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 		}
 	}
 	return &paragraphPrep{hlist: hlist, ls: ls, pi: &pi, paragraphLevel: paragraphLevel}, nil
+}
+
+// setRigidSpaces sets a ragged paragraph at its natural width, as plain TeX's
+// \raggedright sets rigid spaces: its interword glue keeps its stretch but
+// loses its shrink, and its glyphs are not condensed. CSS Text 3 §6.1 lets
+// only justified text be stretched or shrunk.
+func setRigidSpaces(hlist node.Node, ls *node.LinebreakSettings) {
+	ls.FontExpansion = 0
+	for n := hlist; n != nil; n = n.Next() {
+		if g, ok := n.(*node.Glue); ok && g.Subtype == node.GlueDefault && g.ShrinkOrder == node.StretchNormal {
+			g.Shrink = 0
+		}
+	}
 }
 
 // paragraphOptions resolves the typesetting options of a paragraph from the
