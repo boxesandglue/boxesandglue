@@ -214,7 +214,7 @@ type MetricsOverride struct {
 	Ascent, Descent, LineGap float64
 }
 
-// SyntheticSlant is the shear of a synthesised oblique: tan 12°, the angle
+// SyntheticSlant is the shear of a synthesized oblique: tan 12°, the angle
 // browsers and word processors slant an upright face by.
 const SyntheticSlant = 0.2126
 
@@ -377,7 +377,7 @@ func (ff *FontFamily) instanceAt(base *FontSource, w FontWeight) *FontSource {
 }
 
 // GetFontSource tries to get the face closest to the requested face.
-// A style the family lacks is synthesised as the family's default says (see
+// A style the family lacks is synthesized as the family's default says (see
 // SetSynthesizeStyle).
 func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSource, error) {
 	return ff.lookup(weight, style, synthesisSetting{})
@@ -478,7 +478,7 @@ found:
 		}
 		msg := fmt.Sprintf("Style %s not found in font family %s. Known styles for weight %s are %s", style, ff.Name, weight, strings.Join(keys, ", "))
 		if slanted {
-			msg += "; synthesised by slanting the upright 12°"
+			msg += "; synthesized by slanting the upright 12°"
 		}
 		bag.Logger.Warn(msg)
 	}

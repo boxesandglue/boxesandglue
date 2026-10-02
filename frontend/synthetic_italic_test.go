@@ -42,7 +42,7 @@ func TestMissingItalicIsSynthesised(t *testing.T) {
 	if n, _ := ff.GetFontSource(FontWeight400, FontStyleNormal); n != upright {
 		t.Error("the upright is still itself")
 	}
-	if n := strings.Count(logged.String(), "synthesised by slanting the upright"); n != 1 {
+	if n := strings.Count(logged.String(), "synthesized by slanting the upright"); n != 1 {
 		t.Errorf("said %d times that the italic is synthesised, want once:\n%s", n, logged.String())
 	}
 
