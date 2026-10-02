@@ -962,54 +962,70 @@ type ParagraphInfo struct {
 // stripLeadingTrailingGlue removes collapsible whitespace (Glue and Kern
 // nodes) from the start and end of a node list. This implements CSS
 // white-space collapsing. Non-breaking spaces (Penalty 10000 + Glue) are
-// preserved. StartStop nodes (colors, hyperlinks) are preserved.
+// preserved. StartStop nodes (colors, hyperlinks) are preserved and stepped
+// over so that whitespace inside spans at the paragraph's edge is removed.
 func stripLeadingTrailingGlue(head, tail node.Node, keepTabs bool) (node.Node, node.Node) {
 	isTab := func(n node.Node) bool {
 		g, ok := n.(*node.Glue)
 		return keepTabs && ok && g.Subtype == node.GlueTab
 	}
-	// Strip leading Glue/Kern, but stop at a Penalty (protects NBSP).
-	for head != nil && !isTab(head) {
-		switch head.(type) {
+	// Strip leading Glue/Kern, stepping over StartStop nodes. Stop at a
+	// Penalty (protects NBSP) or any other content node.
+leadingLoop:
+	for cur := head; cur != nil; {
+		if isTab(cur) {
+			break leadingLoop
+		}
+		switch cur.(type) {
+		case *node.StartStop:
+			cur = cur.Next()
+			continue
 		case *node.Glue, *node.Kern:
-			next := head.Next()
-			head = node.DeleteFromList(head, head)
-			if next != nil {
-				next.SetPrev(nil)
-			}
-			head = next
+			next := cur.Next()
+			head = node.DeleteFromList(head, cur)
+			cur = next
 			continue
 		}
-		break
+		break leadingLoop
 	}
-	// Strip trailing Glue/Kern. If a Glue is preceded by a Penalty(10000),
-	// it is a non-breaking space — stop and keep both.
-	for tail != nil && tail != head && !isTab(tail) {
-		switch tail.(type) {
+	if head == nil {
+		return nil, nil
+	}
+	tail = node.Tail(head)
+
+	// Strip trailing Glue/Kern, stepping over StartStop nodes. If a Glue
+	// is preceded by a Penalty(10000), it is a non-breaking space — stop
+	// and keep both.
+trailingLoop:
+	for cur := tail; cur != nil; {
+		if isTab(cur) {
+			break trailingLoop
+		}
+		switch cur.(type) {
+		case *node.StartStop:
+			cur = cur.Prev()
+			continue
 		case *node.Glue:
-			if p, ok := tail.Prev().(*node.Penalty); ok && p.Penalty >= 10000 {
+			if p, ok := cur.Prev().(*node.Penalty); ok && p.Penalty >= 10000 {
 				// NBSP: Penalty + Glue pair, keep it
-				return head, tail
+				break trailingLoop
 			}
-			prev := tail.Prev()
-			head = node.DeleteFromList(head, tail)
-			tail = prev
+			prev := cur.Prev()
+			head = node.DeleteFromList(head, cur)
+			cur = prev
 			continue
 		case *node.Kern:
-			prev := tail.Prev()
-			head = node.DeleteFromList(head, tail)
-			tail = prev
+			prev := cur.Prev()
+			head = node.DeleteFromList(head, cur)
+			cur = prev
 			continue
 		}
-		break
+		break trailingLoop
 	}
-	// Edge case: head == tail and it's collapsible
-	if head != nil && !isTab(head) {
-		switch head.(type) {
-		case *node.Glue, *node.Kern:
-			return nil, nil
-		}
+	if head == nil {
+		return nil, nil
 	}
+	tail = node.Tail(head)
 	return head, tail
 }
 
