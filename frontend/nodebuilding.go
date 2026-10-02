@@ -2563,11 +2563,11 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 						// pre-wrap: the width is fixed but the position is
 						// still a legal breakpoint, which a Rule is not.
 						gl := node.NewGlue()
-						gl.Width = scaled(fnt.SpaceChar.Advance)
+						gl.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
 						g = gl
 					} else {
 						r := node.NewRule()
-						r.Width = scaled(fnt.SpaceChar.Advance)
+						r.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
 						g = r
 					}
 					head = node.InsertAfter(head, cur, g)
@@ -2598,7 +2598,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					// fnt.Space default. The rule renders nothing (the
 					// font's glyph is typically blank).
 					g := node.NewRule()
-					g.Width = scaled(r.Advance)
+					g.Width = scaled(r.Advance) + letterSpacing
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
@@ -2654,7 +2654,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 						}
 						g := node.NewGlue()
 						g.Attributes = node.H{"origin": "lastglue=nil"}
-						g.Width = scaled(fnt.Space)
+						// CSS Text 3 §7.2: letter-spacing follows a space too.
+						g.Width = scaled(fnt.Space) + letterSpacing
 						g.Stretch = scaled(fnt.SpaceStretch)
 						g.Shrink = scaled(fnt.SpaceShrink)
 						head = node.InsertAfter(head, cur, g)
