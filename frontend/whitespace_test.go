@@ -159,4 +159,165 @@ func TestStripLeadingTrailingGlueInSpans(t *testing.T) {
 	if sTabOpen.Next() != tabGlue {
 		t.Errorf("tab glue should not be stripped when keepTabs is true")
 	}
+
+	// 5. Padded span with StartStop: | s1 kern(pad-left) glue glyph glue kern(pad-right) s2 |
+	sP1 := node.NewStartStop()
+	kPL := node.NewKern()
+	kPL.Attributes = node.H{"origin": "padding left"}
+	kPL.Kern = bag.MustSP("5pt")
+	gPLead := node.NewGlue()
+	pGlyph := node.NewGlyph()
+	gPTrail := node.NewGlue()
+	kPR := node.NewKern()
+	kPR.Attributes = node.H{"origin": "padding right"}
+	kPR.Kern = bag.MustSP("5pt")
+	sP2 := node.NewStartStop()
+
+	node.InsertAfter(sP1, sP1, kPL)
+	node.InsertAfter(sP1, kPL, gPLead)
+	node.InsertAfter(sP1, gPLead, pGlyph)
+	node.InsertAfter(sP1, pGlyph, gPTrail)
+	node.InsertAfter(sP1, gPTrail, kPR)
+	node.InsertAfter(sP1, kPR, sP2)
+
+	head, tail = stripLeadingTrailingGlue(sP1, sP2, false)
+	if head != sP1 || tail != sP2 {
+		t.Fatalf("head = %v, tail = %v; want sP1, sP2", head, tail)
+	}
+	if sP1.Next() != kPL || kPL.Next() != pGlyph || pGlyph.Next() != kPR || kPR.Next() != sP2 {
+		t.Errorf("expected sP1 -> kPL -> pGlyph -> kPR -> sP2, got %v -> %v -> %v -> %v -> %v",
+			sP1, sP1.Next(), sP1.Next().Next(), sP1.Next().Next().Next(), sP1.Next().Next().Next().Next())
+	}
+
+	// 6. Padded span without StartStop: | kern(pad-left) glue glyph glue kern(pad-right) |
+	kPL2 := node.NewKern()
+	kPL2.Attributes = node.H{"origin": "padding left"}
+	kPL2.Kern = bag.MustSP("5pt")
+	gPLead2 := node.NewGlue()
+	pGlyph2 := node.NewGlyph()
+	gPTrail2 := node.NewGlue()
+	kPR2 := node.NewKern()
+	kPR2.Attributes = node.H{"origin": "padding right"}
+	kPR2.Kern = bag.MustSP("5pt")
+
+	node.InsertAfter(kPL2, kPL2, gPLead2)
+	node.InsertAfter(kPL2, gPLead2, pGlyph2)
+	node.InsertAfter(kPL2, pGlyph2, gPTrail2)
+	node.InsertAfter(kPL2, gPTrail2, kPR2)
+
+	head, tail = stripLeadingTrailingGlue(kPL2, kPR2, false)
+	if head != kPL2 || tail != kPR2 {
+		t.Fatalf("head = %v, tail = %v; want kPL2, kPR2", head, tail)
+	}
+	if kPL2.Next() != pGlyph2 || pGlyph2.Next() != kPR2 {
+		t.Errorf("expected kPL2 -> pGlyph2 -> kPR2, got %v -> %v -> %v",
+			kPL2, kPL2.Next(), kPL2.Next().Next())
+	}
+}
+
+// TestPaddedSpanWhitespaceAtEdge verifies that padding kerns are preserved
+// at paragraph edges while collapsible whitespace inside spans is stripped,
+// across all four permutations of (with/without spaces) and (with/without background).
+func TestPaddedSpanWhitespaceAtEdge(t *testing.T) {
+	fe, ff := lineModelDocument(t)
+	yellow := fe.GetColor("yellow")
+	pad := bag.MustSP("5pt")
+
+	cases := []struct {
+		name       string
+		text       string
+		background bool
+	}{
+		{"with spaces, with background", " one ", true},
+		{"without spaces, with background", "one", true},
+		{"with spaces, without background", " one ", false},
+		{"without spaces, without background", "one", false},
+	}
+
+	var bgWidthWithSpaces, bgWidthNoSpaces bag.ScaledPoint
+	var plainWidthWithSpaces, plainWidthNoSpaces bag.ScaledPoint
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			span := NewText()
+			if tc.background {
+				span.Settings[SettingBackgroundColor] = yellow
+			}
+			span.Settings[SettingPaddingLeft] = pad
+			span.Settings[SettingPaddingRight] = pad
+			span.Items = append(span.Items, tc.text)
+
+			te := NewText()
+			te.Settings[SettingFontFamily] = ff
+			te.Settings[SettingSize] = bag.MustSP("10pt")
+			te.Items = append(te.Items, span)
+
+			vl, _, err := fe.FormatParagraph(te, bag.MustSP("200pt"))
+			if err != nil {
+				t.Fatalf("FormatParagraph: %v", err)
+			}
+			hl, ok := vl.List.(*node.HList)
+			if !ok {
+				t.Fatalf("expected *node.HList line, got %T", vl.List)
+			}
+
+			// Verify that padding kerns (5pt) are present at left and right
+			var hasPadLeft, hasPadRight bool
+			for n := hl.List; n != nil; n = n.Next() {
+				if k, ok := n.(*node.Kern); ok {
+					if origin, _ := k.Attributes["origin"].(string); origin == "padding left" && k.Kern == pad {
+						hasPadLeft = true
+					}
+					if origin, _ := k.Attributes["origin"].(string); origin == "padding right" && k.Kern == pad {
+						hasPadRight = true
+					}
+				}
+			}
+			if !hasPadLeft {
+				t.Errorf("missing padding left kern of %v", pad)
+			}
+			if !hasPadRight {
+				t.Errorf("missing padding right kern of %v", pad)
+			}
+
+			if tc.background {
+				rules := backgroundRules(vl)
+				if countRules(rules) != 1 {
+					t.Fatalf("got %d background rules, want 1", countRules(rules))
+				}
+				if tc.text == " one " {
+					bgWidthWithSpaces = rules[0][0].Width
+				} else {
+					bgWidthNoSpaces = rules[0][0].Width
+				}
+			} else {
+				// Measure content width between left padding and right padding
+				var spanStart, spanStop node.Node
+				for n := hl.List; n != nil; n = n.Next() {
+					if k, ok := n.(*node.Kern); ok {
+						if origin, _ := k.Attributes["origin"].(string); origin == "padding left" {
+							spanStart = n
+						}
+						if origin, _ := k.Attributes["origin"].(string); origin == "padding right" {
+							spanStop = n
+						}
+					}
+				}
+				spanWidth, _, _ := node.Dimensions(spanStart, spanStop, node.Horizontal)
+				if tc.text == " one " {
+					plainWidthWithSpaces = spanWidth
+				} else {
+					plainWidthNoSpaces = spanWidth
+				}
+			}
+		})
+	}
+
+	// Verify that stripped spaces do not widen the background box or span
+	if bgWidthWithSpaces != bgWidthNoSpaces {
+		t.Errorf("background box with spaces (%v) != without spaces (%v)", bgWidthWithSpaces, bgWidthNoSpaces)
+	}
+	if plainWidthWithSpaces != plainWidthNoSpaces {
+		t.Errorf("span width with spaces (%v) != without spaces (%v)", plainWidthWithSpaces, plainWidthNoSpaces)
+	}
 }
