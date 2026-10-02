@@ -125,3 +125,54 @@ func TestCollapsedColumnBorderTakesTheWiderInOnePiece(t *testing.T) {
 		t.Errorf("a 2pt seam is %s of the cell, painted as %q", lr.Width, lr.Pre)
 	}
 }
+
+// spanTable builds A | R over B |, R spanning both rows, every border 1pt,
+// with A's right border in colour a and B's in colour b.
+func spanTable(t *testing.T, a, b string) *TableCell {
+	t.Helper()
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := bag.MustSP("1pt")
+	cell := func() *TableCell {
+		return &TableCell{
+			BorderLeftWidth: rule, BorderRightWidth: rule,
+			BorderTopWidth: rule, BorderBottomWidth: rule,
+			Contents: []any{fixedBox(bag.MustSP("20pt"), bag.MustSP("10pt"))},
+		}
+	}
+	ca, cb, r := cell(), cell(), cell()
+	ca.BorderRightColor = fe.GetColor(a)
+	cb.BorderRightColor = fe.GetColor(b)
+	r.ExtraRowspan = 1
+	tbl := &Table{BorderModel: BorderModelCollapse}
+	tbl.Rows = []*TableRow{{Cells: []*TableCell{ca, r}}, {Cells: []*TableCell{cb}}}
+	for range 2 {
+		tbl.ColSpec = append(tbl.ColSpec, ColSpec{ColumnWidth: &node.Glue{Width: bag.MustSP("60pt")}})
+	}
+	if _, err := fe.BuildTable(tbl); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// A cell spanning rows paints its left line in one piece only when every
+// seam on its left agrees; one colour painted over all of them would be
+// wrong next to the others.
+func TestCollapsedColumnBorderDisagreeingSeamsKeepTheirHalves(t *testing.T) {
+	lr, _ := leftRule(t, spanTable(t, "red", "blue"))
+	if _, _, ok := rectOf(lr.Pre); ok || lr.Hide {
+		t.Errorf("seams in red and blue are painted in one piece as %q", lr.Pre)
+	}
+	if lr.Width != bag.MustSP("0.5pt") {
+		t.Errorf("the spanning cell takes %s of the seam, want half, 0.5pt", lr.Width)
+	}
+}
+
+func TestCollapsedColumnBorderAgreeingSeamsArePaintedInOnePiece(t *testing.T) {
+	lr, _ := leftRule(t, spanTable(t, "red", "red"))
+	if x, w, ok := rectOf(lr.Pre); !ok || !lr.Hide || x != bag.MustSP("-0.5pt").String() || w != bag.MustSP("1pt").String() {
+		t.Errorf("two red seams are painted as %q, want one 1pt rectangle from -0.5pt", lr.Pre)
+	}
+}

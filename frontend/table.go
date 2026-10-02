@@ -992,6 +992,20 @@ func (tbl *Table) analyzeTable() {
 	// cell nothing, so a table split between pages keeps a full line at the
 	// bottom of the page. The cell after a column boundary paints the whole
 	// line in one piece over its own height (leftSeamReach).
+	// A cell that spans rows can meet several cells on its left. It paints
+	// its line in one piece only when all those seams agree in width and
+	// color; otherwise it would paint one seam's color over the others.
+	type seam struct {
+		width bag.ScaledPoint
+		color string
+	}
+	leftSeams := map[*TableCell]seam{}
+	colorKey := func(c *color.Color) string {
+		if c == nil {
+			return ""
+		}
+		return c.PDFStringNonStroking()
+	}
 	for _, row := range tbl.Rows {
 		for _, cell := range row.Cells {
 			if len(cell.nextCell) > 0 {
@@ -1009,7 +1023,13 @@ func (tbl *Table) analyzeTable() {
 				for _, nc := range cell.nextCell {
 					nc.calculatedBorderLeftWidth = half
 					nc.BorderLeftColor = col
-					nc.leftSeamReach = want - half
+					s := seam{want, colorKey(col)}
+					if prev, seen := leftSeams[nc]; !seen {
+						leftSeams[nc] = s
+						nc.leftSeamReach = want - half
+					} else if prev != s {
+						nc.leftSeamReach = 0
+					}
 				}
 			}
 			if len(cell.nextRow) > 0 {
