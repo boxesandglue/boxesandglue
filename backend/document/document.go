@@ -2578,7 +2578,6 @@ func NewDocument(w io.Writer) *PDFDocument {
 		},
 	}
 	d.curOutputDebug = d.outputDebug
-	pdf.Logger = bag.Logger
 	return d
 }
 
