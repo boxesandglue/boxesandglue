@@ -1840,7 +1840,8 @@ func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
 	oc.gotoTextMode(ScopePage)
 }
 
-// OutputAt places the nodelist at the position.
+// OutputAt places the nodelist at the position. The VList's ShiftX and Shift
+// move it from there, as they do when a parent list renders it.
 func (p *Page) OutputAt(x bag.ScaledPoint, y bag.ScaledPoint, vlist *node.VList) {
 	p.Objects = append(p.Objects, Object{X: x, Y: y, Vlist: vlist})
 }
@@ -1961,8 +1962,8 @@ func (p *Page) Shipout() {
 			}
 		}
 
-		x := obj.X + offsetX
-		y := obj.Y + offsetY
+		x := obj.X + offsetX + vlist.ShiftX
+		y := obj.Y + offsetY + vlist.Shift
 
 		// For top-level objects with a direct tag or artifact, wrap
 		// the entire output in a single BDC/EMC.

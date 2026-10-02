@@ -12,14 +12,16 @@ type VList struct {
 	Height bag.ScaledPoint
 	Depth  bag.ScaledPoint
 	// ShiftX shifts the VList's outer origin to the right when its
-	// parent renders it. Symmetric with HList.ShiftX — every box-like
-	// node can be moved, regardless of progressing direction.
+	// parent renders it, or when it is placed on a page with OutputAt.
+	// Symmetric with HList.ShiftX — every box-like node can be moved,
+	// regardless of progressing direction.
 	ShiftX bag.ScaledPoint
 	// Shift moves the VList's outer reference point vertically when its
-	// parent renders it. Positive shifts toward the top of the page (PDF
-	// +Y). Symmetric with HList.Shift. Callers that need the parent box
-	// to "see" the shifted bounding box must pre-compute Height / Depth
-	// themselves — Shift is a pure rendering offset.
+	// parent renders it, or when it is placed on a page with OutputAt.
+	// Positive shifts toward the top of the page (PDF +Y). Symmetric with
+	// HList.Shift. Callers that need the parent box to "see" the shifted
+	// bounding box must pre-compute Height / Depth themselves — Shift is
+	// a pure rendering offset.
 	Shift    bag.ScaledPoint
 	GlueSet  float64
 	GlueSign uint8
