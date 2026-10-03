@@ -49,6 +49,14 @@ type Font struct {
 	// (frontend.MetricsOverride). hhea is a starting point: browsers on
 	// Windows use the OS/2 win metrics instead unless USE_TYPO_METRICS is set.
 	Ascent, Descent, LineGap bag.ScaledPoint
+	// ContentAscent and ContentDescent are the font's content area at Size,
+	// both positive: the box browsers paint an inline background over (CSS
+	// 2.1 §10.6.1). They are the hhea ascender and descender, or the OS/2
+	// typographic ascender and descender when the face sets USE_TYPO_METRICS
+	// (fsSelection bit 7), without the line gap, or the source's overrides
+	// of the ascent and descent (frontend.MetricsOverride), as CSS's
+	// ascent-override and descent-override change the content area too.
+	ContentAscent, ContentDescent bag.ScaledPoint
 	// Slant is a synthetic oblique: the horizontal shear, tan of the angle,
 	// the text matrix applies to an upright face standing in for an italic
 	// the family was not cut with. 0 for a face drawn as it is.
@@ -75,6 +83,11 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		Descent:      bag.ScaledPointFromFloat(size.ToPT() * descend / 1000),
 		LineGap:      bag.ScaledPointFromFloat(size.ToPT() * max(0, float64(f.LineGap())*scale) / 1000),
 	}
+	fnt.ContentAscent, fnt.ContentDescent = fnt.Ascent, fnt.Descent
+	if os2 := os2Of(f); os2 != nil && os2.FsSelection&useTypoMetrics != 0 && os2.STypoAscender-os2.STypoDescender > 0 {
+		fnt.ContentAscent = bag.ScaledPointFromFloat(size.ToPT() * float64(os2.STypoAscender) * scale / 1000)
+		fnt.ContentDescent = bag.ScaledPointFromFloat(size.ToPT() * float64(-os2.STypoDescender) * scale / 1000)
+	}
 	hyphenchar := fnt.Shape("-", nil, nil)
 	if len(hyphenchar) == 1 {
 		fnt.Hyphenchar = hyphenchar[0]
@@ -99,6 +112,25 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 		}
 	}
 	return fnt
+}
+
+// useTypoMetrics is the USE_TYPO_METRICS bit of the OS/2 table's fsSelection.
+const useTypoMetrics = 1 << 7
+
+// os2Of returns the face's OS/2 table, or nil without one.
+func os2Of(f *ot.Face) *ot.OS2 {
+	if f == nil || f.Font == nil {
+		return nil
+	}
+	data, err := f.Font.TableData(ot.TagOS2)
+	if err != nil {
+		return nil
+	}
+	os2, err := ot.ParseOS2(data)
+	if err != nil {
+		return nil
+	}
+	return os2
 }
 
 // Shape transforms the text into a slice of code points.

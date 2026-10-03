@@ -1,6 +1,7 @@
 package font_test
 
 import (
+	"encoding/binary"
 	"io"
 	"os"
 	"testing"
@@ -131,5 +132,53 @@ func TestVerticalMetrics(t *testing.T) {
 	}
 	if fnt.Ascent <= 0 || fnt.Descent <= 0 {
 		t.Errorf("Ascent %s, Descent %s: want both positive", fnt.Ascent, fnt.Descent)
+	}
+}
+
+// TestContentArea checks the content area browsers take: hhea ascender and
+// descender, or the OS/2 typographic ones when USE_TYPO_METRICS is set.
+func TestContentArea(t *testing.T) {
+	const fontFile = "../../qa/fonts/upem/fonts/texgyreheros-regular.otf"
+	size := bag.MustSP("10pt")
+	load := func(t *testing.T, typo bool) *font.Font {
+		t.Helper()
+		data, err := os.ReadFile(fontFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if typo {
+			// Set USE_TYPO_METRICS, bit 7 of fsSelection at offset 62 of the
+			// OS/2 table, found in the table directory.
+			n := int(binary.BigEndian.Uint16(data[4:]))
+			for i := 0; i < n; i++ {
+				rec := data[12+16*i:]
+				if string(rec[:4]) == "OS/2" {
+					data[int(binary.BigEndian.Uint32(rec[8:]))+63] |= 0x80
+				}
+			}
+		}
+		p := t.TempDir() + "/f.otf"
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		face, err := document.NewDocument(io.Discard).LoadFace(p, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return font.NewFont(face, size)
+	}
+	pt := func(f float64) bag.ScaledPoint { return bag.ScaledPointFromFloat(f) }
+	near := func(a, b bag.ScaledPoint) bool { return a-b < 2 && b-a < 2 }
+
+	hhea := load(t, false)
+	if a, d := hhea.ContentAscent, hhea.ContentDescent; !near(a, pt(11.48)) || !near(d, pt(2.84)) {
+		t.Errorf("hhea: content area %s + %s, want 11.48pt + 2.84pt", a, d)
+	}
+	typo := load(t, true)
+	if a, d := typo.ContentAscent, typo.ContentDescent; !near(a, pt(7.84)) || !near(d, pt(2.16)) {
+		t.Errorf("USE_TYPO_METRICS: content area %s + %s, want 7.84pt + 2.16pt", a, d)
+	}
+	if typo.Ascent != hhea.Ascent {
+		t.Errorf("Ascent %s changed with USE_TYPO_METRICS, want the hhea %s", typo.Ascent, hhea.Ascent)
 	}
 }
