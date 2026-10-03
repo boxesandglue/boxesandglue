@@ -1,7 +1,9 @@
 package frontend
 
 import (
+	"encoding/binary"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -79,4 +81,56 @@ const metricsTestFont = "../qa/fonts/upem/fonts/texgyreheros-regular.otf"
 func firstGlyphFont(t *testing.T, fe *Document, ff *FontFamily) *font.Font {
 	t.Helper()
 	return firstGlyphFontWith(t, fe, ff, NewText())
+}
+
+// An override sets the content area with the ascent and descent, also when it
+// pins a value to exactly the face's hhea one: with USE_TYPO_METRICS set, the
+// typographic value must not take its place.
+func TestMetricsOverrideContentArea(t *testing.T) {
+	data, err := os.ReadFile(metricsTestFont)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Set USE_TYPO_METRICS, bit 7 of fsSelection at offset 62 of the OS/2
+	// table, found in the table directory.
+	for i := 0; i < int(binary.BigEndian.Uint16(data[4:])); i++ {
+		rec := data[12+16*i:]
+		if string(rec[:4]) == "OS/2" {
+			data[int(binary.BigEndian.Uint32(rec[8:]))+63] |= 0x80
+		}
+	}
+	file := t.TempDir() + "/typo.otf"
+	if err := os.WriteFile(file, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	family := func(name string, m *MetricsOverride) *FontFamily {
+		ff := fe.NewFontFamily(name)
+		if err := ff.AddMember(&FontSource{Location: file, Metrics: m}, FontWeight400, FontStyleNormal); err != nil {
+			t.Fatal(err)
+		}
+		return ff
+	}
+	pt := bag.ScaledPointFromFloat
+	near := func(a, b bag.ScaledPoint) bool { return a-b < 2 && b-a < 2 }
+	for _, c := range []struct {
+		name         string
+		m            *MetricsOverride
+		ascent, desc float64
+	}{
+		{"no override", nil, 7.84, 2.16},
+		// TeX Gyre Heros' hhea ascender is 1.148em.
+		{"ascent pinned to the hhea value", &MetricsOverride{Ascent: 1.148, Descent: -1, LineGap: -1}, 11.48, 2.16},
+		{"both overridden", &MetricsOverride{Ascent: 0.9, Descent: 0.25, LineGap: -1}, 9, 2.5},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := firstGlyphFont(t, fe, family(c.name, c.m))
+			if !near(f.ContentAscent, pt(c.ascent)) || !near(f.ContentDescent, pt(c.desc)) {
+				t.Errorf("content area %s + %s, want %vpt + %vpt", f.ContentAscent, f.ContentDescent, c.ascent, c.desc)
+			}
+		})
+	}
 }

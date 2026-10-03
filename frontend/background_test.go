@@ -300,3 +300,66 @@ func TestDecorationDrawnOncePerLine(t *testing.T) {
 		t.Errorf("got %d decoration rules, want exactly 1", nRules)
 	}
 }
+
+// TestInlineBackgroundArea checks SettingBackgroundArea: the em box by
+// default, and with BackgroundAreaAscentDescent the font's content area, on
+// the span or inherited from the paragraph.
+func TestInlineBackgroundArea(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := fe.NewFontFamily("test")
+	if err := ff.AddMember(&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"}, FontWeight400, FontStyleNormal); err != nil {
+		t.Fatal(err)
+	}
+	yellow := fe.GetColor("yellow")
+	// box returns "y height" of the one background rule.
+	box := func(t *testing.T, onSpan, onPara any) string {
+		t.Helper()
+		span := NewText()
+		span.Settings[SettingBackgroundColor] = yellow
+		if onSpan != nil {
+			span.Settings[SettingBackgroundArea] = onSpan
+		}
+		span.Items = append(span.Items, "marked")
+		te := NewText()
+		te.Settings[SettingFontFamily] = ff
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		if onPara != nil {
+			te.Settings[SettingBackgroundArea] = onPara
+		}
+		te.Items = append(te.Items, "before ", span, " after")
+		vl, _, err := fe.FormatParagraph(te, bag.MustSP("200pt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := backgroundRules(vl)
+		if countRules(lines) != 1 {
+			t.Fatalf("got %d background rules, want 1", countRules(lines))
+		}
+		f := strings.Fields(lines[0][0].Pre)
+		for i, w := range f {
+			if w == "re" && i >= 4 {
+				return f[i-3] + " " + f[i-1]
+			}
+		}
+		return lines[0][0].Pre
+	}
+	// TeX Gyre Heros at 10pt: hhea ascender 11.48pt, descender 2.84pt; the em
+	// box is 10pt with the font's depth below the baseline.
+	emBox := box(t, nil, nil)
+	if got := box(t, BackgroundAreaEmBox, nil); got != emBox {
+		t.Errorf("BackgroundAreaEmBox gives %q, want the default %q", got, emBox)
+	}
+	for name, c := range map[string][2]any{
+		"on the span":      {BackgroundAreaAscentDescent, nil},
+		"on the paragraph": {nil, BackgroundAreaAscentDescent},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := box(t, c[0], c[1]); got != "-2.84 14.32" {
+				t.Errorf("box y/height %q, want \"-2.84 14.32\" (em box %q)", got, emBox)
+			}
+		})
+	}
+}

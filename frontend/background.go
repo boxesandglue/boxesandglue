@@ -13,6 +13,10 @@ import (
 // the closer carries nil and points back to the opener via StartNode.
 const attrInlineBackground = "inlinebackground"
 
+// attrInlineBackgroundArea is set on an opener whose box is not the em box,
+// to its BackgroundArea.
+const attrInlineBackgroundArea = "inlinebackgroundarea"
+
 // attrSpaceBox is set on the glue (or rule) of a space set under a background
 // to its *spaceBox. The leading underscore keeps it out of --dumpoutput.
 const attrSpaceBox = "_inlinebackgroundspace"
@@ -27,7 +31,8 @@ type spaceBox struct {
 
 // inlineBackground is one background box that is open while walking a line.
 type inlineBackground struct {
-	col *color.Color
+	col  *color.Color
+	area BackgroundArea
 	// start is the opener on the current line, or nil when the box was opened
 	// on an earlier line and continues from the start of this one.
 	start node.Node
@@ -87,9 +92,9 @@ type bgSegment struct {
 
 // drawBackground fills the box behind the nodes from start to stop with col
 // and returns the list head, which changes when start is the head. The box is
-// the CSS content area: the font's ascender above and descender below the
-// baseline, not the ink of the glyphs, so "ace" and "Alpha" in the same span
-// get the same box. Glyphs raised or lowered by vertical-align carry the box
+// the CSS content area of the font, by area the em box or its ascent and
+// descent (BackgroundArea), not the ink of the glyphs, so "ace" and "Alpha"
+// in the same span get the same box. Glyphs raised or lowered by vertical-align carry the box
 // with them. Where the font box changes within the run, a nested Text in a
 // larger size say, the box is split so that each part fits its own text; the
 // same text therefore gets the same box on every line it lands on. A space set
@@ -98,7 +103,7 @@ type bgSegment struct {
 // to the part before them, or to the first part when nothing precedes them. A
 // run without any glyph or such space, an inline image say, falls back to the
 // dimensions of its nodes.
-func drawBackground(head, start, stop node.Node, col *color.Color) node.Node {
+func drawBackground(head, start, stop node.Node, col *color.Color, area BackgroundArea) node.Node {
 	var segs []*bgSegment
 	var cur *bgSegment
 	for e := start; e != nil; e = e.Next() {
@@ -113,8 +118,8 @@ func drawBackground(head, start, stop node.Node, col *color.Color) node.Node {
 			}
 		}
 		if f != nil {
-			ht = yoffset + f.Size - f.Depth
-			dp = f.Depth - yoffset
+			ht, dp = fontBox(f, area)
+			ht, dp = yoffset+ht, dp-yoffset
 			switch {
 			case cur == nil:
 				cur = &bgSegment{start: e}
@@ -157,6 +162,17 @@ func drawBackground(head, start, stop node.Node, col *color.Color) node.Node {
 	return head
 }
 
+// fontBox is the height above and the depth below the baseline of a font's
+// box for an inline background.
+func fontBox(f *font.Font, area BackgroundArea) (ht, dp bag.ScaledPoint) {
+	if area == BackgroundAreaAscentDescent {
+		if a, d := f.ContentAscent, f.ContentDescent; a+d > 0 {
+			return a, d
+		}
+	}
+	return f.Size - f.Depth, f.Depth
+}
+
 // postLinebreakBackground paints the inline backgrounds of a paragraph. Boxes
 // open at the end of a line continue on the next one, so the stack of open
 // boxes lives in one styles value shared by all lines of the paragraph.
@@ -190,7 +206,8 @@ func postLinebreakBackgroundLine(n node.Node, st *styles) node.Node {
 				continue
 			}
 			if col, ok := v.(*color.Color); ok && col != nil {
-				st.backgrounds = append(st.backgrounds, &inlineBackground{col: col, start: t})
+				area, _ := t.Attributes[attrInlineBackgroundArea].(BackgroundArea)
+				st.backgrounds = append(st.backgrounds, &inlineBackground{col: col, area: area, start: t})
 				continue
 			}
 			// The closer. Boxes are properly nested, so it closes the
@@ -204,7 +221,7 @@ func postLinebreakBackgroundLine(n node.Node, st *styles) node.Node {
 			if start == nil {
 				start = firstInked(head, t)
 			}
-			head = drawBackground(head, start, t, bg.col)
+			head = drawBackground(head, start, t, bg.col, bg.area)
 		}
 	}
 	// Whatever is still open runs to the end of the line and continues on the
@@ -214,7 +231,7 @@ func postLinebreakBackgroundLine(n node.Node, st *styles) node.Node {
 		if start == nil {
 			start = firstInked(head, tail)
 		}
-		head = drawBackground(head, start, lastInked(start, tail), bg.col)
+		head = drawBackground(head, start, lastInked(start, tail), bg.col, bg.area)
 		bg.start = nil
 	}
 	return head
