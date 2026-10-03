@@ -1,0 +1,4 @@
+# PDFs are references compared byte for byte. git must not take them
+# for text, which it does when the first 8000 bytes hold no NUL byte:
+# no line-ending conversion, no textual diff, merge or patch.
+*.pdf binary
