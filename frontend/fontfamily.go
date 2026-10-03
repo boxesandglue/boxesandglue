@@ -383,6 +383,13 @@ func (ff *FontFamily) GetFontSource(weight FontWeight, style FontStyle) (*FontSo
 	return ff.lookup(weight, style, synthesisSetting{})
 }
 
+// GetFontSourceFor is GetFontSource for a text with the settings ts, the face
+// its glyphs are set in: the text's SettingSynthesizeStyle, when it has one,
+// takes the place of the family's default.
+func (ff *FontFamily) GetFontSourceFor(weight FontWeight, style FontStyle, ts TypesettingSettings) (*FontSource, error) {
+	return ff.lookup(weight, style, synthesisOf(ts))
+}
+
 // synthesisSetting is SettingSynthesizeStyle as a text sets it; unset leaves
 // each family's default.
 type synthesisSetting struct{ on, set bool }

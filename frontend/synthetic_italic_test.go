@@ -216,3 +216,42 @@ func firstGlyphFontWith(t *testing.T, fe *Document, ff *FontFamily, te *Text) *f
 	t.Fatal("no glyph")
 	return nil
 }
+
+// GetFontSourceFor gives the source a text with those settings is set in: the
+// text's SettingSynthesizeStyle wins over the family's default, as for the
+// glyphs, and the missing style is said once for both.
+func TestGetFontSourceFor(t *testing.T) {
+	for _, familyDefault := range []bool{false, true} {
+		for _, setting := range []any{nil, !familyDefault} {
+			fe, err := NewForWriter(io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ff := fe.NewFontFamily("upright only")
+			ff.SetSynthesizeStyle(familyDefault)
+			if err := ff.AddMember(&FontSource{Location: metricsTestFont}, FontWeight400, FontStyleNormal); err != nil {
+				t.Fatal(err)
+			}
+			te := NewText()
+			te.Settings[SettingStyle] = FontStyleItalic
+			if setting != nil {
+				te.Settings[SettingSynthesizeStyle] = setting
+			}
+			var buf bytes.Buffer
+			old := bag.Logger
+			bag.Logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+			fs, err := ff.GetFontSourceFor(FontWeight400, FontStyleItalic, te.Settings)
+			glyphs := firstGlyphFontWith(t, fe, ff, te)
+			bag.Logger = old
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := fs.Slant, glyphs.Slant; got != want {
+				t.Errorf("family default %v, setting %v: source slant %v, the glyphs' %v", familyDefault, setting, got, want)
+			}
+			if n := strings.Count(buf.String(), "not found in font family"); n != 1 {
+				t.Errorf("family default %v, setting %v: the missing italic was said %d times, want once", familyDefault, setting, n)
+			}
+		}
+	}
+}
