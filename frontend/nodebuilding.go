@@ -419,6 +419,26 @@ const (
 	// are scaled, so the line breaker sees the width the run takes on the
 	// page. Font expansion applies on top of it.
 	SettingHorizontalScale
+	// SettingBackgroundArea chooses the box an inline background
+	// (SettingBackgroundColor on a child Text) is painted over, a
+	// BackgroundArea. The default is BackgroundAreaEmBox.
+	SettingBackgroundArea
+)
+
+// BackgroundArea is the box an inline background covers vertically. CSS 2.1
+// §10.6.1 leaves the height of an inline box's content area to the user agent:
+// the em box or the font's ascender and descender.
+type BackgroundArea int
+
+const (
+	// BackgroundAreaEmBox is the em box: the font size above the baseline
+	// less the font's depth, and that depth below it.
+	BackgroundAreaEmBox BackgroundArea = iota
+	// BackgroundAreaAscentDescent is the content area browsers paint
+	// (font.Font.ContentAscent and ContentDescent): the face's hhea ascender above the baseline
+	// and its descender below it, or the OS/2 typographic ascender and
+	// descender when the face sets USE_TYPO_METRICS, without the line gap.
+	BackgroundAreaAscentDescent
 )
 
 // Direction describes the writing direction of a paragraph.
@@ -615,6 +635,8 @@ func (st SettingType) String() string {
 		settingName = "SettingLineShift"
 	case SettingHorizontalScale:
 		settingName = "SettingHorizontalScale"
+	case SettingBackgroundArea:
+		settingName = "SettingBackgroundArea"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -2386,7 +2408,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingBorderCollapse, SettingBorderSpacingHorizontal, SettingBorderSpacingVertical:
 			// table properties, consumed by the table builder
-		case SettingBackgroundColor, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
+		case SettingBackgroundColor, SettingBackgroundArea, SettingPrepend, SettingDebug, SettingHeight, SettingVAlign, SettingHangingPunctuation:
 			// ignore
 		case SettingElementID:
 			// consumed where the element's box is built (FormatParagraph,
@@ -3035,6 +3057,9 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				bgStart = node.NewStartStop()
 				bgStart.Action = node.ActionUserSetting
 				bgStart.SetAttribute(attrInlineBackground, childBG)
+				if area, ok := t.Settings[SettingBackgroundArea].(BackgroundArea); ok && area != BackgroundAreaEmBox {
+					bgStart.SetAttribute(attrInlineBackgroundArea, area)
+				}
 				head = node.InsertAfter(head, tail, bgStart)
 				tail = bgStart
 			}

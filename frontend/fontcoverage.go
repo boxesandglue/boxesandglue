@@ -100,9 +100,11 @@ func (m *MetricsOverride) apply(f *font.Font) {
 	em := f.Size.ToPT()
 	if m.Ascent >= 0 {
 		f.Ascent = bag.ScaledPointFromFloat(em * m.Ascent)
+		f.ContentAscent = f.Ascent
 	}
 	if m.Descent >= 0 {
 		f.Descent = bag.ScaledPointFromFloat(em * m.Descent)
+		f.ContentDescent = f.Descent
 	}
 	if m.LineGap >= 0 {
 		f.LineGap = bag.ScaledPointFromFloat(em * m.LineGap)
