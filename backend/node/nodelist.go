@@ -139,6 +139,10 @@ type LinebreakSettings struct {
 	// glue between lines, in place of HalfLeading and the lineskip glue
 	// (see LineModel). Nil keeps the built-in behavior.
 	LineModel LineModel
+	// Breaker, when set, chooses where the paragraph breaks among its legal
+	// breakpoints, in place of Knuth-Plass (see Breaker). Linebreak still
+	// measures, packs and sets the lines. Nil keeps Knuth-Plass.
+	Breaker Breaker
 	// TextDirection is the paragraph's base direction. The insets and the
 	// edge glues are physical whatever it says; what it decides is which
 	// side is the line end: where a forced break leaves its slack, and
