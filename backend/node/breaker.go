@@ -18,13 +18,17 @@ type Breaker interface {
 type BreakProblem struct {
 	// Candidates are the legal breakpoints, in order.
 	Candidates []Candidate
-	Settings   *LinebreakSettings
+	// Settings are the paragraph's own settings, which Fit reads; a
+	// Breaker must not change them during Breaks.
+	Settings *LinebreakSettings
 	// Fit measures a line from candidate from (-1 for the paragraph's
 	// start) to candidate to, set as row row (0 for the first line), the
 	// way Knuth-Plass measures it: with the width of a penalty or a
 	// discretionary's pre-break text at its end, without the glue discarded
 	// at its start, from a tab stop the line reaches, and with the row's
-	// Indent and IndentRight. Fit is valid only during Breaks.
+	// Indent and IndentRight. Fit is valid only during Breaks. It assumes
+	// from < to; otherwise it returns a line of negative width, not an
+	// error.
 	Fit func(from, to, row int) LineFit
 }
 
