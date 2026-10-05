@@ -17,6 +17,10 @@ type LineModel interface {
 	// of line, a line Linebreak has just packed to HSize. line.Height and
 	// line.Depth are its natural extent; each glyph on it carries its font
 	// (with the size and the face's vertical metrics) and its LineShift.
+	// A model whose lines end elsewhere than LinebreakSettings.Font's text
+	// edges may record the line's trims as its LineTrimStart and
+	// LineTrimEnd attributes; Linebreak keeps them, and takes one off again
+	// when it is 0.
 	LineBox(line *HList, settings *LinebreakSettings) (height, depth bag.ScaledPoint)
 	// Leading returns the glue Linebreak puts next to line, whose line box
 	// is already set: above each line but the first, and below the last

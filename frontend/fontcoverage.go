@@ -51,6 +51,12 @@ func (fe *Document) shapeFontFor(
 	if err != nil {
 		return nil, 0, nil, nil, err
 	}
+	return fe.fontFor(fs, face, fontsize), fontsize, features, variations, nil
+}
+
+// fontFor is the font of fs's face at fontsize, which already has the
+// source's size-adjust.
+func (fe *Document) fontFor(fs *FontSource, face *pdf.Face, fontsize bag.ScaledPoint) *font.Font {
 	// A synthetic oblique shares its upright's face but not its font: the
 	// PDF writer applies the shear per font.
 	key := fontKey{face: face, size: fontsize, metrics: fs.Metrics.key(), slant: fs.Slant}
@@ -62,7 +68,7 @@ func (fe *Document) shapeFontFor(
 		fs.Metrics.apply(fnt)
 		fe.usedFonts[key] = fnt
 	}
-	return fnt, fontsize, features, variations, nil
+	return fnt
 }
 
 // fontKey identifies a font.Font: the same face at the same size with the

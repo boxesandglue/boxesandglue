@@ -108,3 +108,85 @@ func TestSettingLineShiftWithoutModel(t *testing.T) {
 		t.Errorf("line shift %s + %s, y offset %s + %s", b.Height, b.Depth, a.Height, a.Depth)
 	}
 }
+
+// FormatParagraph gives Linebreak the paragraph's own font, so each line
+// records its half-leading above that font's text-over edge and below its
+// text-under edge.
+func TestParagraphRecordsTrimEnd(t *testing.T) {
+	fe, ff := lineModelDocument(t)
+	te := NewText()
+	te.Settings[SettingFontFamily] = ff
+	te.Settings[SettingSize] = bag.MustSP("10pt")
+	te.Settings[SettingLeading] = bag.MustSP("20pt")
+	te.Settings[SettingHalfLeading] = true
+	te.Items = append(te.Items, "Text with a descender, y and g, on two lines.")
+	vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err := ff.GetFontSource(FontWeight400, FontStyleNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fnt, _, _, _, err := fe.shapeFontFor(fs, bag.MustSP("10pt"), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := 0
+	for n := vl.List; n != nil; n = n.Next() {
+		hl, ok := n.(*node.HList)
+		if !ok {
+			continue
+		}
+		lines++
+		got, ok := hl.Attributes[node.LineTrimStart].(bag.ScaledPoint)
+		if want := hl.Height - fnt.ContentAscent; !ok || got != want || want <= 0 {
+			t.Errorf("line %d: start trim %v (%t), want %s", lines, got, ok, want)
+		}
+		got, ok = hl.Attributes[node.LineTrimEnd].(bag.ScaledPoint)
+		if want := hl.Depth - fnt.ContentDescent; !ok || got != want || want <= 0 {
+			t.Errorf("line %d: end trim %v (%t), want %s", lines, got, ok, want)
+		}
+	}
+	if lines < 2 {
+		t.Errorf("%d lines, want at least 2", lines)
+	}
+}
+
+// A paragraph whose own face no glyph is set in records no trim: measuring
+// it would load the face, which takes a PDF object.
+func TestParagraphWithoutItsFaceRecordsNoTrim(t *testing.T) {
+	fe, ff := lineModelDocument(t)
+	if err := ff.AddMember(
+		&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
+		FontWeight700, FontStyleNormal,
+	); err != nil {
+		t.Fatal(err)
+	}
+	bold := NewText()
+	bold.Settings[SettingFontWeight] = FontWeight700
+	bold.Items = append(bold.Items, "All of it bold.")
+	te := NewText()
+	te.Settings[SettingFontFamily] = ff
+	te.Settings[SettingSize] = bag.MustSP("10pt")
+	te.Settings[SettingLeading] = bag.MustSP("20pt")
+	te.Settings[SettingHalfLeading] = true
+	te.Items = append(te.Items, bold)
+	vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := vl.List; n != nil; n = n.Next() {
+		if hl, ok := n.(*node.HList); ok {
+			for _, k := range []string{node.LineTrimStart, node.LineTrimEnd} {
+				if v, ok := hl.Attributes[k]; ok {
+					t.Errorf("a %s of %v", k, v)
+				}
+			}
+		}
+	}
+	fs, _ := ff.GetFontSource(FontWeight400, FontStyleNormal)
+	if fs.face != nil {
+		t.Error("the paragraph's own face was loaded")
+	}
+}

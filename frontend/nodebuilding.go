@@ -1665,6 +1665,7 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	if b, ok := te.Settings[SettingBreaker].(node.Breaker); ok {
 		ls.Breaker = b
 	}
+	ls.Font = fe.paragraphFont(te)
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
@@ -3160,4 +3161,44 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 		tail = endHL
 	}
 	return head, tail, nil
+}
+
+// paragraphFont is the font of te itself, the paragraph's root inline box:
+// its family, weight and style under its synthesis setting, at its size, as
+// its own glyphs get it. Nil when te names no family or size, or when that
+// face is not loaded: loading it would take a PDF object for a face no glyph
+// is set in.
+func (fe *Document) paragraphFont(te *Text) *font.Font {
+	ff, _ := te.Settings[SettingFontFamily].(*FontFamily)
+	var size bag.ScaledPoint
+	switch t := te.Settings[SettingSize].(type) {
+	case bag.ScaledPoint:
+		size = t
+	case int64:
+		size = bag.ScaledPoint(t)
+	}
+	if ff == nil || size == 0 {
+		return nil
+	}
+	weight := FontWeight400
+	switch t := te.Settings[SettingFontWeight].(type) {
+	case FontWeight:
+		weight = t
+	case int:
+		weight = FontWeight(t)
+	}
+	style, _ := te.Settings[SettingStyle].(FontStyle)
+	fs, err := ff.GetFontSourceFor(weight, style, te.Settings)
+	if err != nil || fs == nil {
+		return nil
+	}
+	variations, _ := te.Settings[SettingFontVariationSettings].(map[string]float64)
+	face := fe.loadedFace(fs, variations)
+	if face == nil {
+		return nil
+	}
+	if fs.SizeAdjust != 0 {
+		size = bag.ScaledPointFromFloat(size.ToPT() * (1 - fs.SizeAdjust))
+	}
+	return fe.fontFor(fs, face, size)
 }

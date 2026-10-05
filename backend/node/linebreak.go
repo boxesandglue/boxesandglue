@@ -815,6 +815,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 					hl.Depth += extra - half
 				}
 			}
+			recordTrim(hl, settings)
 			vert = InsertBefore(vert, vert, hl)
 			// insert vertical glue if necessary
 			if e.next != nil {
@@ -895,4 +896,40 @@ func AppendLineEndAfter(head, n Node) (Node, Node) {
 	p.Penalty = -10000
 	head = InsertAfter(head, g, p)
 	return head, p
+}
+
+// LineTrimStart and LineTrimEnd are the attribute keys of a line's trim
+// (CSS Inline 3 text-box-trim with text-box-edge: text), each a
+// bag.ScaledPoint: how far its height reaches above the text-over edge of the
+// paragraph's font, and how far its depth reaches below the text-under edge.
+// Linebreak sets them on a line when LinebreakSettings.Font is set and the
+// amount is not zero. A LineModel's LineBox may record them itself, which
+// Linebreak keeps.
+const (
+	LineTrimStart = "trimStart"
+	LineTrimEnd   = "trimEnd"
+)
+
+// recordTrim sets the trims of line hl, whose line box is set.
+func recordTrim(hl *HList, settings *LinebreakSettings) {
+	var over, under bag.ScaledPoint
+	if f := settings.Font; f != nil {
+		over, under = hl.Height-f.ContentAscent, hl.Depth-f.ContentDescent
+	}
+	setTrim(hl, LineTrimStart, over, settings.Font != nil)
+	setTrim(hl, LineTrimEnd, under, settings.Font != nil)
+}
+
+// setTrim records amount as hl's key unless the line model recorded one,
+// and leaves no key that is 0.
+func setTrim(hl *HList, key string, amount bag.ScaledPoint, measured bool) {
+	if t, ok := hl.Attributes[key].(bag.ScaledPoint); ok {
+		if t == 0 {
+			delete(hl.Attributes, key)
+		}
+		return
+	}
+	if measured && amount != 0 {
+		hl.Attributes[key] = amount
+	}
 }
