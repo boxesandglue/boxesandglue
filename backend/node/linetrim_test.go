@@ -55,6 +55,9 @@ func TestLineTrim(t *testing.T) {
 		{"recorded by the model, no font", false, trimModel{end: sp(1)}, nil, -1, pt(1)},
 		{"no font", true, nil, nil, -1, -1},
 		{"at the edges", true, nil, &font.Font{ContentAscent: 8 * bag.Factor, ContentDescent: 4 * bag.Factor}, -1, -1},
+		// A content area taller than the line box: the line ends inside
+		// the text edges.
+		{"inside the edges", true, nil, &font.Font{ContentAscent: 9 * bag.Factor, ContentDescent: 6 * bag.Factor}, pt(-1), pt(-2)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := lineModelSettings(c.half, false, c.model)

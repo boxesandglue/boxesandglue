@@ -905,6 +905,12 @@ func AppendLineEndAfter(head, n Node) (Node, Node) {
 // Linebreak sets them on a line when LinebreakSettings.Font is set and the
 // amount is not zero. A LineModel's LineBox may record them itself, which
 // Linebreak keeps.
+//
+// A trim can be negative: the line box then ends inside the text edge. Under
+// HalfLeading, which spreads the leading over the em box, a trim is the
+// half-leading minus the part of the content area outside the em box, and
+// the content area is usually the taller: with Arial-like metrics at 10pt,
+// the start trim is negative from a line height of about 11pt.
 const (
 	LineTrimStart = "trimStart"
 	LineTrimEnd   = "trimEnd"
