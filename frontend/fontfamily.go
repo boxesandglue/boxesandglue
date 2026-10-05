@@ -120,15 +120,18 @@ func (fe *Document) LoadFaceWithVariations(fs *FontSource, variations map[string
 	return fe.loadVariationFace(fs, variations)
 }
 
-// variationFaceKey is the key of fs's face for variations in
-// Document.variationFaces: the source's location or name, its index and the
-// sorted axis values.
-func variationFaceKey(fs *FontSource, variations map[string]float64) string {
+// loadVariationFace loads the face for one specific variation-axis
+// combination, bypassing the document's per-filename face dedup so every
+// combination gets its own face (and thus its own pinned PDF font). Faces
+// are cached per source and sorted axis values.
+func (fe *Document) loadVariationFace(fs *FontSource, variations map[string]float64) (*pdf.Face, error) {
+	// Create a cache key from FontSource location/name and variations
 	cacheKey := fs.Location
 	if cacheKey == "" {
 		cacheKey = fs.Name
 	}
 	cacheKey = fmt.Sprintf("%s:%d", cacheKey, fs.Index)
+	// Add sorted variation settings to key for consistency
 	keys := make([]string, 0, len(variations))
 	for k := range variations {
 		keys = append(keys, k)
@@ -137,34 +140,8 @@ func variationFaceKey(fs *FontSource, variations map[string]float64) string {
 	for _, k := range keys {
 		cacheKey += fmt.Sprintf(":%s=%.2f", k, variations[k])
 	}
-	return cacheKey
-}
 
-// loadedFace is the face LoadFaceWithVariations returns for fs and
-// variations if it has been loaded already, nil otherwise. Loading a face
-// takes a PDF object, so a caller that only measures does not load one.
-func (fe *Document) loadedFace(fs *FontSource, variations map[string]float64) *pdf.Face {
-	if fs.face != nil && (len(variations) == 0 || maps.Equal(variations, fs.VariationSettings)) {
-		return fs.face
-	}
-	if len(variations) == 0 && len(fs.VariationSettings) == 0 {
-		if fs.upright != nil {
-			return fe.loadedFace(fs.upright, nil)
-		}
-		return nil
-	}
-	if len(variations) == 0 {
-		variations = fs.VariationSettings
-	}
-	return fe.variationFaces[variationFaceKey(fs, variations)]
-}
-
-// loadVariationFace loads the face for one specific variation-axis
-// combination, bypassing the document's per-filename face dedup so every
-// combination gets its own face (and thus its own pinned PDF font). Faces
-// are cached per source and sorted axis values.
-func (fe *Document) loadVariationFace(fs *FontSource, variations map[string]float64) (*pdf.Face, error) {
-	cacheKey := variationFaceKey(fs, variations)
+	// Check cache
 	if face, ok := fe.variationFaces[cacheKey]; ok {
 		return face, nil
 	}

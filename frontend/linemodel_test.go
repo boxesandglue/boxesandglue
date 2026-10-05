@@ -2,9 +2,11 @@ package frontend
 
 import (
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
@@ -109,84 +111,181 @@ func TestSettingLineShiftWithoutModel(t *testing.T) {
 	}
 }
 
-// FormatParagraph gives Linebreak the paragraph's own font, so each line
-// records its half-leading above that font's text-over edge and below its
-// text-under edge.
-func TestParagraphRecordsTrimEnd(t *testing.T) {
-	fe, ff := lineModelDocument(t)
+// lineTrims are the start and end trims of vl's lines, nil where a line has
+// none.
+func lineTrims(vl *node.VList) [][2]any {
+	var trims [][2]any
+	for n := vl.List; n != nil; n = n.Next() {
+		if hl, ok := n.(*node.HList); ok {
+			trims = append(trims, [2]any{hl.Attributes[node.LineTrimStart], hl.Attributes[node.LineTrimEnd]})
+		}
+	}
+	return trims
+}
+
+// trimParagraph is a half-leading paragraph of family ff at 10pt with line
+// height leading, recording its trims when record is set.
+func trimParagraph(ff *FontFamily, leading bag.ScaledPoint, record bool, items ...any) *Text {
 	te := NewText()
 	te.Settings[SettingFontFamily] = ff
 	te.Settings[SettingSize] = bag.MustSP("10pt")
-	te.Settings[SettingLeading] = bag.MustSP("20pt")
+	te.Settings[SettingLeading] = leading
 	te.Settings[SettingHalfLeading] = true
-	te.Items = append(te.Items, "Text with a descender, y and g, on two lines.")
-	vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
-	if err != nil {
-		t.Fatal(err)
+	if record {
+		te.Settings[SettingRecordLineTrims] = true
 	}
-	fs, err := ff.GetFontSource(FontWeight400, FontStyleNormal)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fnt, _, _, _, err := fe.shapeFontFor(fs, bag.MustSP("10pt"), nil, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := 0
-	for n := vl.List; n != nil; n = n.Next() {
-		hl, ok := n.(*node.HList)
-		if !ok {
-			continue
-		}
-		lines++
-		got, ok := hl.Attributes[node.LineTrimStart].(bag.ScaledPoint)
-		if want := hl.Height - fnt.ContentAscent; !ok || got != want || want <= 0 {
-			t.Errorf("line %d: start trim %v (%t), want %s", lines, got, ok, want)
-		}
-		got, ok = hl.Attributes[node.LineTrimEnd].(bag.ScaledPoint)
-		if want := hl.Depth - fnt.ContentDescent; !ok || got != want || want <= 0 {
-			t.Errorf("line %d: end trim %v (%t), want %s", lines, got, ok, want)
-		}
-	}
-	if lines < 2 {
-		t.Errorf("%d lines, want at least 2", lines)
+	te.Items = append(te.Items, items...)
+	return te
+}
+
+// With SettingRecordLineTrims, FormatParagraph gives Linebreak the
+// paragraph's own font, so each line records its half-leading above that
+// font's text-over edge and below its text-under edge. At a line height
+// close to the font size the content area reaches past the line box, and
+// the start trim is negative.
+func TestParagraphRecordsTrims(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		leading  string
+		positive bool
+	}{
+		{"20pt", "20pt", true},
+		{"11pt", "11pt", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fe, ff := lineModelDocument(t)
+			te := trimParagraph(ff, bag.MustSP(c.leading), true, "Text with a descender, y and g, on two lines.")
+			vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fs, err := ff.GetFontSource(FontWeight400, FontStyleNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fnt, _, _, _, err := fe.shapeFontFor(fs, bag.MustSP("10pt"), nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := 0
+			for n := vl.List; n != nil; n = n.Next() {
+				hl, ok := n.(*node.HList)
+				if !ok {
+					continue
+				}
+				lines++
+				got, ok := hl.Attributes[node.LineTrimStart].(bag.ScaledPoint)
+				if want := hl.Height - fnt.ContentAscent; !ok || got != want || (want > 0) != c.positive {
+					t.Errorf("line %d: start trim %v (%t), want %s", lines, got, ok, want)
+				}
+				got, ok = hl.Attributes[node.LineTrimEnd].(bag.ScaledPoint)
+				if want := hl.Depth - fnt.ContentDescent; !ok || got != want || (c.positive && want <= 0) {
+					t.Errorf("line %d: end trim %v (%t), want %s", lines, got, ok, want)
+				}
+			}
+			if lines < 2 {
+				t.Errorf("%d lines, want at least 2", lines)
+			}
+		})
 	}
 }
 
-// A paragraph whose own face no glyph is set in records no trim: measuring
-// it would load the face, which takes a PDF object.
-func TestParagraphWithoutItsFaceRecordsNoTrim(t *testing.T) {
-	fe, ff := lineModelDocument(t)
-	if err := ff.AddMember(
-		&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
-		FontWeight700, FontStyleNormal,
-	); err != nil {
+// Without SettingRecordLineTrims a paragraph records no trim and loads no
+// face its glyphs don't use. With it, a paragraph whose own face no glyph is
+// set in loads it and records the same trims alone as after a paragraph in
+// that face.
+func TestParagraphTrimsWithoutItsFace(t *testing.T) {
+	boldParagraph := func(fe *Document, ff *FontFamily, record bool) [][2]any {
+		t.Helper()
+		bold := NewText()
+		bold.Settings[SettingFontWeight] = FontWeight700
+		bold.Items = append(bold.Items, "All of it bold, on two lines.")
+		vl, _, err := fe.FormatParagraph(trimParagraph(ff, bag.MustSP("20pt"), record, bold), bag.MustSP("100pt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lineTrims(vl)
+	}
+	document := func() (*Document, *FontFamily) {
+		fe, ff := lineModelDocument(t)
+		if err := ff.AddMember(
+			&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
+			FontWeight700, FontStyleNormal,
+		); err != nil {
+			t.Fatal(err)
+		}
+		return fe, ff
+	}
+
+	fe, ff := document()
+	for i, tr := range boldParagraph(fe, ff, false) {
+		if tr[0] != nil || tr[1] != nil {
+			t.Errorf("not recording: line %d has trims %v", i+1, tr)
+		}
+	}
+	if fs, _ := ff.GetFontSource(FontWeight400, FontStyleNormal); fs.face != nil {
+		t.Error("not recording: the paragraph's own face was loaded")
+	}
+
+	fe, ff = document()
+	alone := boldParagraph(fe, ff, true)
+	fe, ff = document()
+	if _, _, err := fe.FormatParagraph(trimParagraph(ff, bag.MustSP("20pt"), false, "Regular."), bag.MustSP("100pt")); err != nil {
 		t.Fatal(err)
 	}
-	bold := NewText()
-	bold.Settings[SettingFontWeight] = FontWeight700
-	bold.Items = append(bold.Items, "All of it bold.")
-	te := NewText()
-	te.Settings[SettingFontFamily] = ff
-	te.Settings[SettingSize] = bag.MustSP("10pt")
-	te.Settings[SettingLeading] = bag.MustSP("20pt")
-	te.Settings[SettingHalfLeading] = true
-	te.Items = append(te.Items, bold)
+	after := boldParagraph(fe, ff, true)
+	if len(alone) < 2 {
+		t.Fatalf("%d lines, want at least 2", len(alone))
+	}
+	for i, tr := range alone {
+		if tr[0] == nil || tr[1] == nil {
+			t.Errorf("alone: line %d has trims %v", i+1, tr)
+		}
+	}
+	if !reflect.DeepEqual(alone, after) {
+		t.Errorf("trims alone %v, after a regular paragraph %v", alone, after)
+	}
+}
+
+// The paragraph's font merges SettingFontVariationSettings over the
+// source's own variation settings as its glyphs' font does, so a source
+// pinned to an instance of a weight range, with variations on top, gets the
+// glyphs' font.
+func TestParagraphFontVariations(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := fe.NewFontFamily("vf")
+	ff.AddMemberRange(
+		&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
+		200, 900, FontStyleNormal,
+	)
+	te := trimParagraph(ff, bag.MustSP("20pt"), true, "Text")
+	te.Settings[SettingFontWeight] = FontWeight700
+	te.Settings[SettingFontVariationSettings] = map[string]float64{"wdth": 90}
 	vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for n := vl.List; n != nil; n = n.Next() {
+	var glyphFont *font.Font
+	for n := vl.List; n != nil && glyphFont == nil; n = n.Next() {
 		if hl, ok := n.(*node.HList); ok {
-			for _, k := range []string{node.LineTrimStart, node.LineTrimEnd} {
-				if v, ok := hl.Attributes[k]; ok {
-					t.Errorf("a %s of %v", k, v)
+			for g := hl.List; g != nil; g = g.Next() {
+				if gl, ok := g.(*node.Glyph); ok {
+					glyphFont = gl.Font
+					break
 				}
 			}
 		}
 	}
-	fs, _ := ff.GetFontSource(FontWeight400, FontStyleNormal)
-	if fs.face != nil {
-		t.Error("the paragraph's own face was loaded")
+	if glyphFont == nil {
+		t.Fatal("no glyph")
+	}
+	if pf := fe.paragraphFont(te); pf != glyphFont {
+		t.Errorf("paragraph font %p, the glyphs' %p", pf, glyphFont)
+	}
+	if v := glyphFont.Face.VariationSettings; v["wght"] != 700 || v["wdth"] != 90 {
+		t.Errorf("the glyphs' face pins %v", v)
 	}
 }
