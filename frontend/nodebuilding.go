@@ -427,6 +427,11 @@ const (
 	// breakpoints (a node.Breaker), in place of Knuth-Plass, as
 	// node.LinebreakSettings.Breaker. Read at the paragraph level.
 	SettingBreaker
+	// SettingRecordLineTrims (bool) has FormatParagraph record each line's
+	// trims (node.LineTrimStart and node.LineTrimEnd) against the
+	// paragraph's own font, which it loads as its glyphs would if no glyph
+	// has yet. Read at the paragraph level. Unset records nothing.
+	SettingRecordLineTrims
 )
 
 // BackgroundArea is the box an inline background covers vertically. CSS 2.1
@@ -643,6 +648,8 @@ func (st SettingType) String() string {
 		settingName = "SettingBackgroundArea"
 	case SettingBreaker:
 		settingName = "SettingBreaker"
+	case SettingRecordLineTrims:
+		settingName = "SettingRecordLineTrims"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -1665,6 +1672,7 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	if b, ok := te.Settings[SettingBreaker].(node.Breaker); ok {
 		ls.Breaker = b
 	}
+	ls.Font = fe.paragraphFont(te)
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
@@ -2453,7 +2461,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		case SettingSynthesizeStyle:
 			// read with the font lookup below
-		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection, SettingLineModel, SettingBreaker:
+		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection, SettingLineModel, SettingBreaker, SettingRecordLineTrims:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
 		default:
@@ -3160,4 +3168,44 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 		tail = endHL
 	}
 	return head, tail, nil
+}
+
+// paragraphFont is the font of te itself, the paragraph's root inline box,
+// when te sets SettingRecordLineTrims: its family, weight and style under its
+// synthesis setting and variations, at its size, as its own glyphs get it,
+// loading the face if no glyph has. Nil when te names no family or size.
+func (fe *Document) paragraphFont(te *Text) *font.Font {
+	if rec, _ := te.Settings[SettingRecordLineTrims].(bool); !rec {
+		return nil
+	}
+	ff, _ := te.Settings[SettingFontFamily].(*FontFamily)
+	var size bag.ScaledPoint
+	switch t := te.Settings[SettingSize].(type) {
+	case bag.ScaledPoint:
+		size = t
+	case int64:
+		size = bag.ScaledPoint(t)
+	}
+	if ff == nil || size == 0 {
+		return nil
+	}
+	weight := FontWeight400
+	switch t := te.Settings[SettingFontWeight].(type) {
+	case FontWeight:
+		weight = t
+	case int:
+		weight = FontWeight(t)
+	}
+	style, _ := te.Settings[SettingStyle].(FontStyle)
+	fs, err := ff.GetFontSourceFor(weight, style, te.Settings)
+	if err != nil || fs == nil {
+		return nil
+	}
+	variations, _ := te.Settings[SettingFontVariationSettings].(map[string]float64)
+	fnt, _, _, err := fe.sourceFont(fs, size, variations)
+	if err != nil {
+		bag.Logger.Error("Cannot load the paragraph's face for its line trims", "error", err)
+		return nil
+	}
+	return fnt
 }

@@ -29,13 +29,25 @@ func (fe *Document) shapeFontFor(
 	settingFeatures []ot.Feature,
 	settingVariations map[string]float64,
 ) (*font.Font, bag.ScaledPoint, []ot.Feature, map[string]float64, error) {
-	if fs.SizeAdjust != 0 {
-		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
-	}
 	features := make([]ot.Feature, 0, len(baseFeatures)+len(settingFeatures)+4)
 	features = append(features, baseFeatures...)
 	features = append(features, parseOpenTypeFeatures(fs.FontFeatures)...)
 	features = append(features, settingFeatures...)
+	fnt, fontsize, variations, err := fe.sourceFont(fs, fontsize, settingVariations)
+	if err != nil {
+		return nil, 0, nil, nil, err
+	}
+	return fnt, fontsize, features, variations, nil
+}
+
+// sourceFont is fs's font at fontsize as a glyph gets it, loading its face if
+// needed: at the size after the source's size-adjust, which it returns, and
+// with settingVariations merged over the source's own VariationSettings,
+// which it returns too.
+func (fe *Document) sourceFont(fs *FontSource, fontsize bag.ScaledPoint, settingVariations map[string]float64) (*font.Font, bag.ScaledPoint, map[string]float64, error) {
+	if fs.SizeAdjust != 0 {
+		fontsize = bag.ScaledPointFromFloat(fontsize.ToPT() * (1 - fs.SizeAdjust))
+	}
 	var variations map[string]float64
 	if fs.VariationSettings != nil {
 		variations = make(map[string]float64, len(fs.VariationSettings))
@@ -49,7 +61,7 @@ func (fe *Document) shapeFontFor(
 	}
 	face, err := fe.LoadFaceWithVariations(fs, variations)
 	if err != nil {
-		return nil, 0, nil, nil, err
+		return nil, 0, nil, err
 	}
 	// A synthetic oblique shares its upright's face but not its font: the
 	// PDF writer applies the shear per font.
@@ -62,7 +74,7 @@ func (fe *Document) shapeFontFor(
 		fs.Metrics.apply(fnt)
 		fe.usedFonts[key] = fnt
 	}
-	return fnt, fontsize, features, variations, nil
+	return fnt, fontsize, variations, nil
 }
 
 // fontKey identifies a font.Font: the same face at the same size with the

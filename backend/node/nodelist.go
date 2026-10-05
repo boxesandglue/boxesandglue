@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 )
 
@@ -143,6 +144,13 @@ type LinebreakSettings struct {
 	// breakpoints, in place of Knuth-Plass (see Breaker). Linebreak still
 	// measures, packs and sets the lines. Nil keeps Knuth-Plass.
 	Breaker Breaker
+	// Font is the paragraph's own font, the one its root inline box has
+	// (CSS Inline 3 text-box-edge). When it is set, Linebreak records on
+	// each line how far its height reaches above the font's text-over edge,
+	// its ContentAscent, as the line's LineTrimStart, and how far its depth
+	// reaches below the text-under edge, its ContentDescent, as its
+	// LineTrimEnd. Nil records nothing.
+	Font *font.Font
 	// TextDirection is the paragraph's base direction. The insets and the
 	// edge glues are physical whatever it says; what it decides is which
 	// side is the line end: where a forced break leaves its slack, and
