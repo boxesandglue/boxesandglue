@@ -3023,6 +3023,17 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			delete(t.Settings, SettingHyperlink)
 			delete(t.Settings, SettingPrepend)
 			delete(t.Settings, SettingDest)
+			// The child's own destination, such as an id on an inline
+			// element, goes in front of its nodes here, as the hyperlink
+			// above does. newSettings never carries one, so it is not
+			// inherited from this text.
+			if hadDest {
+				destStart := node.NewStartStop()
+				destStart.Action = node.ActionDest
+				destStart.Value = savedDest
+				head = node.InsertAfter(head, tail, destStart)
+				tail = destStart
+			}
 
 			// Per-run language switch. If the child Text carries an explicit
 			// SettingLanguage that differs from the surrounding context, emit
