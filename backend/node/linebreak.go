@@ -86,6 +86,10 @@ type linebreaker struct {
 	runs     map[*Glue]*tabRun
 	// keep is set inside a run that has no legal breakpoints.
 	keep bool
+	// cands are the legal breakpoints, under a Breaker.
+	cands []candidate
+	// measured is the last line computeAdjustmentRatio measured.
+	measured lineMeasure
 }
 
 func newLinebreaker(settings *LinebreakSettings) *linebreaker {
@@ -138,6 +142,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 	// hsize less whatever is taken off either end for this row.
 	maxwd := lb.settings.HSize - lb.getIndent(a.Line) - lb.getIndentRight(a.Line)
 	sumExpand = lb.sumExpand - from.sumExpand
+	lb.measured = lineMeasure{width: thisLineWidth, maxwd: maxwd, from: from}
 	if thisLineWidth < maxwd {
 		// needs to stretch. EmergencyStretch (TeX \emergencystretch) is added
 		// to the per-line stretch capacity unconditionally — it acts as a
@@ -369,6 +374,15 @@ func indentForRow(indent bag.ScaledPoint, rows, row int) bag.ScaledPoint {
 	return bag.ScaledPoint(0)
 }
 
+// breakHere is called at each legal breakpoint n of the first pass.
+func (lb *linebreaker) breakHere(n Node) {
+	if lb.settings.Breaker != nil {
+		lb.addCandidate(n)
+		return
+	}
+	lb.mainLoop(n)
+}
+
 func (lb *linebreaker) mainLoop(n Node) {
 	active := lb.activeNodesA
 	lb.preva = nil
@@ -567,7 +581,8 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		lb.firstTab = map[Node]int{}
 		lb.runs = lb.measureTabRuns(n)
 	}
-	lb.activeNodesA = &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
+	root := &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
+	lb.activeNodesA = root
 	var endNode Node
 
 	for e := n; e != nil; e = e.Next() {
@@ -579,7 +594,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 			if prevItemBox && !lb.keep {
 				// b legal breakpoint
-				lb.mainLoop(t)
+				lb.breakHere(t)
 			}
 			wBefore := lb.sumW
 
@@ -608,18 +623,18 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				lb.keep = false
 			}
 			if t.Penalty < 10000 && !lb.keep {
-				lb.mainLoop(t)
+				lb.breakHere(t)
 			}
 		case *HardBreak:
 			prevItemBox = false
 			lb.keep = false
-			lb.mainLoop(t)
+			lb.breakHere(t)
 		case *Disc:
 			// NOTE: Do NOT reset prevItemBox here. A Disc is not a "box" in TeX terms.
 			// If we reset it, a Glue following a Disc won't be considered as a breakpoint,
 			// causing breaks at Disc (with hyphen) instead of at Glue (space).
 			if !lb.keep {
-				lb.mainLoop(t)
+				lb.breakHere(t)
 			}
 		case *Glyph:
 			prevItemBox = true
@@ -656,6 +671,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			lastNode = e
 			demerits = e.Demerits
 		}
+	}
+	if settings.Breaker != nil {
+		lastNode = lb.chooseBreaks(root)
 	}
 
 	var curPre Node

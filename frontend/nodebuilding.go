@@ -423,6 +423,10 @@ const (
 	// (SettingBackgroundColor on a child Text) is painted over, a
 	// BackgroundArea. The default is BackgroundAreaEmBox.
 	SettingBackgroundArea
+	// SettingBreaker chooses where a paragraph breaks among its legal
+	// breakpoints (a node.Breaker), in place of Knuth-Plass, as
+	// node.LinebreakSettings.Breaker. Read at the paragraph level.
+	SettingBreaker
 )
 
 // BackgroundArea is the box an inline background covers vertically. CSS 2.1
@@ -637,6 +641,8 @@ func (st SettingType) String() string {
 		settingName = "SettingHorizontalScale"
 	case SettingBackgroundArea:
 		settingName = "SettingBackgroundArea"
+	case SettingBreaker:
+		settingName = "SettingBreaker"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -1656,6 +1662,9 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	if lm, ok := te.Settings[SettingLineModel].(node.LineModel); ok {
 		ls.LineModel = lm
 	}
+	if b, ok := te.Settings[SettingBreaker].(node.Breaker); ok {
+		ls.Breaker = b
+	}
 	if hp, ok := te.Settings[SettingHangingPunctuation]; ok {
 		if hps, ok := hp.(HangingPunctuation); ok {
 			ls.HangingPunctuationEnd = hps&HangingPunctuationAllowEnd == 1
@@ -2444,7 +2453,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			}
 		case SettingSynthesizeStyle:
 			// read with the font lookup below
-		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection, SettingLineModel:
+		case SettingHyphenPenalty, SettingLinebreakTolerance, SettingLinebreakEmergencyStretch, SettingHalfLeading, SettingItalicCorrection, SettingLineModel, SettingBreaker:
 			// consumed at the paragraph level (FormatParagraph); the glyph
 			// builder ignores them.
 		default:
