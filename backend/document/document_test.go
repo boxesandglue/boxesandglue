@@ -277,11 +277,12 @@ func TestReadingKey(t *testing.T) {
 	mid := &StructureElement{Role: "P"}
 	mid.objRefs = []objRefEntry{{seq: 9}}
 	mid.AddChild(leaf)
-	if got := readingKey(mid); got != 4 {
+	d := &PDFDocument{}
+	if got := d.readingKey(mid); got != 4 {
 		t.Errorf("readingKey(mid) = %d, want 4 (smallest stamp in subtree)", got)
 	}
 	empty := &StructureElement{Role: "Div"}
-	if got := readingKey(empty); got != int(^uint(0)>>1) {
+	if got := d.readingKey(empty); got != int(^uint(0)>>1) {
 		t.Errorf("readingKey(empty) = %d, want max int (sorts last)", got)
 	}
 }

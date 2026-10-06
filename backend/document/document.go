@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +39,30 @@ type Object struct {
 	Y     bag.ScaledPoint
 }
 
+// PaintLast is the attribute key that makes a VList in a vertical list paint
+// after everything else on its page, the way CSS paints a float over the
+// backgrounds of the blocks beside it (CSS 2.1 Appendix E). The VList keeps
+// its place in the list, which still makes room for it, and is painted at
+// the same position once the page's other objects are out. Its value is not
+// read; set it to true.
+//
+// Its tags, links and destinations are output then too. The reading order
+// of its structure elements is the one of its place in the list, not the
+// later one in the content stream. A marked VList inside a marked VList is
+// painted after the outer one. Set on a page object itself (Page.OutputAt),
+// the key has no effect: a page's objects are painted in their order anyway.
+const PaintLast = "paintLast"
+
+// deferredVList is a VList marked PaintLast, kept for painting at the end of
+// its page with the marked-content context it had in its list.
+type deferredVList struct {
+	vlist       *node.VList
+	x, top      bag.ScaledPoint   // as outputVListChild takes them
+	tag         *StructureElement // the structure element it sat in
+	inArtifact  bool
+	readingSlot int // reading-order stamp of its place in the list
+}
+
 // A Hyperlink represents a clickable thing in the PDF.
 type Hyperlink struct {
 	URI       string
@@ -61,7 +86,8 @@ type Page struct {
 	ExtraOffset       bag.ScaledPoint
 	Objectnumber      pdf.Objectnumber
 	nextMCID          int
-	pageIndex         int // index of this page in PDFDocument.Pages
+	pageIndex         int             // index of this page in PDFDocument.Pages
+	deferred          []deferredVList // VLists marked PaintLast, painted at Shipout's end
 	Finished          bool
 }
 
@@ -1712,106 +1738,18 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.moveto(-posX, -posY)
 			}
 		case *node.VList:
-			// PDF/UA: check for tag/artifact/xobject-figure on child VLists
-			var childTag *StructureElement
-			var childArtifact bool
-			var childArtifactType ArtifactType
-			var childXObjectFigure bool
-			if v.Attributes != nil {
-				if r, ok := v.Attributes["tag"]; ok {
-					childTag = r.(*StructureElement)
-				}
-				if a, ok := v.Attributes["artifact"]; ok {
-					childArtifactType = a.(ArtifactType)
-					childArtifact = true
-				}
-				if _, ok := v.Attributes["xobject-figure"]; ok {
-					childXObjectFigure = true
-				}
+			if _, ok := v.Attributes[PaintLast]; ok {
+				oc.p.deferred = append(oc.p.deferred, deferredVList{
+					vlist:       v,
+					x:           x,
+					top:         y - sumY,
+					tag:         oc.tag,
+					inArtifact:  oc.inArtifact,
+					readingSlot: oc.p.document.nextReadingSeq(),
+				})
+			} else {
+				oc.outputVListChild(x, y-sumY, v)
 			}
-			// If this child VList has no tag and no artifact and
-			// parent also has no tag (i.e. we're in an untagged
-			// container), mark as artifact in PDF/UA mode — but only
-			// if there are no tagged descendants (otherwise let them
-			// emit their own BDC/EMC).
-			if oc.p.document.Format.IsPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
-				if !vlistHasTaggedDescendant(v) {
-					childArtifact = true
-				}
-			}
-
-			switch {
-			case childXObjectFigure && childTag != nil:
-				// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
-				// import. The /Do on the page stays unmarked; structure
-				// attachment runs via /StructParent + ParentTree + OBJR.
-				if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
-					sp := oc.p.document.AllocateXObjectStructParent(childTag)
-					img.ImageFile.SetStructParent(sp)
-					if obj := img.ImageFile.ImageObject(); obj != nil {
-						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
-					}
-					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-					posX := (x + v.ShiftX).ToPT()
-					posY := (y - sumY).ToPT()
-					childTag.BBox = [4]float64{
-						posX,
-						pageHeightPT - posY,
-						posX + v.Width.ToPT(),
-						pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
-					}
-					childTag.HasBBox = true
-				}
-			case childArtifact:
-				oc.gotoTextMode(ScopePage)
-				if childArtifactType != "" {
-					oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
-				} else {
-					oc.writef("/Artifact BMC\n")
-				}
-			case childTag != nil:
-				oc.gotoTextMode(ScopePage)
-				// Save and swap the current tag
-				mcid := oc.p.nextMCID
-				oc.p.nextMCID++
-				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
-				childTag.ID = mcid
-				oc.p.StructureElements = append(oc.p.StructureElements, childTag)
-				oc.emitBDC(childTag, mcid)
-				// Set BBox for Figure elements (PDF/UA requirement)
-				if childTag.Role == "Figure" {
-					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-					posX := (x + v.ShiftX).ToPT()
-					posY := (y - sumY).ToPT()
-					childTag.BBox = [4]float64{
-						posX,
-						pageHeightPT - posY,
-						posX + v.Width.ToPT(),
-						pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
-					}
-					childTag.HasBBox = true
-				}
-			}
-
-			savedTag := oc.tag
-			savedInArtifact := oc.inArtifact
-			// xobject-figure does not push oc.tag — the inner /Do is unmarked.
-			if childTag != nil && !childXObjectFigure {
-				oc.tag = childTag
-			}
-			if childArtifact {
-				oc.inArtifact = true
-			}
-
-			oc.outputVerticalItems(x+v.ShiftX, y-sumY+v.Shift, v)
-
-			if (childTag != nil && !childXObjectFigure) || childArtifact {
-				oc.gotoTextMode(ScopePage)
-				oc.writef("EMC\n")
-			}
-			oc.tag = savedTag
-			oc.inArtifact = savedInArtifact
-
 			sumY += v.Height + v.Depth
 		default:
 			bag.Logger.Error(fmt.Sprintf("Shipout: unknown node %T in vertical mode", v))
@@ -1819,6 +1757,149 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 	}
 	if oc.p.document.DumpOutput {
 		oc.curOutputDebug = saveCurOutputDebug
+	}
+}
+
+// outputVListChild outputs v, a child of a vertical list whose left edge is x,
+// with its top at top. It opens the marked-content sequence v's tag or
+// artifact asks for.
+func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList) {
+	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
+	var childTag *StructureElement
+	var childArtifact bool
+	var childArtifactType ArtifactType
+	var childXObjectFigure bool
+	if v.Attributes != nil {
+		if r, ok := v.Attributes["tag"]; ok {
+			childTag = r.(*StructureElement)
+		}
+		if a, ok := v.Attributes["artifact"]; ok {
+			childArtifactType = a.(ArtifactType)
+			childArtifact = true
+		}
+		if _, ok := v.Attributes["xobject-figure"]; ok {
+			childXObjectFigure = true
+		}
+	}
+	// If this child VList has no tag and no artifact and
+	// parent also has no tag (i.e. we're in an untagged
+	// container), mark as artifact in PDF/UA mode — but only
+	// if there are no tagged descendants (otherwise let them
+	// emit their own BDC/EMC).
+	if oc.p.document.Format.IsPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+		if !vlistHasTaggedDescendant(v) {
+			childArtifact = true
+		}
+	}
+
+	switch {
+	case childXObjectFigure && childTag != nil:
+		// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
+		// import. The /Do on the page stays unmarked; structure
+		// attachment runs via /StructParent + ParentTree + OBJR.
+		if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
+			sp := oc.p.document.AllocateXObjectStructParent(childTag)
+			img.ImageFile.SetStructParent(sp)
+			if obj := img.ImageFile.ImageObject(); obj != nil {
+				childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
+			}
+			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+			posX := (x + v.ShiftX).ToPT()
+			posY := top.ToPT()
+			childTag.BBox = [4]float64{
+				posX,
+				pageHeightPT - posY,
+				posX + v.Width.ToPT(),
+				pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
+			}
+			childTag.HasBBox = true
+		}
+	case childArtifact:
+		oc.gotoTextMode(ScopePage)
+		if childArtifactType != "" {
+			oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
+		} else {
+			oc.writef("/Artifact BMC\n")
+		}
+	case childTag != nil:
+		oc.gotoTextMode(ScopePage)
+		// Save and swap the current tag
+		mcid := oc.p.nextMCID
+		oc.p.nextMCID++
+		childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
+		childTag.ID = mcid
+		oc.p.StructureElements = append(oc.p.StructureElements, childTag)
+		oc.emitBDC(childTag, mcid)
+		// Set BBox for Figure elements (PDF/UA requirement)
+		if childTag.Role == "Figure" {
+			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+			posX := (x + v.ShiftX).ToPT()
+			posY := top.ToPT()
+			childTag.BBox = [4]float64{
+				posX,
+				pageHeightPT - posY,
+				posX + v.Width.ToPT(),
+				pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
+			}
+			childTag.HasBBox = true
+		}
+	}
+
+	savedTag := oc.tag
+	savedInArtifact := oc.inArtifact
+	// xobject-figure does not push oc.tag — the inner /Do is unmarked.
+	if childTag != nil && !childXObjectFigure {
+		oc.tag = childTag
+	}
+	if childArtifact {
+		oc.inArtifact = true
+	}
+
+	oc.outputVerticalItems(x+v.ShiftX, top+v.Shift, v)
+
+	if (childTag != nil && !childXObjectFigure) || childArtifact {
+		oc.gotoTextMode(ScopePage)
+		oc.writef("EMC\n")
+	}
+	oc.tag = savedTag
+	oc.inArtifact = savedInArtifact
+}
+
+// paintDeferred paints a VList marked PaintLast at the position it had in
+// its list. The marked-content sequence it sat in has long been closed, so
+// content that belonged to it, that is all of a VList without a tag or
+// artifact of its own, gets a sequence of its own for the same structure
+// element or as an artifact.
+func (oc *objectContext) paintDeferred(df deferredVList) {
+	d := oc.p.document
+	d.readingPrefix = d.readingPath(df.readingSlot)
+	defer func() { d.readingPrefix = nil }()
+	oc.tag = df.tag
+	oc.inArtifact = df.inArtifact
+
+	v := df.vlist
+	_, ownTag := v.Attributes["tag"]
+	_, ownArtifact := v.Attributes["artifact"]
+	wrap := false
+	if !ownTag && !ownArtifact {
+		switch {
+		case oc.inArtifact:
+			oc.writef("/Artifact BMC\n")
+			wrap = true
+		case oc.tag != nil:
+			mcid := oc.p.nextMCID
+			oc.p.nextMCID++
+			oc.tag.mcids = append(oc.tag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: d.nextReadingSeq()})
+			oc.p.StructureElements = append(oc.p.StructureElements, oc.tag)
+			oc.emitBDC(oc.tag, mcid)
+			wrap = true
+		}
+	}
+	oc.outputVListChild(df.x, df.top, v)
+	oc.gotoTextMode(ScopePage)
+	if wrap {
+		oc.newline()
+		oc.writef("EMC\n")
 	}
 }
 
@@ -1930,7 +2011,7 @@ func (p *Page) Shipout() {
 	st := p.document.PDFWriter.NewObject()
 	st.SetCompression(p.document.CompressLevel)
 
-	for _, obj := range objs {
+	newObjectContext := func() *objectContext {
 		oc := &objectContext{
 			textmode:         ScopePage,
 			s:                st.Data,
@@ -1944,6 +2025,25 @@ func (p *Page) Shipout() {
 			},
 		}
 		oc.curOutputDebug = oc.outputDebug
+		return oc
+	}
+	collect := func(oc *objectContext) {
+		for k := range oc.usedFaces {
+			usedFaces[k] = true
+		}
+		for k := range oc.usedImages {
+			usedImages[k] = true
+		}
+		if len(oc.pendingShadings) > 0 {
+			allShadings = append(allShadings, oc.pendingShadings...)
+		}
+		if len(oc.pendingExtGStates) > 0 {
+			allExtGStates = append(allExtGStates, oc.pendingExtGStates...)
+		}
+	}
+
+	for _, obj := range objs {
+		oc := newObjectContext()
 
 		vlist := obj.Vlist
 		if vlist.Attributes != nil {
@@ -1997,18 +2097,7 @@ func (p *Page) Shipout() {
 		}
 
 		oc.outputVerticalItems(x, y, vlist)
-		for k := range oc.usedFaces {
-			usedFaces[k] = true
-		}
-		for k := range oc.usedImages {
-			usedImages[k] = true
-		}
-		if len(oc.pendingShadings) > 0 {
-			allShadings = append(allShadings, oc.pendingShadings...)
-		}
-		if len(oc.pendingExtGStates) > 0 {
-			allExtGStates = append(allExtGStates, oc.pendingExtGStates...)
-		}
+		collect(oc)
 		oc.gotoTextMode(ScopePage)
 
 		// Close the object-level BDC
@@ -2020,6 +2109,18 @@ func (p *Page) Shipout() {
 			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
 		}
 	}
+
+	// VLists marked PaintLast, in the order they were met. Painting one can
+	// defer another, which then follows.
+	for i := 0; i < len(p.deferred); i++ {
+		oc := newObjectContext()
+		oc.paintDeferred(p.deferred[i])
+		collect(oc)
+		if oc.p.document.DumpOutput {
+			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
+		}
+	}
+	p.deferred = nil
 
 	page := p.document.PDFWriter.AddPage(st, pageObjectNumber)
 	page.Dict = make(pdf.Dict)
@@ -2344,26 +2445,26 @@ type NamespaceRoleEntry struct {
 }
 
 // readingKey returns the reading-order position of se for sorting it among
-// its siblings in a parent's /K array. It is the smallest reading-order
+// its siblings in a parent's /K array. It is the first reading-order
 // stamp (see PDFDocument.nextReadingSeq) found anywhere in se's subtree:
 // its own marked-content and object references, plus those of all
 // descendants. An element with no positioned content yet (no MCR/OBJR in
 // its subtree) returns the maximum int so it sorts after positioned
 // siblings; a stable sort then preserves its relative order.
-func readingKey(se *StructureElement) int {
+func (d *PDFDocument) readingKey(se *StructureElement) int {
 	best := int(^uint(0) >> 1) // max int
 	for _, m := range se.mcids {
-		if m.seq < best {
+		if d.readingBefore(m.seq, best) {
 			best = m.seq
 		}
 	}
 	for _, o := range se.objRefs {
-		if o.seq < best {
+		if d.readingBefore(o.seq, best) {
 			best = o.seq
 		}
 	}
 	for _, c := range se.children {
-		if k := readingKey(c); k < best {
+		if k := d.readingKey(c); d.readingBefore(k, best) {
 			best = k
 		}
 	}
@@ -2456,10 +2557,10 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 
 	for _, child := range se.children {
 		d.serializeStructureElement(child, se.Obj.ObjectNumber, pageObjnums)
-		kentries = append(kentries, kEntry{readingKey(child), child.Obj.ObjectNumber.Ref()})
+		kentries = append(kentries, kEntry{d.readingKey(child), child.Obj.ObjectNumber.Ref()})
 	}
 
-	sort.SliceStable(kentries, func(i, j int) bool { return kentries[i].key < kentries[j].key })
+	sort.SliceStable(kentries, func(i, j int) bool { return d.readingBefore(kentries[i].key, kentries[j].key) })
 
 	kItems := make([]string, len(kentries))
 	for i, e := range kentries {
@@ -2551,15 +2652,50 @@ type PDFDocument struct {
 	// structure element's /K children — MCRs, OBJRs, and child elements — in
 	// document order. See nextReadingSeq.
 	readingSeq int
+	// readingPaths holds the reading position of a stamp taken while a
+	// PaintLast VList was painted: the stamps of the slots it was deferred
+	// from, then its own. A stamp not in it is at its own position. See
+	// readingBefore.
+	readingPaths map[int][]int
+	// readingPrefix is the reading position of the slot whose VList is being
+	// painted, nil outside of deferred painting.
+	readingPrefix []int
 }
 
 // nextReadingSeq returns the next document-wide reading-order stamp. It is
 // strictly increasing and never resets, so the value of an MCR or OBJR
 // emitted earlier in shipout is always smaller than one emitted later —
 // which is exactly the order a screen reader should follow.
+//
+// Content painted later than its place in the list (PaintLast) is stamped
+// at that place: its stamps sort after the slot reserved for it and before
+// any stamp taken after the slot.
 func (d *PDFDocument) nextReadingSeq() int {
 	d.readingSeq++
+	if d.readingPrefix != nil {
+		if d.readingPaths == nil {
+			d.readingPaths = make(map[int][]int)
+		}
+		d.readingPaths[d.readingSeq] = append(slices.Clone(d.readingPrefix), d.readingSeq)
+	}
 	return d.readingSeq
+}
+
+// readingPath returns the reading position of stamp seq.
+func (d *PDFDocument) readingPath(seq int) []int {
+	if p, ok := d.readingPaths[seq]; ok {
+		return p
+	}
+	return []int{seq}
+}
+
+// readingBefore reports whether stamp a comes before stamp b in reading
+// order. Without deferred painting that is a < b.
+func (d *PDFDocument) readingBefore(a, b int) bool {
+	if d.readingPaths == nil {
+		return a < b
+	}
+	return slices.Compare(d.readingPath(a), d.readingPath(b)) < 0
 }
 
 // NewDocument creates an empty document.
