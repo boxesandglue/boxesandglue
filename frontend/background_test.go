@@ -1,7 +1,9 @@
 package frontend
 
 import (
+	"fmt"
 	"io"
+	"math"
 	"strings"
 	"testing"
 
@@ -362,4 +364,98 @@ func TestInlineBackgroundArea(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInlineBackgroundFromItsText checks that the box of an inline background
+// comes from the font of the Text that carries it, as CSS takes an inline
+// box's content area from its own font: nested text in another family or
+// size, or nested vertical-align, does not change or move it.
+func TestInlineBackgroundFromItsText(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sans := fe.NewFontFamily("sans")
+	if err := sans.AddMember(&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"}, FontWeight400, FontStyleNormal); err != nil {
+		t.Fatal(err)
+	}
+	serif := fe.NewFontFamily("serif")
+	if err := serif.AddMember(&FontSource{Location: "../qa/fonts/upem/fonts/CrimsonPro-Regular.ttf"}, FontWeight400, FontStyleNormal); err != nil {
+		t.Fatal(err)
+	}
+	yellow := fe.GetColor("yellow")
+
+	// boxes returns "y height" of each background rule on the one line.
+	boxes := func(t *testing.T, span *Text) []string {
+		t.Helper()
+		span.Settings[SettingBackgroundColor] = yellow
+		span.Settings[SettingBackgroundArea] = BackgroundAreaAscentDescent
+		te := NewText()
+		te.Settings[SettingFontFamily] = serif
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		te.Items = append(te.Items, "before ", span, " after")
+		vl, _, err := fe.FormatParagraph(te, bag.MustSP("300pt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := backgroundRules(vl)
+		if len(lines) != 1 {
+			t.Fatalf("got %d lines, want 1", len(lines))
+		}
+		var ret []string
+		for _, r := range lines[0] {
+			f := strings.Fields(r.Pre)
+			for i, w := range f {
+				if w == "re" && i >= 4 {
+					ret = append(ret, f[i-3]+" "+f[i-1])
+				}
+			}
+		}
+		return ret
+	}
+	nested := func(settings map[SettingType]any) *Text {
+		child := NewText()
+		for k, v := range settings {
+			child.Settings[k] = v
+		}
+		child.Items = append(child.Items, "nested")
+		span := NewText()
+		span.Items = append(span.Items, "serif ", child, " serif")
+		return span
+	}
+	plain := NewText()
+	plain.Items = append(plain.Items, "serif nested serif")
+	want := boxes(t, plain)
+	if len(want) != 1 {
+		t.Fatalf("a span in one face gets %d boxes, want 1", len(want))
+	}
+
+	for name, settings := range map[string]map[SettingType]any{
+		"another family":          {SettingFontFamily: sans},
+		"a larger size":           {SettingSize: bag.MustSP("14pt")},
+		"a nested vertical-align": {SettingYOffset: bag.MustSP("3pt")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := boxes(t, nested(settings))
+			if len(got) != 1 || got[0] != want[0] {
+				t.Errorf("boxes %q, want the span's own box %q once", got, want[0])
+			}
+		})
+	}
+
+	t.Run("vertical-align on the span moves its box", func(t *testing.T) {
+		span := NewText()
+		span.Settings[SettingYOffset] = bag.MustSP("3pt")
+		span.Items = append(span.Items, "serif nested serif")
+		got := boxes(t, span)
+		if len(got) != 1 || got[0] == want[0] {
+			t.Fatalf("boxes %q, want one box moved from %q", got, want[0])
+		}
+		var y0, y1, h0, h1 float64
+		fmt.Sscan(want[0], &y0, &h0)
+		fmt.Sscan(got[0], &y1, &h1)
+		if math.Abs(y1-y0-3) > 0.01 || h1 != h0 {
+			t.Errorf("box %q, want %q raised by 3pt", got[0], want[0])
+		}
+	})
 }

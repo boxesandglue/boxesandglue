@@ -421,7 +421,10 @@ const (
 	SettingHorizontalScale
 	// SettingBackgroundArea chooses the box an inline background
 	// (SettingBackgroundColor on a child Text) is painted over, a
-	// BackgroundArea. The default is BackgroundAreaEmBox.
+	// BackgroundArea. The default is BackgroundAreaEmBox. The box is that
+	// of the child Text's own font, as CSS takes an inline box's content
+	// area from its own font: text nested in another family or size, or a
+	// glyph from a fallback font, does not change it.
 	SettingBackgroundArea
 	// SettingBreaker chooses where a paragraph breaks among its legal
 	// breakpoints (a node.Breaker), in place of Knuth-Plass, as
@@ -3088,6 +3091,19 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				if area, ok := t.Settings[SettingBackgroundArea].(BackgroundArea); ok && area != BackgroundAreaEmBox {
 					bgStart.SetAttribute(attrInlineBackgroundArea, area)
 				}
+				// The box comes from the font of the Text that carries the
+				// background, not from the glyphs under it (CSS content
+				// area): a nested family, size or fallback font does not
+				// change it. Without it, each glyph's font gives the box.
+				fnt, err := fe.textFont(t)
+				if err != nil {
+					bag.Logger.Error("Cannot load the face for an inline background", "error", err)
+				}
+				if fnt != nil {
+					yoffset, _ := t.Settings[SettingYOffset].(bag.ScaledPoint)
+					lineShift, _ := t.Settings[SettingLineShift].(bag.ScaledPoint)
+					bgStart.SetAttribute(attrInlineBackgroundBox, &spaceBox{font: fnt, yoffset: yoffset + lineShift})
+				}
 				head = node.InsertAfter(head, tail, bgStart)
 				tail = bgStart
 			}
@@ -3171,13 +3187,22 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 }
 
 // paragraphFont is the font of te itself, the paragraph's root inline box,
-// when te sets SettingRecordLineTrims: its family, weight and style under its
-// synthesis setting and variations, at its size, as its own glyphs get it,
-// loading the face if no glyph has. Nil when te names no family or size.
+// when te sets SettingRecordLineTrims (see textFont).
 func (fe *Document) paragraphFont(te *Text) *font.Font {
 	if rec, _ := te.Settings[SettingRecordLineTrims].(bool); !rec {
 		return nil
 	}
+	fnt, err := fe.textFont(te)
+	if err != nil {
+		bag.Logger.Error("Cannot load the paragraph's face for its line trims", "error", err)
+	}
+	return fnt
+}
+
+// textFont is the font of te itself: its family, weight and style under its
+// synthesis setting and variations, at its size, as its own glyphs get it,
+// loading the face if no glyph has. Nil when te names no family or size.
+func (fe *Document) textFont(te *Text) (*font.Font, error) {
 	ff, _ := te.Settings[SettingFontFamily].(*FontFamily)
 	var size bag.ScaledPoint
 	switch t := te.Settings[SettingSize].(type) {
@@ -3187,7 +3212,7 @@ func (fe *Document) paragraphFont(te *Text) *font.Font {
 		size = bag.ScaledPoint(t)
 	}
 	if ff == nil || size == 0 {
-		return nil
+		return nil, nil
 	}
 	weight := FontWeight400
 	switch t := te.Settings[SettingFontWeight].(type) {
@@ -3199,13 +3224,12 @@ func (fe *Document) paragraphFont(te *Text) *font.Font {
 	style, _ := te.Settings[SettingStyle].(FontStyle)
 	fs, err := ff.GetFontSourceFor(weight, style, te.Settings)
 	if err != nil || fs == nil {
-		return nil
+		return nil, nil
 	}
 	variations, _ := te.Settings[SettingFontVariationSettings].(map[string]float64)
 	fnt, _, _, err := fe.sourceFont(fs, size, variations)
 	if err != nil {
-		bag.Logger.Error("Cannot load the paragraph's face for its line trims", "error", err)
-		return nil
+		return nil, err
 	}
-	return fnt
+	return fnt, nil
 }

@@ -17,13 +17,19 @@ const attrInlineBackground = "inlinebackground"
 // to its BackgroundArea.
 const attrInlineBackgroundArea = "inlinebackgroundarea"
 
+// attrInlineBackgroundBox is set on an opener to the *spaceBox of the Text
+// that carries the background, when its font is known. The leading
+// underscore keeps it out of --dumpoutput.
+const attrInlineBackgroundBox = "_inlinebackgroundbox"
+
 // attrSpaceBox is set on the glue (or rule) of a space set under a background
 // to its *spaceBox. The leading underscore keeps it out of --dumpoutput.
 const attrSpaceBox = "_inlinebackgroundspace"
 
-// spaceBox is the font a space was set in and the run's vertical offset, so
-// that a background over spaces alone gets the box its text would have:
-// CSS paints an inline box's content area whatever it holds.
+// spaceBox is the font a run was set in and its vertical offset: of a space,
+// so that a background over spaces alone gets the box its text would have,
+// and of the Text that carries a background, whose box it is. CSS paints an
+// inline box's content area whatever it holds.
 type spaceBox struct {
 	font    *font.Font
 	yoffset bag.ScaledPoint
@@ -33,6 +39,9 @@ type spaceBox struct {
 type inlineBackground struct {
 	col  *color.Color
 	area BackgroundArea
+	// box is the font and offset of the Text that carries the background,
+	// nil when its font is not known.
+	box *spaceBox
 	// start is the opener on the current line, or nil when the box was opened
 	// on an earlier line and continues from the start of this one.
 	start node.Node
@@ -94,23 +103,30 @@ type bgSegment struct {
 // and returns the list head, which changes when start is the head. The box is
 // the CSS content area of the font, by area the em box or its ascent and
 // descent (BackgroundArea), not the ink of the glyphs, so "ace" and "Alpha"
-// in the same span get the same box. Glyphs raised or lowered by vertical-align carry the box
-// with them. Where the font box changes within the run, a nested Text in a
-// larger size say, the box is split so that each part fits its own text; the
-// same text therefore gets the same box on every line it lands on. A space set
+// in the same span get the same box. With box, the font of the Text that
+// carries the background, that font gives the box for the whole run, as in
+// CSS: a nested Text in another family or size, or a glyph from a fallback
+// font, does not change it, and a larger one overflows it. Its vertical
+// offset (vertical-align on that Text) moves the box; a nested one does not.
+//
+// Without box, the font of each glyph gives the box, and where it changes
+// within the run the box is split so that each part fits its own text; glyphs
+// raised or lowered by vertical-align carry the box with them. A space set
 // under the background has its font's box like a glyph (attrSpaceBox), so a
 // run of spaces alone is painted too; kerns, markers and other spaces belong
 // to the part before them, or to the first part when nothing precedes them. A
 // run without any glyph or such space, an inline image say, falls back to the
 // dimensions of its nodes.
-func drawBackground(head, start, stop node.Node, col *color.Color, area BackgroundArea) node.Node {
+func drawBackground(head, start, stop node.Node, col *color.Color, area BackgroundArea, box *spaceBox) node.Node {
 	var segs []*bgSegment
 	var cur *bgSegment
 	for e := start; e != nil; e = e.Next() {
 		wd, ht, dp := e.Sizes(node.Horizontal)
 		var f *font.Font
 		var yoffset bag.ScaledPoint
-		if g, ok := e.(*node.Glyph); ok && g.Font != nil {
+		if box != nil {
+			f, yoffset = box.font, box.yoffset
+		} else if g, ok := e.(*node.Glyph); ok && g.Font != nil {
 			f, yoffset = g.Font, g.YOffset
 		} else if v, ok := e.GetAttribute(attrSpaceBox); ok {
 			if sb, ok := v.(*spaceBox); ok && sb.font != nil {
@@ -207,7 +223,8 @@ func postLinebreakBackgroundLine(n node.Node, st *styles) node.Node {
 			}
 			if col, ok := v.(*color.Color); ok && col != nil {
 				area, _ := t.Attributes[attrInlineBackgroundArea].(BackgroundArea)
-				st.backgrounds = append(st.backgrounds, &inlineBackground{col: col, area: area, start: t})
+				box, _ := t.Attributes[attrInlineBackgroundBox].(*spaceBox)
+				st.backgrounds = append(st.backgrounds, &inlineBackground{col: col, area: area, box: box, start: t})
 				continue
 			}
 			// The closer. Boxes are properly nested, so it closes the
@@ -221,7 +238,7 @@ func postLinebreakBackgroundLine(n node.Node, st *styles) node.Node {
 			if start == nil {
 				start = firstInked(head, t)
 			}
-			head = drawBackground(head, start, t, bg.col, bg.area)
+			head = drawBackground(head, start, t, bg.col, bg.area, bg.box)
 		}
 	}
 	// Whatever is still open runs to the end of the line and continues on the
@@ -231,7 +248,7 @@ func postLinebreakBackgroundLine(n node.Node, st *styles) node.Node {
 		if start == nil {
 			start = firstInked(head, tail)
 		}
-		head = drawBackground(head, start, lastInked(start, tail), bg.col, bg.area)
+		head = drawBackground(head, start, lastInked(start, tail), bg.col, bg.area, bg.box)
 		bg.start = nil
 	}
 	return head
