@@ -1073,8 +1073,10 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					}
 				}
 			case node.ActionDest:
-				// dest should be in the top left corner of the current position
-				y := posY + hlist.Height + hlist.Depth
+				// dest should be in the top left corner of the current
+				// position: posY is the baseline, the line top is its
+				// height above it.
+				y := posY + hlist.Height
 				var destname string
 				switch t := v.Value.(type) {
 				case string:
