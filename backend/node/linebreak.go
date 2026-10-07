@@ -90,13 +90,31 @@ type linebreaker struct {
 	cands []candidate
 	// measured is the last line computeAdjustmentRatio measured.
 	measured lineMeasure
+	// easyLine is the first row from which every row has the same measure.
+	// Breakpoints from there on are one class, whatever their line number,
+	// as TeX's easy_line makes them (TeX: The Program §848).
+	easyLine int
 }
 
 func newLinebreaker(settings *LinebreakSettings) *linebreaker {
 	lb := &linebreaker{
 		settings: settings,
+		easyLine: max(abs(settings.IndentRows), abs(settings.IndentRightRows)),
 	}
 	return lb
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// lineClass is the class of a breakpoint on line l: its line below
+// easyLine, and easyLine for every line from there on.
+func (lb *linebreaker) lineClass(l int) int {
+	return min(l, lb.easyLine)
 }
 
 // computeAdjustmentRatio computes the Knuth-Plass adjustment ratio r for a
@@ -400,6 +418,8 @@ func (lb *linebreaker) mainLoop(n Node) {
 
 	// The outer loop calculates dmin for each of the four fitness classes c.
 	for active != nil {
+		before := lb.preva
+		var class int
 		dmin := math.MaxInt
 		dc := [4]int{math.MaxInt, math.MaxInt, math.MaxInt, math.MaxInt}
 		ac := [4]*Breakpoint{}
@@ -444,10 +464,12 @@ func (lb *linebreaker) mainLoop(n Node) {
 				c, demerits := lb.calculateDemerits(active, r, n)
 
 				// Update candidate if (and only if) the total demerits are less
-				// than the previous total demerits for this fitness class.
+				// than the previous total demerits for this fitness class, or
+				// equal over fewer lines: the last class holds several lines,
+				// and the fewer lines are what the final pick would take.
 				//
 				// Also update the minimum demerits for this position.
-				if demerits < dc[c] {
+				if demerits < dc[c] || (demerits == dc[c] && ac[c] != nil && active.Line < ac[c].Line) {
 					dc[c] = demerits
 					ac[c] = active
 					rc[c] = r
@@ -457,21 +479,33 @@ func (lb *linebreaker) mainLoop(n Node) {
 					}
 				}
 			}
-			j := active.Line + 1
+			class = lb.lineClass(active.Line)
 
 			if active = nexta; active == nil {
 				break
 			}
-			// The next active node can be in the next line, so we quit the
+			// The next active node can be in the next class, so we quit the
 			// calculation of the best breakpoint. This works, because the list
-			// of active nodes are ordered ascending (wrt line number).
-			if j <= active.Line {
-				// we omitted (j < j0) as j0 is difficult to know for complex cases
+			// of active nodes is ordered ascending by class (TeX: The Program
+			// §835).
+			if class < lb.lineClass(active.Line) {
 				break
 			}
 		}
 		if dmin < math.MaxInt {
-			lb.appendBreakpointHere(n, dmin, dc, ac, rc, ec, active)
+			if class == lb.easyLine {
+				// The last class runs to the end of the list. Its new
+				// breakpoints go first in it, as a line's do below easyLine,
+				// so that a tie goes to the latest break in either.
+				first := lb.activeNodesA
+				if before != nil {
+					first = before.next
+				}
+				lb.preva = before
+				lb.appendBreakpointHere(n, dmin, dc, ac, rc, ec, first)
+			} else {
+				lb.appendBreakpointHere(n, dmin, dc, ac, rc, ec, active)
+			}
 		}
 		if dmin == math.MaxInt && lb.activeNodesA == nil {
 			W, E, Y, Z := lb.computeSum(n)
@@ -817,8 +851,9 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 			recordTrim(hl, settings)
 			vert = InsertBefore(vert, vert, hl)
-			// insert vertical glue if necessary
-			if e.next != nil {
+			// insert vertical glue if necessary, above every line but the
+			// first, which starts at the breakpoint with no from
+			if e.from != nil {
 				if settings.LineModel != nil {
 					if lineskip := settings.LineModel.Leading(hl, settings); lineskip != nil {
 						vert = InsertBefore(vert, vert, lineskipOrigin(lineskip, "lineskip"))

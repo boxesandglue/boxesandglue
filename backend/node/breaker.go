@@ -169,13 +169,11 @@ func (lb *linebreaker) chooseBreaks(root *Breakpoint) *Breakpoint {
 		}
 		from := prev.lineSums
 		bp := &Breakpoint{
-			id:       int(breakpointNextID.Add(1)),
-			Position: c.Node,
-			Pre:      pre,
-			Line:     prev.Line + 1,
-			from:     prev,
-			// Linebreak sets a line for each breakpoint that has a next.
-			next:             prev,
+			id:               int(breakpointNextID.Add(1)),
+			Position:         c.Node,
+			Pre:              pre,
+			Line:             prev.Line + 1,
+			from:             prev,
 			Fitness:          calculateFitnessClass(f.Ratio),
 			Width:            width - from.sumW,
 			lineSums:         c.after,
