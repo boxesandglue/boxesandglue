@@ -410,11 +410,13 @@ func (lb *linebreaker) mainLoop(n Node) {
 	// possible) breakpoint that gets deactivated *because its line is
 	// overfull*, ties broken toward the fewest demerits. Accumulated across
 	// all line-group iterations of this mainLoop call, because the emergency
-	// only fires once the active list is fully drained. Only overfull
-	// deactivations qualify — a forced break (HardBreak) that deactivates an
-	// underfull line must keep the LIFO anchor so stacked blank lines from
-	// consecutive forced breaks are preserved.
+	// only fires once the active list is fully drained.
 	var bestOverfull *Breakpoint
+	// Best anchor among the breakpoints a forced break deactivates without
+	// their line being overfull: the fewest demerits, ties broken toward the
+	// latest position. Their lines all fit, so the one with the fewest
+	// demerits gives the paragraph the fewest.
+	var bestForced *Breakpoint
 
 	// The outer loop calculates dmin for each of the four fitness classes c.
 	for active != nil {
@@ -450,6 +452,9 @@ func (lb *linebreaker) mainLoop(n Node) {
 						(active.sumW == bestOverfull.sumW && active.Demerits < bestOverfull.Demerits) {
 						bestOverfull = active
 					}
+				} else if bestForced == nil || active.Demerits < bestForced.Demerits ||
+					(active.Demerits == bestForced.Demerits && active.sumW > bestForced.sumW) {
+					bestForced = active
 				}
 				lb.removeActiveNode(active)
 			} else {
@@ -510,18 +515,21 @@ func (lb *linebreaker) mainLoop(n Node) {
 		if dmin == math.MaxInt && lb.activeNodesA == nil {
 			W, E, Y, Z := lb.computeSum(n)
 			lb.markFirstTab(n)
-			// Anchor the forced overfull line. Prefer the best overfull
-			// breakpoint found this round (latest position, fewest demerits)
-			// so an unbreakable run wider than HSize — e.g. a long URL, or
-			// the mailmerge company block where dropped <br/> glued several
-			// fields into one ~220pt token — does not drag every preceding
-			// word onto its own line. With ragged alignment every word break
-			// is feasible (r=0), so the plain LIFO inactiveNodesP would be the
-			// deepest single-word chain. Fall back to LIFO when nothing was
-			// deactivated for being overfull (e.g. stacked blank lines from
-			// consecutive forced breaks), where the most recent node is right.
+			// Anchor the emergency line. A breakpoint a forced break
+			// deactivated without its line being overfull comes first: its
+			// line fits, it is only too loose to be feasible, as before a
+			// HardBreak in a justified paragraph. Otherwise take the best
+			// overfull breakpoint found this round (latest position, fewest
+			// demerits), so an unbreakable run wider than HSize (a long URL,
+			// or the mailmerge company block where dropped <br/> glued
+			// several fields into one ~220pt token) does not drag every
+			// preceding word onto its own line. With ragged alignment every
+			// word break is feasible (r=0), so the plain LIFO inactiveNodesP
+			// would be the deepest single-word chain.
 			lastInactive := lb.inactiveNodesP
-			if bestOverfull != nil {
+			if bestForced != nil {
+				lastInactive = bestForced
+			} else if bestOverfull != nil {
 				lastInactive = bestOverfull
 			}
 			width := lb.sumW
