@@ -41,6 +41,19 @@ func (d *PDFDocument) AddXMPExtension(ext XMPExtension) {
 	d.xmpExtensions = append(d.xmpExtensions, ext)
 }
 
+// pdfuaidExtension declares the PDF/UA identification schema. PDF/A-1 to 3
+// predate it, so a document that is PDF/A and PDF/UA at once must declare
+// it like any other extension schema (ISO 19005-3 §6.6.2.3).
+var pdfuaidExtension = XMPExtension{
+	Schema:       "PDF/UA Universal Accessibility Schema",
+	NamespaceURI: "http://www.aiim.org/pdfua/ns/id/",
+	Prefix:       "pdfuaid",
+	Properties: []XMPExtensionProperty{
+		{Name: "part", ValueType: "Integer", Category: "internal", Description: "Indicates, which part of ISO 14289 standard is followed"},
+		{Name: "rev", ValueType: "Integer", Category: "internal", Description: "Indicates the year of the revision of the part of ISO 14289 that is followed"},
+	},
+}
+
 func (d *PDFDocument) getMetadata(w io.Writer) {
 	var docID, instanceID string
 	formattedDate := d.CreationDate.Format(time.RFC3339)
@@ -147,7 +160,11 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 	x.end("rdf:Description")
 
 	// Render structured XMP extensions.
-	if len(d.xmpExtensions) > 0 {
+	extensions := d.xmpExtensions
+	if f.PDFA != nil && f.PDFA.Part <= 3 && f.PDFUA != nil {
+		extensions = append([]XMPExtension{pdfuaidExtension}, extensions...)
+	}
+	if len(extensions) > 0 {
 		// Schema declarations block.
 		x.start("rdf:Description",
 			"rdf:about", "",
@@ -158,7 +175,7 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		x.start("pdfaExtension:schemas")
 		x.start("rdf:Bag")
 
-		for _, ext := range d.xmpExtensions {
+		for _, ext := range extensions {
 			x.start("rdf:li", "rdf:parseType", "Resource")
 			x.textElement("pdfaSchema:schema", ext.Schema)
 			x.textElement("pdfaSchema:namespaceURI", ext.NamespaceURI)
@@ -187,7 +204,7 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		x.end("rdf:Description")
 
 		// Value descriptions — one rdf:Description per extension.
-		for _, ext := range d.xmpExtensions {
+		for _, ext := range extensions {
 			if len(ext.Values) == 0 {
 				continue
 			}
