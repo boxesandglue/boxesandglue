@@ -7,6 +7,7 @@ import (
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/document"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/boxesandglue/boxesandglue/frontend/pdfdraw"
 )
@@ -448,6 +449,19 @@ func (cell *TableCell) buildContents(paraWidth bag.ScaledPoint) (*node.VList, er
 	return vl, nil
 }
 
+// paintBorderLast marks border r of a cell to be painted after the
+// backgrounds of the whole table, the way CSS paints a table (CSS 2.1
+// Appendix E), as a layout artifact. Drawn cell by cell, the background of
+// the next cell would cover part of a thin line in some viewers (Adobe
+// Acrobat).
+func paintBorderLast(r *node.Rule) {
+	if r.Hide && r.Pre == "" {
+		return
+	}
+	r.Attributes[document.PaintLast] = true
+	r.Attributes["artifact"] = document.ArtifactLayout
+}
+
 func (cell *TableCell) build() (*node.VList, error) {
 	paraWidth := cell.CalculatedWidth - cell.calculatedBorderLeftWidth - cell.calculatedBorderRightWidth - cell.PaddingLeft - cell.PaddingRight
 	vl, err := cell.buildContents(paraWidth)
@@ -524,6 +538,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 			r.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BorderLeftColor).Rect(-reach, -r.Depth, r.Width+reach, r.Height+r.Depth).Fill().Restore().String()
 			r.Post = ""
 		}
+		paintBorderLast(r)
 		head = r
 	}
 
@@ -555,6 +570,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 			r.Post = pdfdraw.New().Restore().String()
 		}
 		r.Attributes = node.H{"origin": "right rule"}
+		paintBorderLast(r)
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
 	hl := node.HpackTo(head, cell.CalculatedWidth)
@@ -575,6 +591,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 			r.Post = pdfdraw.New().Restore().String()
 		}
 		r.Attributes = node.H{"origin": "top rule"}
+		paintBorderLast(r)
 		head = node.InsertBefore(head, head, r)
 	}
 	if cell.calculatedBorderBottomWidth != 0 {
@@ -591,6 +608,7 @@ func (cell *TableCell) build() (*node.VList, error) {
 			r.Post = pdfdraw.New().Restore().String()
 		}
 		r.Attributes = node.H{"origin": "bottom rule"}
+		paintBorderLast(r)
 		head = node.InsertAfter(head, node.Tail(head), r)
 	}
 
@@ -1321,7 +1339,9 @@ func (fe *Document) BuildTable(tbl *Table) ([]*node.VList, error) {
 		tail = hl
 	}
 	vl := node.Vpack(head)
-	vl.Attributes = node.H{"origin": "table"}
+	// The borders, marked by paintBorderLast, are painted when the table
+	// is done, over all cell backgrounds.
+	vl.Attributes = node.H{"origin": "table", document.PaintLastScope: true}
 
 	// Store header information so the page breaker can repeat headers
 	// when splitting the table across pages.

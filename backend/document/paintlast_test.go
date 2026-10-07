@@ -50,7 +50,12 @@ func pageStream(t *testing.T, d *PDFDocument, buf *bytes.Buffer, vl *node.VList)
 	if err := d.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	out := buf.String()
+	return firstStream(t, buf.String())
+}
+
+// firstStream returns the first content stream in the uncompressed PDF out.
+func firstStream(t *testing.T, out string) string {
+	t.Helper()
 	at := strings.Index(out, " cm ")
 	if at < 0 {
 		t.Fatalf("no content stream in\n%s", out)
@@ -316,5 +321,141 @@ func TestPaintLastRuleMarkedContent(t *testing.T) {
 		if siblingAt, _ := fillPos(t, stream, "2cm"); siblingAt > ruleAt {
 			t.Errorf("tagged %t: the sibling comes after the deferred rule in\n%s", tc.tagged, stream)
 		}
+	}
+}
+
+// scope gives vl PaintLastScope.
+func scope(vl *node.VList) *node.VList {
+	if vl.Attributes == nil {
+		vl.Attributes = node.H{}
+	}
+	vl.Attributes[PaintLastScope] = true
+	return vl
+}
+
+// A VList with PaintLastScope paints the marked nodes inside it right after
+// itself, before its siblings that follow, in a vertical or a horizontal
+// list.
+func TestPaintLastScope(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		layout func(mark bool) *node.VList
+	}{
+		{"in a vertical list", func(mark bool) *node.VList {
+			r := bareRule("1cm")
+			if mark {
+				r = paintLastRule(r)
+			}
+			return vbox(scope(vbox(r, ruleOfWidth("2cm"))), ruleOfWidth("3cm"))
+		}},
+		{"in a horizontal list", func(mark bool) *node.VList {
+			r := bareRule("1cm")
+			if mark {
+				r = paintLastRule(r)
+			}
+			return hbox(scope(vbox(r, ruleOfWidth("2cm"))), ruleOfWidth("3cm"))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plain, marked := renderStream(t, tc.layout(false)), renderStream(t, tc.layout(true))
+			assertPaintedLast(t, plain, marked, "1cm", "2cm")
+			ruleAt, _ := fillPos(t, marked, "1cm")
+			if siblingAt, _ := fillPos(t, marked, "3cm"); siblingAt < ruleAt {
+				t.Errorf("the sibling after the scope comes before the deferred rule in\n%s", marked)
+			}
+		})
+	}
+}
+
+// A page object with PaintLastScope paints its marked nodes before the next
+// page object, which can lie over it.
+func TestPaintLastScopePageObject(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.CompressLevel = 0
+	p := d.NewPage()
+	p.OutputAt(bag.MustSP("2cm"), bag.MustSP("20cm"), scope(vbox(paintLastRule(bareRule("1cm")), ruleOfWidth("2cm"))))
+	p.OutputAt(bag.MustSP("2cm"), bag.MustSP("20cm"), ruleOfWidth("3cm"))
+	p.Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	stream := firstStream(t, buf.String())
+	ruleAt, _ := fillPos(t, stream, "1cm")
+	if tableAt, _ := fillPos(t, stream, "2cm"); tableAt > ruleAt {
+		t.Errorf("the deferred rule comes before the rest of its scope in\n%s", stream)
+	}
+	if overAt, _ := fillPos(t, stream, "3cm"); overAt < ruleAt {
+		t.Errorf("the next page object comes before the deferred rule in\n%s", stream)
+	}
+}
+
+// Under PDF/UA a deferred rule with an artifact type is painted as an
+// artifact of that type, not in a sequence of its structure element.
+func TestPaintLastRuleArtifact(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.Format = FormatPDFUA
+	d.SuppressInfo = true
+	d.DefaultLanguageTag = "en"
+	d.Title = "PaintLast artifact"
+	root := &StructureElement{Role: "Document"}
+	div := &StructureElement{Role: "Div"}
+	root.AddChild(div)
+	d.RootStructureElement = root
+
+	border := paintLastRule(bareRule("1cm"))
+	border.Attributes["artifact"] = ArtifactLayout
+	container := scope(vbox(border, bareRule("2cm")))
+	container.Attributes["tag"] = div
+	stream := pageStream(t, d, &buf, container)
+	if err := d.PDFWriter.FinishAndClose(); err != nil {
+		t.Fatalf("FinishAndClose: %v", err)
+	}
+
+	ruleAt, _ := fillPos(t, stream, "1cm")
+	seq := "/Artifact <</Type /Layout>> BDC"
+	seqAt := strings.LastIndex(stream[:ruleAt], seq)
+	if seqAt < 0 || strings.Contains(stream[seqAt:ruleAt], "EMC") {
+		t.Errorf("want the deferred rule inside %q, got\n%s", seq, stream)
+	}
+	if strings.Contains(stream[:seqAt], "BDC") && strings.Count(stream[:seqAt], "BDC") != strings.Count(stream[:seqAt], "EMC") {
+		t.Errorf("the artifact sits inside another marked-content sequence in\n%s", stream)
+	}
+	if len(div.mcids) != 1 {
+		t.Errorf("Div has %d marked-content sequences, want 1", len(div.mcids))
+	}
+}
+
+// A scope inside an open marked-content sequence leaves its deferred nodes
+// to the end of the page, outside of that sequence.
+func TestPaintLastScopeInsideSequence(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.Format = FormatPDFUA
+	d.SuppressInfo = true
+	d.DefaultLanguageTag = "en"
+	d.Title = "PaintLast nested scope"
+	root := &StructureElement{Role: "Document"}
+	div := &StructureElement{Role: "Div"}
+	root.AddChild(div)
+	d.RootStructureElement = root
+
+	border := paintLastRule(bareRule("1cm"))
+	border.Attributes["artifact"] = ArtifactLayout
+	container := vbox(scope(vbox(border, bareRule("2cm"))), bareRule("3cm"))
+	container.Attributes = node.H{"tag": div}
+	stream := pageStream(t, d, &buf, container)
+	if err := d.PDFWriter.FinishAndClose(); err != nil {
+		t.Fatalf("FinishAndClose: %v", err)
+	}
+
+	ruleAt, _ := fillPos(t, stream, "1cm")
+	if siblingAt, _ := fillPos(t, stream, "3cm"); siblingAt > ruleAt {
+		t.Errorf("the deferred rule is painted inside the open Div sequence in\n%s", stream)
+	}
+	before := stream[:ruleAt]
+	if open := strings.Count(before, "BDC") + strings.Count(before, "BMC") - strings.Count(before, "EMC"); open != 1 {
+		t.Errorf("want the deferred rule in exactly its own sequence, %d are open in\n%s", open, stream)
 	}
 }

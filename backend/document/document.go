@@ -53,8 +53,24 @@ type Object struct {
 // the list, not the later one in the content stream. A marked node inside a
 // marked VList is painted after the outer one. Set on a page object itself
 // (Page.OutputAt), the key has no effect: a page's objects are painted in
-// their order anyway.
+// their order anyway. A VList with PaintLastScope paints the marked nodes
+// inside it already when it is done.
+//
+// A marked rule with the attribute "artifact" (an ArtifactType) inside a
+// structure element is painted as an artifact of that type, not as content
+// of the element: a border is decoration.
 const PaintLast = "paintLast"
+
+// PaintLastScope is the attribute key that makes a VList paint the nodes
+// marked PaintLast inside it right after itself, not at the end of the
+// page: after everything else in the VList, but before what follows it.
+// A table paints its borders over all of its cell backgrounds this way
+// (CSS 2.1 Appendix E) and still under an image placed over it later. Its
+// value is not read; set it to true. Inside a marked-content sequence that
+// is still open when the VList is done, such as a tagged table cell around
+// a nested table, the nodes go on to the enclosing scope or the end of the
+// page.
+const PaintLastScope = "paintLastScope"
 
 // isPaintLast reports whether attributes mark their node PaintLast.
 func isPaintLast(attributes node.H) bool {
@@ -63,13 +79,22 @@ func isPaintLast(attributes node.H) bool {
 }
 
 // deferredPaint is a node marked PaintLast, kept for painting at the end of
-// its page with the marked-content context it had in its list.
+// its page or scope with the marked-content context it had in its list.
 type deferredPaint struct {
-	paint       func(oc *objectContext) // outputs the node at its place
-	ownMarking  bool                    // the node opens a marked-content sequence of its own
-	tag         *StructureElement       // the structure element it sat in
-	inArtifact  bool
-	readingSlot int // reading-order stamp of its place in the list
+	paint        func(oc *objectContext) // outputs the node at its place
+	ownMarking   bool                    // the node opens a marked-content sequence of its own
+	asArtifact   bool                    // the node is an artifact even inside a structure element
+	artifactType ArtifactType
+	tag          *StructureElement // the structure element it sat in
+	inArtifact   bool
+	readingSlot  int // reading-order stamp of its place in the list
+}
+
+// ruleDeferral returns the deferral of rule v, which paint outputs.
+func ruleDeferral(v *node.Rule, paint func(oc *objectContext)) deferredPaint {
+	df := deferredPaint{paint: paint}
+	df.artifactType, df.asArtifact = v.Attributes["artifact"].(ArtifactType)
+	return df
 }
 
 // A Hyperlink represents a clickable thing in the PDF.
@@ -948,7 +973,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// must be placed anew after the rule's width.
 			oc.gotoTextMode(ScopePage)
 			if isPaintLast(v.Attributes) {
-				oc.deferPaint(false, func(oc *objectContext) { oc.outputHRule(v, posX, posY) })
+				oc.deferPaint(ruleDeferral(v, func(oc *objectContext) { oc.outputHRule(v, posX, posY) }))
 			} else {
 				oc.outputHRule(v, posX, posY)
 			}
@@ -1274,7 +1299,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.gotoTextMode(ScopePage)
 			if isPaintLast(v.Attributes) {
 				childX := x + sumX
-				oc.deferPaint(hasOwnMarking(v), func(oc *objectContext) { oc.outputHListChild(childX, top, v) })
+				oc.deferPaint(deferredPaint{ownMarking: hasOwnMarking(v), paint: func(oc *objectContext) { oc.outputHListChild(childX, top, v) }})
 			} else {
 				oc.outputHListChild(x+sumX, top, v)
 			}
@@ -1399,6 +1424,7 @@ func (oc *objectContext) outputVRule(v *node.Rule, posX, posY bag.ScaledPoint, u
 // tag or artifact asks for.
 func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList) {
 	oc.gotoTextMode(ScopePage)
+	scope := oc.startScope(v)
 	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 	var childTag *StructureElement
 	var childArtifact bool
@@ -1489,6 +1515,7 @@ func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList)
 	}
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
+	oc.endScope(scope)
 }
 
 // outputVerticalItems iterates through the vlist's list and outputs each item
@@ -1614,7 +1641,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			posY := y - sumY
 			sumY += v.Height + v.Depth
 			if isPaintLast(v.Attributes) {
-				oc.deferPaint(false, func(oc *objectContext) { oc.outputVRule(v, posX, posY, untaggedContainer) })
+				oc.deferPaint(ruleDeferral(v, func(oc *objectContext) { oc.outputVRule(v, posX, posY, untaggedContainer) }))
 			} else {
 				oc.outputVRule(v, posX, posY, untaggedContainer)
 			}
@@ -1760,7 +1787,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 		case *node.VList:
 			if isPaintLast(v.Attributes) {
 				top := y - sumY
-				oc.deferPaint(hasOwnMarking(v), func(oc *objectContext) { oc.outputVListChild(x, top, v) })
+				oc.deferPaint(deferredPaint{ownMarking: hasOwnMarking(v), paint: func(oc *objectContext) { oc.outputVListChild(x, top, v) }})
 			} else {
 				oc.outputVListChild(x, y-sumY, v)
 			}
@@ -1778,6 +1805,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 // with its top at top. It opens the marked-content sequence v's tag or
 // artifact asks for.
 func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList) {
+	scope := oc.startScope(v)
 	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 	var childTag *StructureElement
 	var childArtifact bool
@@ -1877,6 +1905,7 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 	}
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
+	oc.endScope(scope)
 }
 
 // hasOwnMarking reports whether v opens a marked-content sequence of its own
@@ -1887,17 +1916,44 @@ func hasOwnMarking(v *node.VList) bool {
 	return ownTag || ownArtifact
 }
 
-// deferPaint keeps paint, which outputs a node marked PaintLast, for the end
-// of the page, together with the marked-content context of the node's place
-// in its list.
-func (oc *objectContext) deferPaint(ownMarking bool, paint func(oc *objectContext)) {
-	oc.p.deferred = append(oc.p.deferred, deferredPaint{
-		paint:       paint,
-		ownMarking:  ownMarking,
-		tag:         oc.tag,
-		inArtifact:  oc.inArtifact,
-		readingSlot: oc.p.document.nextReadingSeq(),
-	})
+// deferPaint keeps df, a node marked PaintLast, for the end of the page or
+// scope, together with the marked-content context of the node's place in
+// its list.
+func (oc *objectContext) deferPaint(df deferredPaint) {
+	df.tag = oc.tag
+	df.inArtifact = oc.inArtifact
+	df.readingSlot = oc.p.document.nextReadingSeq()
+	oc.p.deferred = append(oc.p.deferred, df)
+}
+
+// startScope returns where the nodes deferred inside vl start in the page's
+// list, or -1 if vl has no PaintLastScope.
+func (oc *objectContext) startScope(vl *node.VList) int {
+	if _, ok := vl.Attributes[PaintLastScope]; !ok {
+		return -1
+	}
+	return len(oc.p.deferred)
+}
+
+// endScope paints the nodes deferred since start, the value startScope
+// returned, in the order they were met. Painting one can defer another,
+// which then follows. The marked-content sequence of the scope's VList must
+// be closed. While one of an enclosing list is still open, the nodes are
+// left to the enclosing scope or the end of the page: their own sequences
+// must not sit inside it.
+func (oc *objectContext) endScope(start int) {
+	if start < 0 || oc.tag != nil || oc.inArtifact {
+		return
+	}
+	d := oc.p.document
+	savedTag, savedInArtifact, savedPrefix := oc.tag, oc.inArtifact, d.readingPrefix
+	for len(oc.p.deferred) > start {
+		oc.gotoTextMode(ScopePage)
+		df := oc.p.deferred[start]
+		oc.p.deferred = slices.Delete(oc.p.deferred, start, start+1)
+		oc.paintDeferred(df)
+	}
+	oc.tag, oc.inArtifact, d.readingPrefix = savedTag, savedInArtifact, savedPrefix
 }
 
 // paintDeferred paints a node marked PaintLast at the position it had in its
@@ -1917,6 +1973,14 @@ func (oc *objectContext) paintDeferred(df deferredPaint) {
 		switch {
 		case oc.inArtifact:
 			oc.writef("/Artifact BMC\n")
+			wrap = true
+		case oc.tag != nil && df.asArtifact:
+			if df.artifactType != "" {
+				oc.writef("/Artifact <</Type /%s>> BDC\n", df.artifactType)
+			} else {
+				oc.writef("/Artifact BMC\n")
+			}
+			oc.inArtifact = true
 			wrap = true
 		case oc.tag != nil:
 			mcid := oc.p.nextMCID
@@ -2128,8 +2192,8 @@ func (p *Page) Shipout() {
 			}
 		}
 
+		scope := oc.startScope(vlist)
 		oc.outputVerticalItems(x, y, vlist)
-		collect(oc)
 		oc.gotoTextMode(ScopePage)
 
 		// Close the object-level BDC
@@ -2137,6 +2201,9 @@ func (p *Page) Shipout() {
 			oc.newline()
 			oc.writef("EMC\n")
 		}
+		oc.tag, oc.inArtifact = nil, false
+		oc.endScope(scope)
+		collect(oc)
 		if oc.p.document.DumpOutput {
 			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
 		}
