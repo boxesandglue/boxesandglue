@@ -2,6 +2,7 @@ package document
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -129,5 +130,59 @@ func TestTextStateDoesNotLeakIntoNextObject(t *testing.T) {
 	})
 	if tz, ts := textStateAfterColor(stream); tz != "100" || ts != "0" {
 		t.Errorf("the second object inherits Tz %s and Ts %s, want 100 and 0:\n%s", tz, ts, stream)
+	}
+}
+
+// A kern between two boxes in a line, as border-spacing between table
+// cells, shows no empty TJ: outside of a text run it only moves the next
+// glyph, which is placed after it.
+func TestKernBetweenBoxesShowsNothing(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.CompressLevel = 0
+	face, err := d.LoadFace("../../qa/fonts/upem/fonts/CrimsonPro-Regular.ttf", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fnt := font.NewFont(face, bag.MustSP("12pt"))
+	glyphs := fnt.Shape("bc", nil, nil)
+	glyph := func(i int) *node.Glyph {
+		g := node.NewGlyph()
+		g.Font = fnt
+		g.Codepoint = glyphs[i].Codepoint
+		g.Components = glyphs[i].Components
+		g.Width = glyphs[i].Advance
+		return g
+	}
+	box := func() *node.VList {
+		r := node.NewRule()
+		r.Width = bag.MustSP("1cm")
+		r.Height = bag.MustSP("5pt")
+		return node.Vpack(r)
+	}
+	k := node.NewKern()
+	k.Kern = bag.MustSP("5pt")
+	var head node.Node
+	for _, n := range []node.Node{glyph(0), box(), k, box(), glyph(1)} {
+		head = node.InsertAfter(head, node.Tail(head), n)
+	}
+	p := d.NewPage()
+	p.OutputAt(bag.MustSP("2cm"), bag.MustSP("20cm"), node.Vpack(node.Hpack(head)))
+	p.Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	at := strings.Index(out, " Tm ")
+	start := strings.LastIndex(out[:at], "stream")
+	stream := out[start : at+strings.Index(out[at:], "endstream")]
+
+	if empty := regexp.MustCompile(`\[\s*-?\d+\s*\]\s*TJ`).FindString(stream); empty != "" {
+		t.Errorf("found an empty text-showing operator %q in\n%s", empty, stream)
+	}
+	wantX := bag.MustSP("2cm") + glyphs[0].Advance + bag.MustSP("2cm") + bag.MustSP("5pt")
+	tms := regexp.MustCompile(`1 0 0 1 (\S+) \S+ Tm`).FindAllStringSubmatch(stream, -1)
+	if len(tms) == 0 || tms[len(tms)-1][1] != wantX.String() {
+		t.Errorf("the glyph after the kern is placed at %v, want x %s in\n%s", tms, wantX, stream)
 	}
 }

@@ -1154,12 +1154,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			if oc.textmode > ScopeArray {
-				oc.moveto(x+oc.shiftX+sumX, (y))
-				oc.shiftX = 0
-			}
-
-			if oc.text.font != nil {
+			// Only a running TJ array takes the kern as a move. Outside of
+			// one the next glyph is placed anew at a position that holds
+			// the kern, as after glue. A TJ opened just for the move would
+			// show nothing, and between table cells it would sit outside
+			// any marked-content sequence, which PDF/UA forbids.
+			if oc.textmode <= ScopeArray && oc.text.font != nil {
 				y := v.Kern.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
 					oc.gotoTextMode(ScopeArray)
