@@ -60,3 +60,47 @@ func TestARaggedParagraphFillsItsIndentedRowsAndThenTheRest(t *testing.T) {
 		t.Errorf("made %d breakpoints for %d words, want at most %d", made, words, most)
 	}
 }
+
+// indentedWords sets words of 5pt glyphs ragged right in 100pt, the rows
+// IndentRows names indented by indent.
+func indentedWords(words []string, indent bag.ScaledPoint, rows int) (*VList, []*Breakpoint) {
+	settings := NewLinebreakSettings()
+	le := NewGlue()
+	le.Stretch = bag.Factor
+	le.StretchOrder = StretchFill
+	settings.LineEndGlue = le
+	settings.HSize = 100 * bag.Factor
+	settings.LineHeight = 12 * bag.Factor
+	settings.Indent, settings.IndentRows = indent, rows
+	return Linebreak(buildWords(words, 5*bag.Factor, 3*bag.Factor), settings)
+}
+
+// The first three rows are 30pt, too narrow for the last word, so the
+// paragraph sets a word on each of them to reach the fourth. Each indented
+// row keeps a class of its own: merged into the last class, the fewest
+// lines at each break would set the last word overfull on the third row.
+func TestAWordTooWideForTheIndentedRowsWaitsForAFullRow(t *testing.T) {
+	vlist, _ := indentedWords([]string{"xx", "xxx", "x", "xxxxxxx"}, 70*bag.Factor, 3)
+	if got, want := wordsPerLine(vlist), []int{1, 1, 1, 1}; !slices.Equal(got, want) {
+		t.Errorf("words per line = %v, want %v", got, want)
+	}
+}
+
+// Rows after the first are narrower, so the break after the first word goes
+// before the paragraph's start does. The paragraph still starts with its
+// first line, and its start is not one of the breakpoints.
+func TestAParagraphWhoseStartOutlivesABreakStartsWithItsFirstLine(t *testing.T) {
+	word := "xxxxxx"
+	vlist, bps := indentedWords([]string{word, word, word, word, word}, 60*bag.Factor, -1)
+	if got, want := wordsPerLine(vlist), []int{3, 1, 1}; !slices.Equal(got, want) {
+		t.Errorf("words per line = %v, want %v", got, want)
+	}
+	if _, ok := vlist.List.(*HList); !ok {
+		t.Errorf("the paragraph starts with a %T, want its first line", vlist.List)
+	}
+	for _, bp := range bps {
+		if bp.from == nil {
+			t.Error("the paragraph's start is one of its breakpoints")
+		}
+	}
+}

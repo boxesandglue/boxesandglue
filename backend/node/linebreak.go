@@ -464,10 +464,12 @@ func (lb *linebreaker) mainLoop(n Node) {
 				c, demerits := lb.calculateDemerits(active, r, n)
 
 				// Update candidate if (and only if) the total demerits are less
-				// than the previous total demerits for this fitness class.
+				// than the previous total demerits for this fitness class, or
+				// equal over fewer lines: the last class holds several lines,
+				// and the fewer lines are what the final pick would take.
 				//
 				// Also update the minimum demerits for this position.
-				if demerits < dc[c] {
+				if demerits < dc[c] || (demerits == dc[c] && ac[c] != nil && active.Line < ac[c].Line) {
 					dc[c] = demerits
 					ac[c] = active
 					rc[c] = r
