@@ -300,6 +300,9 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 		return nil
 	}
 	var runs []coverageRun
+	// start is where the last run starts in s. Its text is cut from s as it
+	// grows, since appending each cluster copies the run so far every time.
+	start := 0
 	g := graphemes.FromString(s)
 	for g.Next() {
 		cluster := g.Value()
@@ -312,9 +315,10 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 			src, idx = fe.resolveClusterSource(cluster, stack, weight, style, synth)
 		}
 		if n := len(runs); n > 0 && runs[n-1].Source == src && runs[n-1].StackIndex == idx {
-			runs[n-1].Text += cluster
+			runs[n-1].Text = s[start:g.End()]
 			continue
 		}
+		start = g.Start()
 		runs = append(runs, coverageRun{
 			Text:       cluster,
 			Source:     src,

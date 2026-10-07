@@ -2,6 +2,8 @@ package frontend
 
 import (
 	"io"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/boxesandglue/textshape/ot"
@@ -217,5 +219,30 @@ func TestIsCoverageIgnorable(t *testing.T) {
 		if got := isCoverageIgnorable(c.r); got != c.want {
 			t.Errorf("isCoverageIgnorable(U+%04X) = %v, want %v", c.r, got, c.want)
 		}
+	}
+}
+
+// A run's text is cut from the string it is in, so a long run in one font
+// allocates in proportion to its length; appending each cluster to it copied
+// the run so far every time, about 50 MB for these 10,000 clusters.
+func TestCoverageSegmentsAllocatesInProportionToTheText(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatalf("NewForWriter: %v", err)
+	}
+	primary := &FontSource{Name: "primary"}
+	seedCoverage(fe, primary, "abcdefghij", true)
+	pFam := seedFamily(fe, "primary", primary)
+	s := strings.Repeat("abcdefghij", 1000)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	runs := fe.coverageSegments(s, []*FontFamily{pFam, pFam}, FontWeight400, FontStyleNormal, synthesisSetting{})
+	runtime.ReadMemStats(&after)
+	if len(runs) != 1 || runs[0].Text != s {
+		t.Fatalf("got %d runs, want the whole string as one", len(runs))
+	}
+	const most = 5 << 20
+	if got := after.TotalAlloc - before.TotalAlloc; got > most {
+		t.Errorf("allocated %d KB for %d clusters in one font, want at most %d KB", got>>10, len(s), most>>10)
 	}
 }
