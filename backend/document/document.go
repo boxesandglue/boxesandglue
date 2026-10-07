@@ -39,26 +39,35 @@ type Object struct {
 	Y     bag.ScaledPoint
 }
 
-// PaintLast is the attribute key that makes a VList in a vertical list paint
-// after everything else on its page, the way CSS paints a float over the
-// backgrounds of the blocks beside it (CSS 2.1 Appendix E). The VList keeps
-// its place in the list, which still makes room for it, and is painted at
-// the same position once the page's other objects are out. Its value is not
-// read; set it to true.
+// PaintLast is the attribute key that makes a VList or a Rule paint after
+// everything else on its page, the way CSS paints a float over the
+// backgrounds of the blocks beside it (CSS 2.1 Appendix E). It works in
+// vertical and in horizontal lists. The node keeps its place in the list,
+// which still makes room for it, and is painted at the same position once
+// the page's other objects are out. A rule marked this way draws over the
+// fills next to it, which some viewers (Adobe Acrobat) otherwise let cover
+// part of a thin line. Its value is not read; set it to true.
 //
-// Its tags, links and destinations are output then too. The reading order
-// of its structure elements is the one of its place in the list, not the
-// later one in the content stream. A marked VList inside a marked VList is
-// painted after the outer one. Set on a page object itself (Page.OutputAt),
-// the key has no effect: a page's objects are painted in their order anyway.
+// The tags, links and destinations of a marked VList are output then too.
+// The reading order of its structure elements is the one of its place in
+// the list, not the later one in the content stream. A marked node inside a
+// marked VList is painted after the outer one. Set on a page object itself
+// (Page.OutputAt), the key has no effect: a page's objects are painted in
+// their order anyway.
 const PaintLast = "paintLast"
 
-// deferredVList is a VList marked PaintLast, kept for painting at the end of
+// isPaintLast reports whether attributes mark their node PaintLast.
+func isPaintLast(attributes node.H) bool {
+	_, ok := attributes[PaintLast]
+	return ok
+}
+
+// deferredPaint is a node marked PaintLast, kept for painting at the end of
 // its page with the marked-content context it had in its list.
-type deferredVList struct {
-	vlist       *node.VList
-	x, top      bag.ScaledPoint   // as outputVListChild takes them
-	tag         *StructureElement // the structure element it sat in
+type deferredPaint struct {
+	paint       func(oc *objectContext) // outputs the node at its place
+	ownMarking  bool                    // the node opens a marked-content sequence of its own
+	tag         *StructureElement       // the structure element it sat in
 	inArtifact  bool
 	readingSlot int // reading-order stamp of its place in the list
 }
@@ -87,7 +96,7 @@ type Page struct {
 	Objectnumber      pdf.Objectnumber
 	nextMCID          int
 	pageIndex         int             // index of this page in PDFDocument.Pages
-	deferred          []deferredVList // VLists marked PaintLast, painted at Shipout's end
+	deferred          []deferredPaint // nodes marked PaintLast, painted at Shipout's end
 	Finished          bool
 }
 
@@ -930,70 +939,20 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 			}
 		case *node.Rule:
-			if oc.p.document.DumpOutput {
-				od = &outputDebug{
-					Name: "rule",
-					Attributes: map[string]any{
-						"width":  v.Width,
-						"height": v.Height,
-						"depth":  v.Depth,
-					},
-				}
-				od.copyNodeAttributes(v.Attributes)
-				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-			}
-			oc.gotoTextMode(ScopePage)
-			// A rule without area (used as a rigid horizontal spacer, e.g.
-			// preserved spaces in white-space:pre) has no ink: a degenerate
-			// rectangle fills nothing per PDF 1.7 §8.5.3.3.2, but some
-			// rasterizers (mupdf) still paint it as a hairline, so suppress
-			// the fill operator entirely.
-			fillsArea := v.Width != 0 && v.Height+v.Depth != 0
-			hasVisibleOutput := v.Pre != "" || v.Post != "" || (!v.Hide && fillsArea)
-			hRuleNeedsArtifact := oc.p.document.Format.IsPDFUA() && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
-			if hRuleNeedsArtifact {
-				oc.writef("/Artifact BMC\n")
-			}
 			posX := x + sumX
 			posY := y
 			if hlist.VAlign == node.VAlignTop {
 				posY = y - v.Height - v.Depth
 			}
-			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
-
-			if v.Pre != "" {
-				pdfinstructions = append(pdfinstructions, v.Pre)
+			// Leave text mode even for a deferred rule: the next glyph
+			// must be placed anew after the rule's width.
+			oc.gotoTextMode(ScopePage)
+			if isPaintLast(v.Attributes) {
+				oc.deferPaint(false, func(oc *objectContext) { oc.outputHRule(v, posX, posY) })
+			} else {
+				oc.outputHRule(v, posX, posY)
 			}
-			if !v.Hide && fillsArea {
-				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, v.Height+v.Depth))
-			}
-			if v.Attributes != nil {
-				if faces, ok := v.Attributes["usedFaces"]; ok {
-					if faceList, ok := faces.([]*pdf.Face); ok {
-						for _, face := range faceList {
-							oc.usedFaces[face] = true
-						}
-					}
-				}
-				if sh, ok := v.Attributes["shadings"]; ok {
-					if list, ok := sh.([]pendingShading); ok {
-						oc.pendingShadings = append(oc.pendingShadings,
-							composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
-					}
-				}
-				if gss, ok := v.Attributes["extgstates"]; ok {
-					if list, ok := gss.([]pdf.ExtGState); ok {
-						oc.pendingExtGStates = append(oc.pendingExtGStates, list...)
-					}
-				}
-			}
-			pdfinstructions = append(pdfinstructions, v.Post)
 			sumX += v.Width
-			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
-			oc.write(strings.Join(pdfinstructions, " "))
-			if hRuleNeedsArtifact {
-				oc.writef("EMC\n")
-			}
 		case *node.Image:
 			oc.gotoTextMode(ScopePage)
 			if v.Used {
@@ -1306,109 +1265,20 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			sumX += v.Width
 		case *node.VList:
-			oc.gotoTextMode(ScopePage)
-			saveX := x
-			saveY := y
-			moveY := y + hlist.Height + v.Shift
+			top := y + hlist.Height + v.Shift
 			if hlist.VAlign == node.VAlignTop {
-				moveY = y + v.Shift
+				top = y + v.Shift
 			}
-			x += sumX
-
-			// PDF/UA: check for tag/artifact/xobject-figure on child VLists
-			var childTag *StructureElement
-			var childArtifact bool
-			var childArtifactType ArtifactType
-			var childXObjectFigure bool
-			if v.Attributes != nil {
-				if r, ok := v.Attributes["tag"]; ok {
-					childTag = r.(*StructureElement)
-				}
-				if a, ok := v.Attributes["artifact"]; ok {
-					childArtifactType = a.(ArtifactType)
-					childArtifact = true
-				}
-				if _, ok := v.Attributes["xobject-figure"]; ok {
-					childXObjectFigure = true
-				}
+			// Leave text mode even for a deferred box: the next glyph must
+			// be placed anew after the box's width.
+			oc.gotoTextMode(ScopePage)
+			if isPaintLast(v.Attributes) {
+				childX := x + sumX
+				oc.deferPaint(hasOwnMarking(v), func(oc *objectContext) { oc.outputHListChild(childX, top, v) })
+			} else {
+				oc.outputHListChild(x+sumX, top, v)
 			}
-			if oc.p.document.Format.IsPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
-				if !vlistHasTaggedDescendant(v) {
-					childArtifact = true
-				}
-			}
-
-			switch {
-			case childXObjectFigure && childTag != nil:
-				// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
-				// import. The /Do on the page stays unmarked; structure
-				// attachment runs via the XObject's /StructParent → ParentTree
-				// → SE.Obj, plus an OBJR /K entry on the SE.
-				if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
-					sp := oc.p.document.AllocateXObjectStructParent(childTag)
-					img.ImageFile.SetStructParent(sp)
-					if obj := img.ImageFile.ImageObject(); obj != nil {
-						childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
-					}
-					// Figure BBox is still required by PDF/UA even when
-					// the structure attachment goes via OBJR.
-					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-					llx := (x + v.ShiftX).ToPT()
-					lly := pageHeightPT - moveY.ToPT()
-					urx := llx + v.Width.ToPT()
-					ury := lly + (v.Height + v.Depth).ToPT()
-					childTag.BBox = [4]float64{llx, lly, urx, ury}
-					childTag.HasBBox = true
-				}
-			case childArtifact:
-				if childArtifactType != "" {
-					oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
-				} else {
-					oc.writef("/Artifact BMC\n")
-				}
-			case childTag != nil:
-				mcid := oc.p.nextMCID
-				oc.p.nextMCID++
-				childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
-				childTag.ID = mcid
-				oc.p.StructureElements = append(oc.p.StructureElements, childTag)
-				oc.emitBDC(childTag, mcid)
-				// Set BBox for Figure elements (PDF/UA requirement)
-				if childTag.Role == "Figure" {
-					pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-					llx := (x + v.ShiftX).ToPT()
-					lly := pageHeightPT - moveY.ToPT()
-					urx := llx + v.Width.ToPT()
-					ury := lly + (v.Height + v.Depth).ToPT()
-					childTag.BBox = [4]float64{llx, lly, urx, ury}
-					childTag.HasBBox = true
-				}
-			}
-
-			savedTag := oc.tag
-			savedInArtifact := oc.inArtifact
-			// xobject-figure does not push oc.tag because the inner /Do is
-			// not part of any marked-content sequence; childTag's K is the
-			// OBJR we already populated.
-			if childTag != nil && !childXObjectFigure {
-				oc.tag = childTag
-			}
-			if childArtifact {
-				oc.inArtifact = true
-			}
-
-			oc.outputVerticalItems(x+v.ShiftX, moveY, v)
-
-			if (childTag != nil && !childXObjectFigure) || childArtifact {
-				oc.gotoTextMode(ScopePage)
-				oc.writef("EMC\n")
-			}
-			oc.tag = savedTag
-			oc.inArtifact = savedInArtifact
-
 			sumX += v.Width
-			x = saveX
-			y = saveY
 		default:
 			bag.Logger.Warn(fmt.Sprintf("Shipout: unknown node %v", hItem))
 		}
@@ -1416,6 +1286,209 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 	if oc.p.document.DumpOutput {
 		oc.curOutputDebug = saveCurOutputDebug
 	}
+}
+
+// dumpRule adds rule v to the output debug tree.
+func (oc *objectContext) dumpRule(v *node.Rule) {
+	if !oc.p.document.DumpOutput {
+		return
+	}
+	od := &outputDebug{
+		Name: "rule",
+		Attributes: map[string]any{
+			"width":  v.Width,
+			"height": v.Height,
+			"depth":  v.Depth,
+		},
+	}
+	od.copyNodeAttributes(v.Attributes)
+	oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
+}
+
+// ruleResources registers the fonts, shadings and graphics states the PDF
+// code of rule v at posX, posY uses.
+func (oc *objectContext) ruleResources(v *node.Rule, posX, posY bag.ScaledPoint) {
+	if v.Attributes == nil {
+		return
+	}
+	if faces, ok := v.Attributes["usedFaces"]; ok {
+		if faceList, ok := faces.([]*pdf.Face); ok {
+			for _, face := range faceList {
+				oc.usedFaces[face] = true
+			}
+		}
+	}
+	if sh, ok := v.Attributes["shadings"]; ok {
+		if list, ok := sh.([]pendingShading); ok {
+			oc.pendingShadings = append(oc.pendingShadings,
+				composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
+		}
+	}
+	if gss, ok := v.Attributes["extgstates"]; ok {
+		if list, ok := gss.([]pdf.ExtGState); ok {
+			oc.pendingExtGStates = append(oc.pendingExtGStates, list...)
+		}
+	}
+}
+
+// outputHRule outputs rule v of a horizontal list with its baseline at posY.
+func (oc *objectContext) outputHRule(v *node.Rule, posX, posY bag.ScaledPoint) {
+	oc.dumpRule(v)
+	oc.gotoTextMode(ScopePage)
+	// A rule without area (used as a rigid horizontal spacer, e.g.
+	// preserved spaces in white-space:pre) has no ink: a degenerate
+	// rectangle fills nothing per PDF 1.7 §8.5.3.3.2, but some
+	// rasterizers (mupdf) still paint it as a hairline, so suppress
+	// the fill operator entirely.
+	fillsArea := v.Width != 0 && v.Height+v.Depth != 0
+	hasVisibleOutput := v.Pre != "" || v.Post != "" || (!v.Hide && fillsArea)
+	needsArtifact := oc.p.document.Format.IsPDFUA() && oc.tag == nil && !oc.inArtifact && hasVisibleOutput
+	if needsArtifact {
+		oc.writef("/Artifact BMC\n")
+	}
+	pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
+	if v.Pre != "" {
+		pdfinstructions = append(pdfinstructions, v.Pre)
+	}
+	if !v.Hide && fillsArea {
+		pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 %s %s %s re f Q ", -1*v.Depth, v.Width, v.Height+v.Depth))
+	}
+	oc.ruleResources(v, posX, posY)
+	pdfinstructions = append(pdfinstructions, v.Post)
+	pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
+	oc.write(strings.Join(pdfinstructions, " "))
+	if needsArtifact {
+		oc.writef("EMC\n")
+	}
+}
+
+// outputVRule outputs rule v of a vertical list with its top at posY.
+// untaggedContainer tells that the list sits in no structure element and no
+// artifact under PDF/UA, which makes the rule an artifact.
+func (oc *objectContext) outputVRule(v *node.Rule, posX, posY bag.ScaledPoint, untaggedContainer bool) {
+	oc.dumpRule(v)
+	// Same degenerate-rectangle guard as the horizontal rule case:
+	// a zero-area rule is a spacer, not ink.
+	fillsArea := v.Width != 0 && v.Height+v.Depth != 0
+	hasVisibleOutput := v.Pre != "" || v.Post != "" || (!v.Hide && fillsArea)
+	needsArtifact := untaggedContainer && hasVisibleOutput
+	oc.gotoTextMode(ScopePage)
+	if needsArtifact {
+		oc.writef("/Artifact BMC\n")
+	}
+	pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
+	if v.Pre != "" {
+		pdfinstructions = append(pdfinstructions, v.Pre)
+	}
+	if !v.Hide && fillsArea {
+		pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 0 %s %s re f Q", v.Width, -1*(v.Height+v.Depth)))
+	}
+	oc.ruleResources(v, posX, posY)
+	if v.Post != "" {
+		pdfinstructions = append(pdfinstructions, v.Post)
+	}
+	pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
+	oc.write(strings.Join(pdfinstructions, " "))
+	if needsArtifact {
+		oc.writef("EMC\n")
+	}
+}
+
+// outputHListChild outputs v, a child of a horizontal list, with its left
+// edge at x and its top at top. It opens the marked-content sequence v's
+// tag or artifact asks for.
+func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList) {
+	oc.gotoTextMode(ScopePage)
+	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
+	var childTag *StructureElement
+	var childArtifact bool
+	var childArtifactType ArtifactType
+	var childXObjectFigure bool
+	if v.Attributes != nil {
+		if r, ok := v.Attributes["tag"]; ok {
+			childTag = r.(*StructureElement)
+		}
+		if a, ok := v.Attributes["artifact"]; ok {
+			childArtifactType = a.(ArtifactType)
+			childArtifact = true
+		}
+		if _, ok := v.Attributes["xobject-figure"]; ok {
+			childXObjectFigure = true
+		}
+	}
+	if oc.p.document.Format.IsPDFUA() && childTag == nil && !childArtifact && oc.tag == nil && !oc.inArtifact {
+		if !vlistHasTaggedDescendant(v) {
+			childArtifact = true
+		}
+	}
+
+	switch {
+	case childXObjectFigure && childTag != nil:
+		// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
+		// import. The /Do on the page stays unmarked; structure
+		// attachment runs via the XObject's /StructParent → ParentTree
+		// → SE.Obj, plus an OBJR /K entry on the SE.
+		if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
+			sp := oc.p.document.AllocateXObjectStructParent(childTag)
+			img.ImageFile.SetStructParent(sp)
+			if obj := img.ImageFile.ImageObject(); obj != nil {
+				childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
+			}
+			// Figure BBox is still required by PDF/UA even when
+			// the structure attachment goes via OBJR.
+			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+			llx := (x + v.ShiftX).ToPT()
+			lly := pageHeightPT - top.ToPT()
+			urx := llx + v.Width.ToPT()
+			ury := lly + (v.Height + v.Depth).ToPT()
+			childTag.BBox = [4]float64{llx, lly, urx, ury}
+			childTag.HasBBox = true
+		}
+	case childArtifact:
+		if childArtifactType != "" {
+			oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
+		} else {
+			oc.writef("/Artifact BMC\n")
+		}
+	case childTag != nil:
+		mcid := oc.p.nextMCID
+		oc.p.nextMCID++
+		childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
+		childTag.ID = mcid
+		oc.p.StructureElements = append(oc.p.StructureElements, childTag)
+		oc.emitBDC(childTag, mcid)
+		// Set BBox for Figure elements (PDF/UA requirement)
+		if childTag.Role == "Figure" {
+			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
+			llx := (x + v.ShiftX).ToPT()
+			lly := pageHeightPT - top.ToPT()
+			urx := llx + v.Width.ToPT()
+			ury := lly + (v.Height + v.Depth).ToPT()
+			childTag.BBox = [4]float64{llx, lly, urx, ury}
+			childTag.HasBBox = true
+		}
+	}
+
+	savedTag := oc.tag
+	savedInArtifact := oc.inArtifact
+	// xobject-figure does not push oc.tag because the inner /Do is
+	// not part of any marked-content sequence; childTag's K is the
+	// OBJR we already populated.
+	if childTag != nil && !childXObjectFigure {
+		oc.tag = childTag
+	}
+	if childArtifact {
+		oc.inArtifact = true
+	}
+
+	oc.outputVerticalItems(x+v.ShiftX, top, v)
+
+	if (childTag != nil && !childXObjectFigure) || childArtifact {
+		oc.gotoTextMode(ScopePage)
+		oc.writef("EMC\n")
+	}
+	oc.tag = savedTag
+	oc.inArtifact = savedInArtifact
 }
 
 // outputVerticalItems iterates through the vlist's list and outputs each item
@@ -1537,66 +1610,13 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			}
 			sumY += v.Kern
 		case *node.Rule:
-			if oc.p.document.DumpOutput {
-				if oc.p.document.DumpOutput {
-					od = &outputDebug{
-						Name: "rule",
-						Attributes: map[string]any{
-							"width":  v.Width,
-							"height": v.Height,
-							"depth":  v.Depth,
-						},
-					}
-					od.copyNodeAttributes(v.Attributes)
-					oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
-				}
-			}
 			posX := x
 			posY := y - sumY
 			sumY += v.Height + v.Depth
-			// Same degenerate-rectangle guard as the horizontal rule case:
-			// a zero-area rule is a spacer, not ink.
-			fillsArea := v.Width != 0 && v.Height+v.Depth != 0
-			hasVisibleOutput := v.Pre != "" || v.Post != "" || (!v.Hide && fillsArea)
-			ruleNeedsArtifact := untaggedContainer && hasVisibleOutput
-			oc.gotoTextMode(ScopePage)
-			if ruleNeedsArtifact {
-				oc.writef("/Artifact BMC\n")
-			}
-			pdfinstructions := []string{fmt.Sprintf("1 0 0 1 %s %s cm", posX, posY)}
-			if v.Pre != "" {
-				pdfinstructions = append(pdfinstructions, v.Pre)
-			}
-			if !v.Hide && fillsArea {
-				pdfinstructions = append(pdfinstructions, fmt.Sprintf("q 0 0 %s %s re f Q", v.Width, -1*(v.Height+v.Depth)))
-			}
-			if v.Attributes != nil {
-				if faces, ok := v.Attributes["usedFaces"]; ok {
-					if faceList, ok := faces.([]*pdf.Face); ok {
-						for _, face := range faceList {
-							oc.usedFaces[face] = true
-						}
-					}
-				}
-				if sh, ok := v.Attributes["shadings"]; ok {
-					if list, ok := sh.([]pendingShading); ok {
-						oc.pendingShadings = append(oc.pendingShadings,
-							composePatternOuter(list, posX.ToPT(), posY.ToPT())...)
-					}
-				}
-				if gss, ok := v.Attributes["extgstates"]; ok {
-					if list, ok := gss.([]pdf.ExtGState); ok {
-						oc.pendingExtGStates = append(oc.pendingExtGStates, list...)
-					}
-				}
-			}
-			if v.Post != "" {
-				pdfinstructions = append(pdfinstructions, v.Post)
-			}
-			pdfinstructions = append(pdfinstructions, fmt.Sprintf("1 0 0 1 %s %s cm\n", -posX, -posY))
-			oc.write(strings.Join(pdfinstructions, " "))
-			if ruleNeedsArtifact {
-				oc.writef("EMC\n")
+			if isPaintLast(v.Attributes) {
+				oc.deferPaint(false, func(oc *objectContext) { oc.outputVRule(v, posX, posY, untaggedContainer) })
+			} else {
+				oc.outputVRule(v, posX, posY, untaggedContainer)
 			}
 		case *node.StartStop:
 			posX := x
@@ -1738,15 +1758,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 				oc.moveto(-posX, -posY)
 			}
 		case *node.VList:
-			if _, ok := v.Attributes[PaintLast]; ok {
-				oc.p.deferred = append(oc.p.deferred, deferredVList{
-					vlist:       v,
-					x:           x,
-					top:         y - sumY,
-					tag:         oc.tag,
-					inArtifact:  oc.inArtifact,
-					readingSlot: oc.p.document.nextReadingSeq(),
-				})
+			if isPaintLast(v.Attributes) {
+				top := y - sumY
+				oc.deferPaint(hasOwnMarking(v), func(oc *objectContext) { oc.outputVListChild(x, top, v) })
 			} else {
 				oc.outputVListChild(x, y-sumY, v)
 			}
@@ -1865,23 +1879,41 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 	oc.inArtifact = savedInArtifact
 }
 
-// paintDeferred paints a VList marked PaintLast at the position it had in
-// its list. The marked-content sequence it sat in has long been closed, so
-// content that belonged to it, that is all of a VList without a tag or
+// hasOwnMarking reports whether v opens a marked-content sequence of its own
+// for its tag or artifact.
+func hasOwnMarking(v *node.VList) bool {
+	_, ownTag := v.Attributes["tag"]
+	_, ownArtifact := v.Attributes["artifact"]
+	return ownTag || ownArtifact
+}
+
+// deferPaint keeps paint, which outputs a node marked PaintLast, for the end
+// of the page, together with the marked-content context of the node's place
+// in its list.
+func (oc *objectContext) deferPaint(ownMarking bool, paint func(oc *objectContext)) {
+	oc.p.deferred = append(oc.p.deferred, deferredPaint{
+		paint:       paint,
+		ownMarking:  ownMarking,
+		tag:         oc.tag,
+		inArtifact:  oc.inArtifact,
+		readingSlot: oc.p.document.nextReadingSeq(),
+	})
+}
+
+// paintDeferred paints a node marked PaintLast at the position it had in its
+// list. The marked-content sequence it sat in has long been closed, so
+// content that belonged to it, that is a rule or a VList without a tag or
 // artifact of its own, gets a sequence of its own for the same structure
 // element or as an artifact.
-func (oc *objectContext) paintDeferred(df deferredVList) {
+func (oc *objectContext) paintDeferred(df deferredPaint) {
 	d := oc.p.document
 	d.readingPrefix = d.readingPath(df.readingSlot)
 	defer func() { d.readingPrefix = nil }()
 	oc.tag = df.tag
 	oc.inArtifact = df.inArtifact
 
-	v := df.vlist
-	_, ownTag := v.Attributes["tag"]
-	_, ownArtifact := v.Attributes["artifact"]
 	wrap := false
-	if !ownTag && !ownArtifact {
+	if !df.ownMarking {
 		switch {
 		case oc.inArtifact:
 			oc.writef("/Artifact BMC\n")
@@ -1895,7 +1927,7 @@ func (oc *objectContext) paintDeferred(df deferredVList) {
 			wrap = true
 		}
 	}
-	oc.outputVListChild(df.x, df.top, v)
+	df.paint(oc)
 	oc.gotoTextMode(ScopePage)
 	if wrap {
 		oc.newline()

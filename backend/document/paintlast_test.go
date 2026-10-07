@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
@@ -170,5 +171,150 @@ func TestPaintLastReadingOrder(t *testing.T) {
 	}
 	if lastMCR := strings.LastIndex(kStr, fmt.Sprintf("/MCID %d", div.mcids[1].mcid)); lastMCR < paraRef {
 		t.Errorf("Div /K: want the deferred box's sequence after the P, got %q", kStr)
+	}
+}
+
+// hbox lines nodes up in an HList, packed in a VList.
+func hbox(nodes ...node.Node) *node.VList {
+	var head node.Node
+	for _, n := range nodes {
+		head = node.InsertAfter(head, node.Tail(head), n)
+	}
+	return node.Vpack(node.Hpack(head))
+}
+
+// bareRule is a 1cm high rule of width wd.
+func bareRule(wd string) *node.Rule {
+	r := node.NewRule()
+	r.Width = bag.MustSP(wd)
+	r.Height = bag.MustSP("1cm")
+	return r
+}
+
+// paintLastRule marks r PaintLast.
+func paintLastRule(r *node.Rule) *node.Rule {
+	r.Attributes = node.H{PaintLast: true}
+	return r
+}
+
+// assertPaintedLast checks that in marked the fill of width last comes after
+// the fills of the widths in others, and that each of them is drawn as in
+// plain.
+func assertPaintedLast(t *testing.T, plain, marked, last string, others ...string) {
+	t.Helper()
+	lastAt, _ := fillPos(t, marked, last)
+	for _, wd := range append(others, last) {
+		at, got := fillPos(t, marked, wd)
+		if wd != last && at > lastAt {
+			t.Errorf("the %s fill comes after the marked %s fill in\n%s", wd, last, marked)
+		}
+		if _, want := fillPos(t, plain, wd); got != want {
+			t.Errorf("the %s fill is drawn as %q, want %q as without the mark", wd, got, want)
+		}
+	}
+}
+
+// A marked rule in a vertical list is painted after its siblings.
+func TestPaintLastRuleInVList(t *testing.T) {
+	plain := renderStream(t, vbox(bareRule("1cm"), ruleOfWidth("2cm"), bareRule("3cm")))
+	marked := renderStream(t, vbox(paintLastRule(bareRule("1cm")), ruleOfWidth("2cm"), bareRule("3cm")))
+	assertPaintedLast(t, plain, marked, "1cm", "2cm", "3cm")
+}
+
+// A marked rule in a horizontal list is painted after its siblings.
+func TestPaintLastRuleInHList(t *testing.T) {
+	plain := renderStream(t, hbox(bareRule("1cm"), bareRule("2cm"), bareRule("3cm")))
+	marked := renderStream(t, hbox(paintLastRule(bareRule("1cm")), bareRule("2cm"), bareRule("3cm")))
+	assertPaintedLast(t, plain, marked, "1cm", "2cm", "3cm")
+}
+
+// A marked VList in a horizontal list is painted after its siblings.
+func TestPaintLastVListInHList(t *testing.T) {
+	plain := renderStream(t, hbox(ruleOfWidth("1cm"), bareRule("2cm"), ruleOfWidth("3cm")))
+	marked := renderStream(t, hbox(paintLast(ruleOfWidth("1cm")), bareRule("2cm"), ruleOfWidth("3cm")))
+	assertPaintedLast(t, plain, marked, "1cm", "2cm", "3cm")
+}
+
+var textMatrix = regexp.MustCompile(`(\S+ ){6}Tm`)
+
+// A glyph after a marked rule in a line keeps its place: the text is placed
+// anew after the rule's width as if the rule were drawn there.
+func TestPaintLastGlyphAfterRule(t *testing.T) {
+	render := func(mark bool) string {
+		var buf bytes.Buffer
+		d := NewDocument(&buf)
+		face, err := d.LoadFace("../../qa/fonts/upem/fonts/CrimsonPro-Regular.ttf", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fnt := font.NewFont(face, bag.MustSP("12pt"))
+		var nodes []node.Node
+		for i, a := range fnt.Shape("bc", nil, nil) {
+			if i == 1 {
+				r := bareRule("1cm")
+				if mark {
+					paintLastRule(r)
+				}
+				nodes = append(nodes, r)
+			}
+			g := node.NewGlyph()
+			g.Font = fnt
+			g.Codepoint = a.Codepoint
+			g.Components = a.Components
+			g.Width = a.Advance
+			nodes = append(nodes, g)
+		}
+		return pageStream(t, d, &buf, hbox(nodes...))
+	}
+	plain, marked := render(false), render(true)
+	want := textMatrix.FindAllString(plain, -1)
+	got := textMatrix.FindAllString(marked, -1)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("text matrices %q, want %q as without the mark in\n%s", got, want, marked)
+	}
+	assertPaintedLast(t, plain, marked, "1cm")
+}
+
+// Under PDF/UA a marked rule in a tagged list is painted in a sequence of
+// the list's structure element, one in an untagged list as an artifact.
+func TestPaintLastRuleMarkedContent(t *testing.T) {
+	render := func(tagged bool) string {
+		var buf bytes.Buffer
+		d := NewDocument(&buf)
+		d.Format = FormatPDFUA
+		d.SuppressInfo = true
+		d.DefaultLanguageTag = "en"
+		d.Title = "PaintLast rule"
+		root := &StructureElement{Role: "Document"}
+		div := &StructureElement{Role: "Div"}
+		root.AddChild(div)
+		d.RootStructureElement = root
+
+		container := vbox(paintLastRule(bareRule("1cm")), bareRule("2cm"))
+		if tagged {
+			container.Attributes = node.H{"tag": div}
+		}
+		stream := pageStream(t, d, &buf, container)
+		if err := d.PDFWriter.FinishAndClose(); err != nil {
+			t.Fatalf("FinishAndClose: %v", err)
+		}
+		return stream
+	}
+	for _, tc := range []struct {
+		tagged bool
+		seq    string
+	}{
+		{true, "/Div <</MCID 1>> BDC"},
+		{false, "/Artifact BMC"},
+	} {
+		stream := render(tc.tagged)
+		ruleAt, _ := fillPos(t, stream, "1cm")
+		seqAt := strings.LastIndex(stream[:ruleAt], tc.seq)
+		if seqAt < 0 || strings.Contains(stream[seqAt:ruleAt], "EMC") {
+			t.Errorf("tagged %t: want the deferred rule inside %q, got\n%s", tc.tagged, tc.seq, stream)
+		}
+		if siblingAt, _ := fillPos(t, stream, "2cm"); siblingAt > ruleAt {
+			t.Errorf("tagged %t: the sibling comes after the deferred rule in\n%s", tc.tagged, stream)
+		}
 	}
 }
