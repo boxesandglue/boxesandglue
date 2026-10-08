@@ -2948,7 +2948,8 @@ func (d *PDFDocument) CreateImageNodeFromImagefile(imgfile *pdf.Imagefile, pagen
 // The width and height specify the desired output size. If one is 0, it is
 // calculated from the aspect ratio. If both are 0, the SVG's natural size is
 // used. An optional TextRenderer enables SVG <text> rendering; if nil, text
-// elements are skipped.
+// elements are skipped. Nothing outside the viewport is drawn: the drawing is
+// clipped to the rule, unless the rule has no area.
 func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, width bag.ScaledPoint, height bag.ScaledPoint, textRenderer ...svgreader.TextRenderer) *node.Rule {
 	naturalW := svgDoc.Width
 	naturalH := svgDoc.Height
@@ -2993,6 +2994,12 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 	rule.Height = height
 	rule.Hide = true
 	rule.Pre = stream
+	// The stream draws from the rule's top left corner downwards. Like a
+	// browser, show nothing of the SVG outside its viewport. An SVG without
+	// any size has an empty rule and is drawn unclipped, as before.
+	if width > 0 && height > 0 {
+		rule.Pre = clipTo(0, -height, width, height, stream)
+	}
 
 	// If the TextRenderer tracks used faces, store them as attributes
 	// so the page renderer can register them as PDF resources.
@@ -3018,6 +3025,12 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 	}
 
 	return rule
+}
+
+// clipTo returns content clipped to the rectangle with the lower left corner
+// at x, y and the size wd × ht, in the coordinates content is drawn in.
+func clipTo(x, y, wd, ht bag.ScaledPoint, content string) string {
+	return fmt.Sprintf("q %s %s %s %s re W n\n%s\nQ", x, y, wd, ht, content)
 }
 
 // NewPage creates a new Page object and adds it to the page list in the
