@@ -985,17 +985,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			} else {
 				v.Used = true
 			}
-			ifile := v.ImageFile
-			oc.usedImages[ifile] = true
+			oc.usedImages[v.ImageFile] = true
 			// Image visual extent = Height (above baseline) + Depth (below).
 			// Bottom-left corner sits at (x+sumX, y-Depth); image top is then
 			// at y+Height. Depth=0 is the baseline-anchored default.
-			visualHt := v.Height + v.Depth
-			scaleX := v.Width.ToPT() / ifile.ScaleX
-			scaleY := visualHt.ToPT() / ifile.ScaleY
-			posy := y - v.Depth
-			posx := x + sumX
-			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, v.ImageFile.InternalName())
+			oc.write(drawImage(v, x+sumX, y-v.Depth))
 			sumX += v.Width
 		case *node.StartStop:
 			posX := x + sumX
@@ -1588,22 +1582,16 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			} else {
 				v.Used = true
 			}
-			ifile := v.ImageFile
-			oc.usedImages[ifile] = true
+			oc.usedImages[v.ImageFile] = true
 			oc.gotoTextMode(ScopePage)
 
 			// Vertical mode: y is the top of the image's slot. The image's
 			// visible extent spans Height (above its baseline) + Depth (below).
 			visualHt := v.Height + v.Depth
-			scaleX := v.Width.ToPT() / ifile.ScaleX
-			scaleY := visualHt.ToPT() / ifile.ScaleY
-
-			posy := y - visualHt
-			posx := x
 			if oc.p.document.IsTrace(VTraceImages) {
 				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, visualHt)
 			}
-			oc.writef("q %f 0 0 %f %s %s cm %s Do Q\n", scaleX, scaleY, posx, posy, v.ImageFile.InternalName())
+			oc.write(drawImage(v, x, y-visualHt))
 		case *node.Glue:
 			if oc.p.document.DumpOutput {
 				if oc.p.document.DumpOutput {
@@ -3025,6 +3013,59 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 	}
 
 	return rule
+}
+
+// CreateSVGNodeFromDocumentCrop is CreateSVGNodeFromDocument for the region
+// crop of the SVG, in the units of the SVG's natural size, measured from its
+// top left corner. The region becomes the SVG's viewport: its natural size
+// and aspect ratio, and the area the drawing is clipped to.
+func (d *PDFDocument) CreateSVGNodeFromDocumentCrop(svgDoc *svgreader.Document, crop node.ImageCrop, width bag.ScaledPoint, height bag.ScaledPoint, textRenderer ...svgreader.TextRenderer) *node.Rule {
+	if crop.Width <= 0 || crop.Height <= 0 {
+		return d.CreateSVGNodeFromDocument(svgDoc, width, height, textRenderer...)
+	}
+	cropped := *svgDoc
+	vb := svgDoc.ViewBox
+	if vb.Width > 0 && vb.Height > 0 && svgDoc.Width > 0 && svgDoc.Height > 0 {
+		sx := vb.Width / svgDoc.Width
+		sy := vb.Height / svgDoc.Height
+		cropped.ViewBox = svgreader.ViewBox{
+			MinX:   vb.MinX + crop.X*sx,
+			MinY:   vb.MinY + crop.Y*sy,
+			Width:  crop.Width * sx,
+			Height: crop.Height * sy,
+		}
+	} else {
+		// Without a viewBox, a user unit is a unit of the natural size.
+		cropped.ViewBox = svgreader.ViewBox{MinX: crop.X, MinY: crop.Y, Width: crop.Width, Height: crop.Height}
+	}
+	cropped.Width = crop.Width
+	cropped.Height = crop.Height
+	return d.CreateSVGNodeFromDocument(&cropped, width, height, textRenderer...)
+}
+
+// drawImage returns the instructions that draw img with the lower left corner
+// of its box at x, y. With a crop, the region fills the box and the image is
+// clipped to it.
+func drawImage(img *node.Image, x, y bag.ScaledPoint) string {
+	ifile := img.ImageFile
+	wd := img.Width.ToPT()
+	ht := (img.Height + img.Depth).ToPT()
+	c := img.Crop
+	if c == nil || c.Width <= 0 || c.Height <= 0 {
+		return fmt.Sprintf("q %f 0 0 %f %s %s cm %s Do Q\n", wd/ifile.ScaleX, ht/ifile.ScaleY, x, y, ifile.InternalName())
+	}
+	natW, natH := float64(ifile.W), float64(ifile.H)
+	if ifile.Format == "pdf" {
+		natW, natH = ifile.ScaleX, ifile.ScaleY
+	}
+	// Draw the whole image at the size that makes the region fill the box,
+	// shifted so the region's lower left corner lands on the box's.
+	fullW := wd * natW / c.Width
+	fullH := ht * natH / c.Height
+	shiftX := c.X * wd / c.Width
+	shiftY := (natH - c.Y - c.Height) * ht / c.Height
+	draw := fmt.Sprintf("%f 0 0 %f %s %s cm %s Do", fullW/ifile.ScaleX, fullH/ifile.ScaleY, x-bag.ScaledPointFromFloat(shiftX), y-bag.ScaledPointFromFloat(shiftY), ifile.InternalName())
+	return clipTo(x, y, img.Width, img.Height+img.Depth, draw) + "\n"
 }
 
 // clipTo returns content clipped to the rectangle with the lower left corner
