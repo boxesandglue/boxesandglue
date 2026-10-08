@@ -475,6 +475,15 @@ func (m *bandModel) BackgroundArea(f *font.Font) (bag.ScaledPoint, bag.ScaledPoi
 	return 2 * f.Size, f.Size / 2
 }
 
+// halfBandModel is a bandModel with a band of its own: the font size above
+// the baseline and a quarter of it below.
+type halfBandModel struct{ bandModel }
+
+func (m *halfBandModel) BackgroundArea(f *font.Font) (bag.ScaledPoint, bag.ScaledPoint) {
+	m.asked++
+	return f.Size, f.Size / 4
+}
+
 // rectsOf returns "y height" of each background rule, line by line.
 func rectsOf(vl *node.VList) [][]string {
 	var ret [][]string
@@ -576,6 +585,18 @@ func TestInlineBackgroundAreaModel(t *testing.T) {
 		}
 		if m.asked != 1 {
 			t.Errorf("model asked %d times, want once", m.asked)
+		}
+	})
+
+	t.Run("a span with a model of its own decides its band", func(t *testing.T) {
+		para, own := &bandModel{}, &halfBandModel{}
+		got := format(t, para, "200pt", "before ",
+			span(map[SettingType]any{SettingLineModel: node.LineModel(own)}, "marked"), " after")
+		if len(got) != 1 || len(got[0]) != 1 || got[0][0] != "-2.5 12.5" {
+			t.Errorf("boxes %q, want the span's band \"-2.5 12.5\"", got)
+		}
+		if own.asked != 1 || para.asked != 0 {
+			t.Errorf("span's model asked %d, paragraph's %d; want 1 and 0", own.asked, para.asked)
 		}
 	})
 
