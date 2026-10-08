@@ -15,7 +15,7 @@ var opClasses = map[rune]math.MathClass{
 	'+': math.ClassBin,
 	'-': math.ClassBin, '−': math.ClassBin, // ASCII -, U+2212 MINUS SIGN
 	'*': math.ClassBin, '×': math.ClassBin, '⋅': math.ClassBin, // *, ×, ⋅
-	'/': math.ClassBin, '÷': math.ClassBin, // /, ÷
+	'÷': math.ClassBin,                     // ÷
 	'±': math.ClassBin, '∓': math.ClassBin, // ±, ∓
 	'∧': math.ClassBin, '∨': math.ClassBin, // ∧, ∨
 	'∩': math.ClassBin, '∪': math.ClassBin, // ∩, ∪
@@ -71,6 +71,10 @@ var opClasses = map[rune]math.MathClass{
 	'⋂': math.ClassOp, // ⋂
 	'⨁': math.ClassOp, // ⨁
 	'⨂': math.ClassOp, // ⨂
+
+	// The solidus is an ordinary symbol, as in TeX: a/b gets no space
+	// around the slash.
+	'/': math.ClassOrd,
 }
 
 // operatorClass returns the MathClass for an operator rune. Unknown operators

@@ -162,6 +162,8 @@ func TestParseOperatorClasses(t *testing.T) {
 		{`<math><mo>)</mo></math>`, math.ClassClose, "rparen"},
 		{`<math><mo>,</mo></math>`, math.ClassPunct, "comma"},
 		{`<math><mo>∑</mo></math>`, math.ClassOp, "sum"},
+		{`<math><mo>-</mo></math>`, math.ClassBin, "hyphen-minus"},
+		{`<math><mo>/</mo></math>`, math.ClassOrd, "solidus"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -585,5 +587,22 @@ func TestMrowFenceDetection(t *testing.T) {
 	}
 	if f, ok := atoms[0].(*math.Fenced); !ok || f.Left != 0 || f.Right == 0 {
 		t.Errorf("one-sided fence mis-parsed: %#v", atoms[0])
+	}
+}
+
+// TestParseHyphenMinusIsMinusSign — <mo>-</mo> takes the glyph of U+2212:
+// in a math font the hyphen-minus is a short hyphen.
+func TestParseHyphenMinusIsMinusSign(t *testing.T) {
+	fnt := loadMathFont(t)
+	hyphen, _, err := Parse([]byte(`<math><mo>-</mo></math>`), fnt)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	minus, _, err := Parse([]byte("<math><mo>\u2212</mo></math>"), fnt)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got, want := singleAtom(t, hyphen).Nucleus.Glyph, singleAtom(t, minus).Nucleus.Glyph; got != want {
+		t.Errorf("<mo>-</mo> has glyph %d, the minus sign %d", got, want)
 	}
 }

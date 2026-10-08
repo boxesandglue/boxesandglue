@@ -375,7 +375,7 @@ func (p *parser) parseMo(start xml.StartElement) ([]math.MathItem, error) {
 	runes := []rune(text)
 	items := make([]math.MathItem, 0, len(runes))
 	for _, r := range runes {
-		gid, err := p.gid(r)
+		gid, err := p.operatorGid(r)
 		if err != nil {
 			return nil, err
 		}
@@ -587,6 +587,18 @@ func maybeFence(items []math.MathItem) []math.MathItem {
 // when the font has no glyph for r — both the "no atoms returned" case and
 // the "Shape returned .notdef (GID 0)" case count as missing, per the
 // OpenType convention that GID 0 is the placeholder glyph.
+// operatorGid is the glyph of the operator r. The hyphen-minus is set as the
+// minus sign U+2212, as TeX and browsers do, when the font has one: in a
+// math font U+002D is a short hyphen.
+func (p *parser) operatorGid(r rune) (ot.GlyphID, error) {
+	if r == '-' {
+		if gid, err := p.gid('\u2212'); err == nil {
+			return gid, nil
+		}
+	}
+	return p.gid(r)
+}
+
 func (p *parser) gid(r rune) (ot.GlyphID, error) {
 	atoms := p.fnt.Shape(string(r), nil, nil)
 	var gid ot.GlyphID
