@@ -1036,7 +1036,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					}
 
 					if hyperlink.Local != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(hyperlink.Local)))
+						a.Action = oc.p.document.gotoAction(hyperlink.Local)
 					} else if hyperlink.URI != "" {
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(pdf.String(hyperlink.URI)))
 					}
@@ -1674,7 +1674,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 					}
 
 					if hyperlink.Local != "" {
-						a.Action = fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(hyperlink.Local)))
+						a.Action = oc.p.document.gotoAction(hyperlink.Local)
 					} else if hyperlink.URI != "" {
 						a.Action = fmt.Sprintf("<</Type/Action/S/URI/URI %s>>", pdf.Serialize(pdf.String(hyperlink.URI)))
 					}
@@ -2747,6 +2747,15 @@ type PDFDocument struct {
 	// readingPrefix is the reading position of the slot whose VList is being
 	// painted, nil outside of deferred painting.
 	readingPrefix []int
+
+	// StructureDestinations maps the name of a destination to the
+	// structure element of its target. Under PDF/UA-2 a link to that name
+	// gets the element as its structure destination (ISO 14289-2 §8.8); the
+	// caller that tags the document fills it.
+	StructureDestinations map[string]*StructureElement
+	// linkActions are the GoTo actions of PDF/UA-2 links, written by Finish
+	// once every structure destination is known.
+	linkActions []linkAction
 }
 
 // nextReadingSeq returns the next document-wide reading-order stamp. It is
@@ -3128,6 +3137,8 @@ func (d *PDFDocument) Finish() error {
 	d.PDFWriter.SetVersion(d.Format.pdfVersion())
 	d.PDFWriter.Catalog = pdf.Dict{}
 
+	d.writeLinkActions()
+
 	// Automatically create root structure element for PDF/UA if not set.
 	// PDF/UA-2 requires the Document element to carry the PDF 2.0 standard
 	// structure namespace; without it veraPDF/pdfa11y flag UA-01-008. This
@@ -3393,4 +3404,44 @@ func (d *PDFDocument) RegisterCallback(cb Callback, fn any) {
 	if cb == CallbackPreShipout {
 		d.preShipoutCallback = append(d.preShipoutCallback, fn.(func(page *Page)))
 	}
+}
+
+// linkAction is the GoTo action object of a link to the destination name.
+type linkAction struct {
+	name string
+	obj  *pdf.Object
+}
+
+// gotoAction returns the action of a link to the destination name. Under
+// PDF/UA-2 it is an object of its own, which Finish writes with the target's
+// structure destination: the target may come later in the document than
+// the link.
+func (d *PDFDocument) gotoAction(name string) string {
+	if !d.Format.IsPDFUA2() {
+		return fmt.Sprintf("<</Type/Action/S/GoTo/D %s>>", pdf.Serialize(pdf.String(name)))
+	}
+	obj := d.PDFWriter.NewObject()
+	d.linkActions = append(d.linkActions, linkAction{name: name, obj: obj})
+	return obj.ObjectNumber.Ref()
+}
+
+// writeLinkActions writes the GoTo actions of the PDF/UA-2 links: /D names
+// the destination for every viewer, /SD points to the structure element of
+// the target when it has one.
+func (d *PDFDocument) writeLinkActions() {
+	for _, la := range d.linkActions {
+		la.obj.Dictionary = pdf.Dict{
+			"Type": "/Action",
+			"S":    "/GoTo",
+			"D":    pdf.Serialize(pdf.String(la.name)),
+		}
+		if se := d.StructureDestinations[la.name]; se != nil {
+			if se.Obj == nil {
+				se.Obj = d.PDFWriter.NewObject()
+			}
+			la.obj.Dictionary["SD"] = fmt.Sprintf("[%s /Fit]", se.Obj.ObjectNumber.Ref())
+		}
+		la.obj.Save()
+	}
+	d.linkActions = nil
 }
