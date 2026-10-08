@@ -70,3 +70,36 @@ func TestBinomialNoRule(t *testing.T) {
 		t.Errorf("Binom result has a Rule node (expected none)")
 	}
 }
+
+// TestStyleGroupDisplayInline — a fraction in a display StyleGroup inside
+// inline math is set as in display math, and a text StyleGroup inside
+// display math as in inline math.
+func TestStyleGroupDisplayInline(t *testing.T) {
+	fnt := loadMathFont(t)
+	oneGid := glyphFor(t, fnt, '1')
+	twoGid := glyphFor(t, fnt, '2')
+	frac := func() MathItem { return Frac([]MathItem{Ord(oneGid)}, []MathItem{Ord(twoGid)}) }
+
+	display, err := DisplayMath(fnt, frac())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := InlineMath(fnt, frac())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inlineDisplay, err := InlineMath(fnt, &StyleGroup{Display: true, Items: []MathItem{frac()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	displayText, err := DisplayMath(fnt, &StyleGroup{Display: false, Items: []MathItem{frac()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inlineDisplay.Height != display.Height || inlineDisplay.Depth != display.Depth {
+		t.Errorf("display group inline: %d+%d sp, display math %d+%d sp", inlineDisplay.Height, inlineDisplay.Depth, display.Height, display.Depth)
+	}
+	if displayText.Height != text.Height || displayText.Depth != text.Depth {
+		t.Errorf("text group in display: %d+%d sp, inline math %d+%d sp", displayText.Height, displayText.Depth, text.Height, text.Depth)
+	}
+}

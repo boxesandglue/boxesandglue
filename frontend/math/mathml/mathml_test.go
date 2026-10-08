@@ -606,3 +606,62 @@ func TestParseHyphenMinusIsMinusSign(t *testing.T) {
 		t.Errorf("<mo>-</mo> has glyph %d, the minus sign %d", got, want)
 	}
 }
+
+// TestParseMstyleDisplaystyle — <mstyle displaystyle> and the attribute on
+// <math> group their content in a StyleGroup; without it mstyle stays
+// transparent.
+func TestParseMstyleDisplaystyle(t *testing.T) {
+	fnt := loadMathFont(t)
+	for _, tc := range []struct {
+		src     string
+		display bool
+	}{
+		{`<math><mstyle displaystyle="true"><mi>x</mi></mstyle></math>`, true},
+		{`<math displaystyle="true"><mi>x</mi></math>`, true},
+		{`<math><mstyle displaystyle="false"><mi>x</mi></mstyle></math>`, false},
+	} {
+		items, _, err := Parse([]byte(tc.src), fnt)
+		if err != nil {
+			t.Fatalf("Parse %s: %v", tc.src, err)
+		}
+		g, ok := items[0].(*math.StyleGroup)
+		if len(items) != 1 || !ok || g.Display != tc.display {
+			t.Errorf("%s: got %#v, want a StyleGroup with Display %v", tc.src, items, tc.display)
+		}
+	}
+	items, _, err := Parse([]byte(`<math><mstyle mathcolor="red"><mi>x</mi></mstyle></math>`), fnt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := items[0].(*math.MathAtom); !ok {
+		t.Errorf("mstyle without displaystyle: got %#v, want the atom itself", items)
+	}
+}
+
+// TestParseMspace — <mspace width> in em or as a named space becomes a
+// Space; another width is read past.
+func TestParseMspace(t *testing.T) {
+	fnt := loadMathFont(t)
+	for src, want := range map[string]float64{
+		`<math><mspace width="1em"/></math>`:                   1,
+		`<math><mspace width="-0.5em"/></math>`:                -0.5,
+		`<math><mspace width="thinmathspace"/></math>`:         3.0 / 18,
+		`<math><mspace width="negativethinmathspace"/></math>`: -3.0 / 18,
+	} {
+		items, _, err := Parse([]byte(src), fnt)
+		if err != nil {
+			t.Fatalf("Parse %s: %v", src, err)
+		}
+		sp, ok := items[0].(*math.Space)
+		if len(items) != 1 || !ok || sp.Em != want {
+			t.Errorf("%s: got %#v, want a Space of %g em", src, items, want)
+		}
+	}
+	items, _, err := Parse([]byte(`<math><mi>x</mi><mspace width="3pt"/><mi>y</mi></math>`), fnt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Errorf("an absolute mspace width: got %d items, want 2", len(items))
+	}
+}

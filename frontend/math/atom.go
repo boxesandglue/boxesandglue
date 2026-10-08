@@ -260,3 +260,24 @@ func AccentTop(glyph ot.GlyphID, body ...MathItem) *Accent {
 func AccentBottom(glyph ot.GlyphID, body ...MathItem) *Accent {
 	return &Accent{Glyph: glyph, Bottom: true, Body: body}
 }
+
+// StyleGroup sets its items in display or text style, whatever the style
+// around it: TeX's \displaystyle and \textstyle, MathML's
+// <mstyle displaystyle>. The items stay part of the list around the group
+// for the spacing between atoms; a cramped style around it stays cramped.
+type StyleGroup struct {
+	Display bool
+	Items   []MathItem
+}
+
+func (*StyleGroup) isMathItem() {}
+
+// Space is horizontal space in a formula, Em wide in the font size of its
+// style: TeX's \quad and \, or MathML's <mspace width>. Like glue in TeX it
+// takes no part in the spacing between the atoms around it. A negative
+// width moves the next item back (\!).
+type Space struct {
+	Em float64
+}
+
+func (*Space) isMathItem() {}

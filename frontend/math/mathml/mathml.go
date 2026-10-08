@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/boxesandglue/boxesandglue/backend/font"
@@ -148,7 +149,7 @@ func (p *parser) parseRoot() ([]math.MathItem, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
-		return items, display, nil
+		return styled(se, items), display, nil
 	}
 }
 
@@ -268,7 +269,13 @@ func (p *parser) parseElement(start xml.StartElement) ([]math.MathItem, error) {
 		return p.parseMo(start)
 	case "mrow":
 		return p.parseMrow(start)
-	case "mstyle", "mpadded", "mphantom":
+	case "mstyle":
+		kids, err := p.parseChildren(start)
+		if err != nil {
+			return nil, err
+		}
+		return styled(start, kids), nil
+	case "mpadded", "mphantom":
 		// transparent grouping containers — emit the children flat
 		return p.parseChildren(start)
 	case "mfrac":
@@ -295,8 +302,17 @@ func (p *parser) parseElement(start xml.StartElement) ([]math.MathItem, error) {
 		return p.parseChildren(start)
 	case "annotation", "annotation-xml":
 		return nil, p.skipElement()
-	case "mspace", "mtext":
-		// not yet supported — read past them, return nothing
+	case "mspace":
+		em, ok := spaceWidth(attr(start, "width"))
+		if err := p.skipElement(); err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, nil
+		}
+		return []math.MathItem{&math.Space{Em: em}}, nil
+	case "mtext":
+		// not yet supported — read past it, return nothing
 		// (mtext should probably emit an Ord-string atom one day)
 		return nil, p.skipElement()
 	default:
@@ -654,4 +670,51 @@ func attr(start xml.StartElement, name string) string {
 		}
 	}
 	return ""
+}
+
+// styled puts items into a StyleGroup when el, an <mstyle> or the <math>
+// root, sets displaystyle; otherwise they stay as they are.
+func styled(el xml.StartElement, items []math.MathItem) []math.MathItem {
+	switch attr(el, "displaystyle") {
+	case "true":
+		return []math.MathItem{&math.StyleGroup{Display: true, Items: items}}
+	case "false":
+		return []math.MathItem{&math.StyleGroup{Display: false, Items: items}}
+	}
+	return items
+}
+
+// namedSpaces are the named widths of MathML 3 §2.1.5.2, in eighteenths of
+// an em.
+var namedSpaces = map[string]float64{
+	"veryverythinmathspace":  1,
+	"verythinmathspace":      2,
+	"thinmathspace":          3,
+	"mediummathspace":        4,
+	"thickmathspace":         5,
+	"verythickmathspace":     6,
+	"veryverythickmathspace": 7,
+}
+
+// spaceWidth reads the width of an <mspace> in em: a number with the unit
+// em, or a named space, either possibly negative. ok is false for anything
+// else, such as an absolute length.
+func spaceWidth(w string) (em float64, ok bool) {
+	w = strings.TrimSpace(w)
+	sign := 1.0
+	if name, found := strings.CutPrefix(w, "negative"); found {
+		w, sign = name, -1
+	}
+	if n, ok := namedSpaces[w]; ok {
+		return sign * n / 18, true
+	}
+	num, found := strings.CutSuffix(w, "em")
+	if !found {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(num), 64)
+	if err != nil {
+		return 0, false
+	}
+	return sign * f, true
 }

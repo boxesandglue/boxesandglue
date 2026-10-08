@@ -114,11 +114,20 @@ func mlistToHlist(items []MathItem, style MathStyle, ctx *engineCtx) *node.HList
 	if len(items) == 0 {
 		return emptyHList()
 	}
-	rewriteBinToOrd(items)
+	items, styles := flattenStyleGroups(items, style, nil, nil)
+	// A space is not an atom: the rule that turns a Bin into an Ord looks
+	// at the atoms around it.
+	atoms := make([]MathItem, 0, len(items))
+	for _, it := range items {
+		if _, ok := it.(*Space); !ok {
+			atoms = append(atoms, it)
+		}
+	}
+	rewriteBinToOrd(atoms)
 
 	parts := make([]laidPart, 0, len(items))
-	for _, it := range items {
-		p := layoutItem(it, style, ctx)
+	for k, it := range items {
+		p := layoutItem(it, styles[k], ctx)
 		if p != nil {
 			parts = append(parts, *p)
 		}
@@ -131,11 +140,36 @@ func mlistToHlist(items []MathItem, style MathStyle, ctx *engineCtx) *node.HList
 	return spliceWithSpacing(parts, style, ctx.at(style).Size)
 }
 
+// flattenStyleGroups appends items to out, the items of a StyleGroup in
+// place of the group, and to styles the style each one is set in: style
+// for the items of the list, the group's for those of a group.
+func flattenStyleGroups(items []MathItem, style MathStyle, out []MathItem, styles []MathStyle) ([]MathItem, []MathStyle) {
+	for _, it := range items {
+		g, ok := it.(*StyleGroup)
+		if !ok {
+			out = append(out, it)
+			styles = append(styles, style)
+			continue
+		}
+		inner := TextStyle
+		if g.Display {
+			inner = DisplayStyle
+		}
+		if style.IsCramped() {
+			inner = crampify(inner)
+		}
+		out, styles = flattenStyleGroups(g.Items, inner, out, styles)
+	}
+	return out, styles
+}
+
 // laidPart is one already-laid-out item, carrying its final HList plus the
 // class the spacing pass uses to look up the inter-atom kern.
 type laidPart struct {
 	hl    *node.HList
 	class MathClass
+	// space is set for a Space, which the spacing pass passes over.
+	space bool
 }
 
 func layoutItem(it MathItem, style MathStyle, ctx *engineCtx) *laidPart {
@@ -155,6 +189,13 @@ func layoutItem(it MathItem, style MathStyle, ctx *engineCtx) *laidPart {
 	case *Accent:
 		hl := layoutAccent(i, style, ctx)
 		return &laidPart{hl: hl, class: ClassOrd}
+	case *Space:
+		k := node.NewKern()
+		k.Kern = bag.ScaledPoint(i.Em * float64(ctx.at(style).Size))
+		hl := node.NewHList()
+		hl.List = k
+		hl.Width = k.Kern
+		return &laidPart{hl: hl, space: true}
 	}
 	return nil
 }
@@ -170,15 +211,21 @@ func spliceWithSpacing(parts []laidPart, style MathStyle, size bag.ScaledPoint) 
 	}
 	var head, tail node.Node
 	var width, height, depth bag.ScaledPoint
+	// prev is the last part that is not a space: the spacing between atoms
+	// goes across spaces.
+	prev := -1
 	for i, p := range parts {
-		if i > 0 {
-			kern := interAtomSpace(parts[i-1].class, p.class, style, size)
-			if kern > 0 {
-				k := node.NewKern()
-				k.Kern = kern
-				head, tail = appendNode(head, tail, k)
-				width += kern
+		if !p.space {
+			if prev >= 0 {
+				kern := interAtomSpace(parts[prev].class, p.class, style, size)
+				if kern > 0 {
+					k := node.NewKern()
+					k.Kern = kern
+					head, tail = appendNode(head, tail, k)
+					width += kern
+				}
 			}
+			prev = i
 		}
 		head, tail = appendNode(head, tail, p.hl)
 		width += p.hl.Width

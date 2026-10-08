@@ -223,3 +223,24 @@ func TestSubSuperGap(t *testing.T) {
 		t.Errorf("sub/sup gap = %d sp, want >= SubSuperscriptGapMin (%d sp)", gap, gapMin)
 	}
 }
+
+// TestSpace — a Space adds its width in em of the style's font, and the
+// spacing between the atoms around it stays: a + b keeps the space of the
+// binary operator with a thin space after the plus.
+func TestSpace(t *testing.T) {
+	fnt := loadMathFont(t)
+	a, plus, b := glyphFor(t, fnt, 'a'), glyphFor(t, fnt, '+'), glyphFor(t, fnt, 'b')
+
+	plain, err := InlineMath(fnt, Ord(a), Bin(plus), Ord(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spaced, err := InlineMath(fnt, Ord(a), Bin(plus), &Space{Em: 3.0 / 18}, Ord(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := plain.Width + bag.ScaledPoint(3.0/18*float64(fnt.Size))
+	if d := spaced.Width - want; d < -1 || d > 1 {
+		t.Errorf("with a thin space %d sp wide, want %d (the plus keeps its spacing)", spaced.Width, want)
+	}
+}
