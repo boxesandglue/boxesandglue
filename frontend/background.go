@@ -33,6 +33,10 @@ const attrSpaceBox = "_inlinebackgroundspace"
 type spaceBox struct {
 	font    *font.Font
 	yoffset bag.ScaledPoint
+	// banded is set when the line model of the Text that carries the
+	// background (a node.BackgroundAreaModel) gave the box as ht and dp.
+	banded bool
+	ht, dp bag.ScaledPoint
 }
 
 // inlineBackground is one background box that is open while walking a line.
@@ -108,6 +112,8 @@ type bgSegment struct {
 // CSS: a nested Text in another family or size, or a glyph from a fallback
 // font, does not change it, and a larger one overflows it. Its vertical
 // offset (vertical-align on that Text) moves the box; a nested one does not.
+// When the line model of that Text decided the box (box.banded), its band
+// replaces the font's box and area is not used.
 //
 // Without box, the font of each glyph gives the box, and where it changes
 // within the run the box is split so that each part fits its own text; glyphs
@@ -134,7 +140,11 @@ func drawBackground(head, start, stop node.Node, col *color.Color, area Backgrou
 			}
 		}
 		if f != nil {
-			ht, dp = fontBox(f, area)
+			if box != nil && box.banded {
+				ht, dp = box.ht, box.dp
+			} else {
+				ht, dp = fontBox(f, area)
+			}
 			ht, dp = yoffset+ht, dp-yoffset
 			switch {
 			case cur == nil:
