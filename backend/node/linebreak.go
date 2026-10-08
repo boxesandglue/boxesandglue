@@ -178,6 +178,15 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		// inter-word glue aren't rejected with r=+inf just because the
 		// line itself has no normal stretch reservoir.
 		hasFilStretch := aligned || (lb.stretchFil-from.stretchFil) > 0 || (lb.stretchFill-from.stretchFill) > 0 || (lb.stretchFilll-from.stretchFilll) > 0
+		// A line that ends in a HardBreak is set with fill stretch at its
+		// end, also in a justified paragraph (see the forced-break
+		// suppression of justification in Linebreak), so it is measured
+		// that way here: it fits like the last line of a paragraph, and
+		// the text before a HardBreak breaks as it would as a paragraph
+		// of its own.
+		if _, ok := n.(*HardBreak); ok {
+			hasFilStretch = true
+		}
 		if !hasFilStretch {
 			if g := lb.settings.LineEndGlue; g != nil && g.StretchOrder >= StretchFil && g.Stretch > 0 {
 				hasFilStretch = true
@@ -518,7 +527,9 @@ func (lb *linebreaker) mainLoop(n Node) {
 			// Anchor the emergency line. A breakpoint a forced break
 			// deactivated without its line being overfull comes first: its
 			// line fits, it is only too loose to be feasible, as before a
-			// HardBreak in a justified paragraph. Otherwise take the best
+			// forced Penalty with no fill stretch in a justified paragraph
+			// (a line before a HardBreak is measured with fill stretch and
+			// does not get here). Otherwise take the best
 			// overfull breakpoint found this round (latest position, fewest
 			// demerits), so an unbreakable run wider than HSize (a long URL,
 			// or the mailmerge company block where dropped <br/> glued

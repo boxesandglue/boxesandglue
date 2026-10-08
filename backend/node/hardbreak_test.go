@@ -1,6 +1,8 @@
 package node
 
 import (
+	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -273,6 +275,84 @@ func TestForcedBreakNoStretchInLine(t *testing.T) {
 					"forced break should not emit fill stretch",
 					g.StretchOrder, origin)
 			}
+		}
+	}
+}
+
+// TestTextBeforeAHardBreakBreaksLikeAParagraph: a line that ends in a
+// HardBreak is set with fill stretch, also in a justified paragraph, so the
+// first pass measures it so too. The text before a HardBreak then breaks as
+// the same text does as a paragraph of its own, whose last line has the
+// paragraph's fill (bag#75). Measured as justified, the line before the
+// HardBreak was too loose to be feasible, it became an emergency line, and
+// the lines before it were chosen without it.
+func TestTextBeforeAHardBreakBreaksLikeAParagraph(t *testing.T) {
+	// para builds words, given as glyph widths in pt, with 3pt spaces that
+	// stretch 2pt and shrink 1pt, and a HardBreak after word hb (none when
+	// hb < 0). It returns the list and the index of each node in it.
+	para := func(words [][]int, hb int) (Node, map[Node]int) {
+		var head, cur Node
+		idx := map[Node]int{}
+		add := func(n Node) {
+			head = InsertAfter(head, cur, n)
+			cur = n
+			idx[n] = len(idx)
+		}
+		for i, w := range words {
+			switch {
+			case i > 0 && i == hb+1:
+				add(NewHardBreak())
+			case i > 0:
+				sp := NewGlue()
+				sp.Width, sp.Stretch, sp.Shrink = 3*bag.Factor, 2*bag.Factor, bag.Factor
+				add(sp)
+			}
+			for _, gw := range w {
+				g := NewGlyph()
+				g.Width = bag.ScaledPoint(gw) * bag.Factor
+				g.Components = "a"
+				add(g)
+			}
+		}
+		head, _ = AppendLineEndAfter(head, cur)
+		return head, idx
+	}
+	// breaksBefore returns the indexes of the breaks before index limit.
+	breaksBefore := func(head Node, idx map[Node]int, hsize bag.ScaledPoint, limit int) []int {
+		s := NewLinebreakSettings()
+		s.HSize = hsize
+		_, bps := Linebreak(head, s)
+		var out []int
+		for i := len(bps) - 1; i >= 0; i-- {
+			if pos, ok := idx[bps[i].Position]; ok && pos > 0 && pos < limit {
+				out = append(out, pos)
+			}
+		}
+		return out
+	}
+	rng := rand.New(rand.NewSource(75))
+	for c := 0; c < 300; c++ {
+		words := make([][]int, 4+rng.Intn(30))
+		for i := range words {
+			words[i] = make([]int, 1+rng.Intn(6))
+			for j := range words[i] {
+				words[i][j] = 4 + rng.Intn(3)
+			}
+		}
+		hb := 1 + rng.Intn(len(words)-2)
+		hsize := bag.ScaledPoint(50+rng.Intn(100)) * bag.Factor
+		head, idx := para(words, hb)
+		limit := 0
+		for n, i := range idx {
+			if _, ok := n.(*HardBreak); ok {
+				limit = i
+			}
+		}
+		got := breaksBefore(head, idx, hsize, limit)
+		head, idx = para(words[:hb+1], -1)
+		want := breaksBefore(head, idx, hsize, limit)
+		if !slices.Equal(got, want) {
+			t.Errorf("case %d (%d words, HardBreak after word %d, %s): breaks before the HardBreak %v, as a paragraph %v", c, len(words), hb, hsize, got, want)
 		}
 	}
 }

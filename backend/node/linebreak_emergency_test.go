@@ -7,16 +7,16 @@ import (
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 )
 
-// buildWordsHardBreak is buildWords with a HardBreak in place of the interword
-// glue before word hb.
-func buildWordsHardBreak(words []string, hb int, charWidth, spaceWidth bag.ScaledPoint) Node {
+// buildWordsBreak is buildWords with the node brk returns in place of the
+// interword glue before word at.
+func buildWordsBreak(words []string, at int, brk func() Node, charWidth, spaceWidth bag.ScaledPoint) Node {
 	var head, cur Node
 	for i, w := range words {
 		switch {
-		case i == hb:
-			hb := NewHardBreak()
-			head = InsertAfter(head, cur, hb)
-			cur = hb
+		case i == at:
+			b := brk()
+			head = InsertAfter(head, cur, b)
+			cur = b
 		case i > 0:
 			sp := NewGlue()
 			sp.Width = spaceWidth
@@ -29,6 +29,15 @@ func buildWordsHardBreak(words []string, hb int, charWidth, spaceWidth bag.Scale
 	}
 	head, _ = AppendLineEndAfter(head, cur)
 	return head
+}
+
+// forcedPenalty is a forced break with no fill stretch before it: the line
+// that ends there is justified, so a loose one is not feasible. (A line that
+// ends in a HardBreak gets fill stretch, bag#75.)
+func forcedPenalty() Node {
+	p := NewPenalty()
+	p.Penalty = -10000
+	return p
 }
 
 // firstLineGlyphs counts the glyphs of the paragraph's first line.
@@ -53,7 +62,7 @@ func firstLineGlyphs(t *testing.T, vl *VList) int {
 // seven-glyph words of 7pt and 3pt spaces (stretch 3pt, shrink 1pt), the
 // first line can end after word 9 (r=0.54), 10 (r=0.11) or 11 (r=-0.7), and
 // after word 10 it has the fewest demerits. No line from one of those breaks
-// to a HardBreak two to four words later is feasible.
+// to a forced penalty two to four words later is feasible.
 func emergencySettings() *LinebreakSettings {
 	s := NewLinebreakSettings()
 	s.HSize = 100 * bag.Factor
@@ -70,30 +79,30 @@ func sevenGlyphWords(n int) []string {
 	return words
 }
 
-// TestEmergencyAnchorFewestDemerits: before a HardBreak that no active
+// TestEmergencyAnchorFewestDemerits: before a forced break that no active
 // breakpoint reaches with a feasible line, the emergency line starts at the
 // deactivated breakpoint with the fewest demerits, not at the one deactivated
 // last. The three candidates end line 1 in the same class, where the oldest
 // (after word 9) is the last in the active list (bag#74).
 func TestEmergencyAnchorFewestDemerits(t *testing.T) {
 	// Word 12 ends with a glue at which the line from the start is overfull,
-	// so the start is gone before the HardBreak after word 13.
+	// so the start is gone before the forced break after word 13.
 	words := sevenGlyphWords(15)
-	head := buildWordsHardBreak(words, 13, bag.Factor, 3*bag.Factor)
+	head := buildWordsBreak(words, 13, forcedPenalty, bag.Factor, 3*bag.Factor)
 	vl, _ := Linebreak(head, emergencySettings())
 	if got, want := firstLineGlyphs(t, vl), 10*7; got != want {
 		t.Errorf("first line has %d glyphs, want %d (ten words)", got, want)
 	}
 }
 
-// TestEmergencyAnchorPrefersALineThatFits: when a HardBreak finds the line
+// TestEmergencyAnchorPrefersALineThatFits: when a forced break finds the line
 // from one breakpoint overfull and the lines from others only too loose, the
 // emergency line starts at one of the loose ones. Anchoring at the overfull
-// one would set the twelve words up to the HardBreak as one line of 117pt in
+// one would set the twelve words up to the break as one line of 117pt in
 // a 100pt measure.
 func TestEmergencyAnchorPrefersALineThatFits(t *testing.T) {
 	words := sevenGlyphWords(14)
-	head := buildWordsHardBreak(words, 12, bag.Factor, 3*bag.Factor)
+	head := buildWordsBreak(words, 12, forcedPenalty, bag.Factor, 3*bag.Factor)
 	vl, _ := Linebreak(head, emergencySettings())
 	if got, want := firstLineGlyphs(t, vl), 10*7; got != want {
 		t.Errorf("first line has %d glyphs, want %d (ten words)", got, want)
