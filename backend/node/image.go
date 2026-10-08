@@ -20,6 +20,17 @@ type Image struct {
 	Depth      bag.ScaledPoint
 	PageNumber int // Requested page number
 	Used       bool
+	// Crop, if set, is the region of the image to show. It fills the
+	// image's box, and the image is clipped to the box.
+	Crop *ImageCrop
+}
+
+// ImageCrop is a region of an image in the units of its natural size: pixels
+// for a bitmap, points of the page box for a PDF page, and points of the width
+// and height for an SVG document. X and Y are measured from the image's top
+// left corner.
+type ImageCrop struct {
+	X, Y, Width, Height float64
 }
 
 func (img *Image) String() string {
@@ -55,6 +66,10 @@ func (img *Image) Copy() Node {
 	n.ImageFile = img.ImageFile
 	n.PageNumber = img.PageNumber
 	n.Used = img.Used
+	if img.Crop != nil {
+		c := *img.Crop
+		n.Crop = &c
+	}
 	n.Attributes = cloneAttributes(img.Attributes)
 	return n
 }
