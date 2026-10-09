@@ -236,15 +236,8 @@ func (lb *linebreaker) computeSum(n Node) (bag.ScaledPoint, bag.ScaledPoint, bag
 	if _, isDisc := n.(*Disc); isDisc {
 		start = n.Next()
 	}
-compute:
-	for e := start; e != nil; e = e.Next() {
-		switch t := e.(type) {
-		case *Glue:
-			// A tab after a break stays on the line and positions what
-			// follows, so it is not discarded with the break.
-			if e != n && lb.isTab(t) {
-				break compute
-			}
+	for e := start; e != nil && lb.discardedWith(e, n); e = e.Next() {
+		if t, ok := e.(*Glue); ok {
 			w += t.Width
 			z += t.Shrink
 			switch t.StretchOrder {
@@ -257,19 +250,31 @@ compute:
 			default:
 				y += t.Stretch
 			}
-		case *Penalty:
-			if t.Penalty == -10000 && e != n {
-				break compute
-			}
-		case *HardBreak:
-			if e != n {
-				break compute
-			}
-		default:
-			break compute
 		}
 	}
 	return w, e, y, z
+}
+
+// discardedWith reports whether e, the break n itself or a node after it, is
+// discarded with a break at n: glue and penalties up to the first node that
+// stays, which is anything else, a tab or a forced break. A tab after a break
+// stays on the line and positions what follows. After a forced break nothing
+// is discarded: white space there is kept on purpose, such as the indent of a
+// line in preformatted text. computeSum leaves these nodes out of the width
+// after the break, and the second pass out of the next line.
+func (lb *linebreaker) discardedWith(e, n Node) bool {
+	if e != n && isForcedBreak(n) {
+		return false
+	}
+	switch t := e.(type) {
+	case *Glue:
+		return e == n || !lb.isTab(t)
+	case *Penalty:
+		return e == n || t.Penalty > -10000
+	case *HardBreak:
+		return e == n
+	}
+	return false
 }
 
 func (lb *linebreaker) removeActiveNode(active *Breakpoint) {
@@ -762,13 +767,11 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 		// startPos.Prev() is nil at paragraph start
 		if startPos.Prev() != nil {
 			startPos = startPos.Next()
-			// If we broke at a Disc followed by a Glue (space), skip the Glue.
-			// Otherwise the space appears at the start of the next line. A
-			// tab stays, as after any break.
-			if e.Position.Type() == TypeDisc {
-				if _, isGlue := startPos.(*Glue); isGlue && !lb.isTab(startPos) {
-					startPos = startPos.Next()
-				}
+			// What the first pass discarded with the break does not start
+			// the next line: the space after a Disc or a penalty, for
+			// example. A tab stays.
+			for startPos != nil && startPos != endNode && lb.discardedWith(startPos, e.Position) {
+				startPos = startPos.Next()
 			}
 		}
 		if curPre != nil {
