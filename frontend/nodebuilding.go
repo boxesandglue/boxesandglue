@@ -1939,9 +1939,8 @@ func collectParagraphText(te *Text, b *bytes.Buffer) {
 // stay at the right: the last line of a justified RTL paragraph then sits
 // flush left instead of flush right.
 //
-// The node.Lang markers around a run with its own language would split the
-// run the same way. They are only read by Hyphenate before line breaking,
-// so where the reorder puts them does not matter.
+// Markers (StartStop, node.Lang) take no part in the reorder, see
+// bidiMarkers, so their level does not matter.
 func propagateBidiLevels(line *node.HList) {
 	if line == nil || line.List == nil {
 		return
@@ -1949,7 +1948,7 @@ func propagateBidiLevels(line *node.HList) {
 	var prevLevel uint8
 	for n := line.List; n != nil; n = n.Next() {
 		switch n.(type) {
-		case *node.Disc, *node.Penalty, *node.Lang:
+		case *node.Disc, *node.Penalty:
 			if n.BidiLevel() == 0 {
 				n.SetBidiLevel(prevLevel)
 			}
@@ -1991,6 +1990,8 @@ func applyL1(line *node.HList, paragraphLevel uint8) {
 				case *node.Glue, *node.Kern:
 					nodes[j].SetBidiLevel(paragraphLevel)
 					continue
+				case *node.StartStop, *node.Lang:
+					continue
 				}
 				break
 			}
@@ -2000,9 +2001,10 @@ func applyL1(line *node.HList, paragraphLevel uint8) {
 		switch nodes[i].(type) {
 		case *node.Glue, *node.Kern:
 			nodes[i].SetBidiLevel(paragraphLevel)
-		case *node.Penalty:
+		case *node.Penalty, *node.StartStop, *node.Lang:
 			// Linebreak inserts penalties around its end-of-line glue;
-			// they carry no visible width and shouldn't gate the reset.
+			// they carry no visible width and shouldn't gate the reset,
+			// and neither do the markers around a link or a span.
 			continue
 		default:
 			// Glyph, Disc, Image, etc. — content boundary reached.
@@ -2058,47 +2060,75 @@ func bidiReorderVList(vl *node.VList, paragraphLevel uint8) {
 	if vl == nil {
 		return
 	}
+	var lines []*node.HList
 	for n := vl.List; n != nil; n = n.Next() {
 		if hl, ok := n.(*node.HList); ok {
-			bidiReorderLine(hl, paragraphLevel)
+			lines = append(lines, hl)
+		}
+	}
+	bidiReorderLines(lines, paragraphLevel)
+}
+
+// bidiReorderLine reorders a single line, see bidiReorderLines.
+func bidiReorderLine(line *node.HList, paragraphLevel uint8) {
+	bidiReorderLines([]*node.HList{line}, paragraphLevel)
+}
+
+// bidiReorderLines reorders the contents of the lines of one paragraph per
+// UAX#9 L1 (trailing-whitespace level reset) followed by L2-L4 (visual
+// reorder). Operates at the *glyph* level: every node carries its own
+// embedding level (assigned at shape time) and the algorithm reverses maximal
+// contiguous sequences of nodes at level >= current, walking from the highest
+// level down to 1. Nodes arrive in logical order (RTL run shaper output is
+// reversed beforehand in shapeWithBidi) and leave in visual order.
+// paragraphLevel is the paragraph base embedding level used by L1.
+//
+// A paragraph whose lines hold nothing above level 0 is left as it is. In any
+// other, the markers of every line are taken out before the reorder and put
+// back around the visual runs of what they enclose (bidiMarkers), which also
+// gives each line its own pairs.
+func bidiReorderLines(lines []*node.HList, paragraphLevel uint8) {
+	var reorder bool
+	for _, line := range lines {
+		if line == nil || line.List == nil {
+			continue
+		}
+		propagateBidiLevels(line)
+		applyL1(line, paragraphLevel)
+		for n := line.List; n != nil; n = n.Next() {
+			if !isBidiMarker(n) && n.BidiLevel() > 0 {
+				reorder = true
+			}
+		}
+	}
+	if !reorder {
+		return
+	}
+	bm := newBidiMarkers(lines)
+	for _, line := range lines {
+		if line != nil && line.List != nil {
+			bm.reorderLine(line)
 		}
 	}
 }
 
-// bidiReorderLine reorders the contents of a single line per UAX#9 L1
-// (trailing-whitespace level reset) followed by L2-L4 (visual reorder).
-// Operates at the *glyph* level: every node carries its own embedding
-// level (assigned at shape time) and the algorithm reverses maximal
-// contiguous sequences of nodes at level >= current, walking from the
-// highest level down to 1. Nodes arrive in logical order (RTL run shaper
-// output is reversed beforehand in shapeWithBidi) and leave in visual
-// order. paragraphLevel is the paragraph base embedding level used by L1.
-func bidiReorderLine(line *node.HList, paragraphLevel uint8) {
-	if line == nil || line.List == nil {
-		return
-	}
-	propagateBidiLevels(line)
-	applyL1(line, paragraphLevel)
-	var nodes []node.Node
-	var levels []uint8
+// visualOrder applies L2-L4 to the nodes from lo to hi: it reverses maximal
+// sequences at level >= current, from the highest level down through 1. It
+// returns the logical index of the node at each visual position; the nodes
+// outside lo and hi, the linebreaker's edge glues, stay where they are.
+func visualOrder(nodes []node.Node, lo, hi int) []int {
+	order := make([]int, len(nodes))
+	levels := make([]uint8, len(nodes))
 	var maxLevel uint8
-	for n := line.List; n != nil; n = n.Next() {
-		nodes = append(nodes, n)
-		l := n.BidiLevel()
-		levels = append(levels, l)
-		if l > maxLevel {
-			maxLevel = l
+	for i, n := range nodes {
+		order[i] = i
+		levels[i] = n.BidiLevel()
+		if i >= lo && i < hi && levels[i] > maxLevel {
+			maxLevel = levels[i]
 		}
 	}
-	if maxLevel == 0 || len(nodes) <= 1 {
-		return
-	}
-	// The linebreaker's edge glues stay where they are; only the content
-	// between them is reordered.
-	lo, hi := lineFurniture(nodes)
-	// L2-L4: reverse maximal sequences at level >= current, from the
-	// highest level down through 1. Reversing the level array alongside
-	// the node array keeps subsequent passes consistent.
+	// Reversing the level array alongside the order keeps subsequent passes
+	// consistent.
 	for level := maxLevel; level >= 1; level-- {
 		i := lo
 		for i < hi {
@@ -2108,7 +2138,7 @@ func bidiReorderLine(line *node.HList, paragraphLevel uint8) {
 					j++
 				}
 				for a, b := i, j-1; a < b; a, b = a+1, b-1 {
-					nodes[a], nodes[b] = nodes[b], nodes[a]
+					order[a], order[b] = order[b], order[a]
 					levels[a], levels[b] = levels[b], levels[a]
 				}
 				i = j
@@ -2117,21 +2147,7 @@ func bidiReorderLine(line *node.HList, paragraphLevel uint8) {
 			}
 		}
 	}
-	// Rewire the linked list in the new visual order.
-	var first, last node.Node
-	for _, n := range nodes {
-		n.SetPrev(nil)
-		n.SetNext(nil)
-		if first == nil {
-			first = n
-			last = n
-		} else {
-			last.SetNext(n)
-			n.SetPrev(last)
-			last = n
-		}
-	}
-	line.List = first
+	return order
 }
 
 // shapeWithBidi runs UAX#9 over str using paragraphDir as the embedding
@@ -2813,6 +2829,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	if col != nil {
 		stop := node.NewStartStop()
+		// The shipout ignores the start of a pair without an action; the
+		// bidi reorder needs it to keep the colour on its glyphs.
+		stop.StartNode = colStart
 		stop.Position = node.PDFOutputPage
 		stop.ShipoutCallback = func(n node.Node) string {
 			return "0 0 0 RG 0 0 0 rg "
