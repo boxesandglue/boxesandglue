@@ -1938,6 +1938,10 @@ func collectParagraphText(te *Text, b *bytes.Buffer) {
 // cut the RTL run in two, and the fill glue, reversed on its own, would
 // stay at the right: the last line of a justified RTL paragraph then sits
 // flush left instead of flush right.
+//
+// The node.Lang markers around a run with its own language would split the
+// run the same way. They are only read by Hyphenate before line breaking,
+// so where the reorder puts them does not matter.
 func propagateBidiLevels(line *node.HList) {
 	if line == nil || line.List == nil {
 		return
@@ -1945,7 +1949,7 @@ func propagateBidiLevels(line *node.HList) {
 	var prevLevel uint8
 	for n := line.List; n != nil; n = n.Next() {
 		switch n.(type) {
-		case *node.Disc, *node.Penalty:
+		case *node.Disc, *node.Penalty, *node.Lang:
 			if n.BidiLevel() == 0 {
 				n.SetBidiLevel(prevLevel)
 			}

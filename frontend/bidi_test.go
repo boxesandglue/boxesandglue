@@ -330,3 +330,36 @@ func TestBidiReorderLastLineFillGoesLeft(t *testing.T) {
 		t.Fatalf("got %d nodes, want %d", i, len(want))
 	}
 }
+
+// TestBidiReorderLangMarkersKeepRun covers an LTR run with its own
+// language inside an RTL paragraph. Mknodes puts node.Lang markers around
+// the run; at level 0 they would cut the RTL run in three parts, each
+// reversed on its own, and the LTR run would stay in logical position.
+func TestBidiReorderLangMarkersKeepRun(t *testing.T) {
+	glyph := func(label string, level uint8) *node.Glyph {
+		g := node.NewGlyph()
+		g.Components = label
+		g.SetBidiLevel(level)
+		return g
+	}
+	var head, tail node.Node
+	for _, n := range []node.Node{glyph("א", 1), node.NewLang(), glyph("en", 2), node.NewLang(), glyph("ב", 1)} {
+		head = node.InsertAfter(head, tail, n)
+		tail = n
+	}
+	hl := node.NewHList()
+	hl.List = head
+
+	bidiReorderLine(hl, 1)
+
+	got := lineLabels(hl)
+	want := []string{"ב", "en", "א"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
