@@ -424,7 +424,8 @@ const (
 	// BackgroundArea. The default is BackgroundAreaEmBox. The box is that
 	// of the child Text's own font, as CSS takes an inline box's content
 	// area from its own font: text nested in another family or size, or a
-	// glyph from a fallback font, does not change it.
+	// glyph from a fallback font, does not change it. A line model that
+	// implements node.BackgroundAreaModel decides the box instead.
 	SettingBackgroundArea
 	// SettingBreaker chooses where a paragraph breaks among its legal
 	// breakpoints (a node.Breaker), in place of Knuth-Plass, as
@@ -3102,7 +3103,12 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				if fnt != nil {
 					yoffset, _ := t.Settings[SettingYOffset].(bag.ScaledPoint)
 					lineShift, _ := t.Settings[SettingLineShift].(bag.ScaledPoint)
-					bgStart.SetAttribute(attrInlineBackgroundBox, &spaceBox{font: fnt, yoffset: yoffset + lineShift})
+					sb := &spaceBox{font: fnt, yoffset: yoffset + lineShift}
+					if m, ok := t.Settings[SettingLineModel].(node.BackgroundAreaModel); ok {
+						sb.ht, sb.dp = m.BackgroundArea(fnt)
+						sb.banded = true
+					}
+					bgStart.SetAttribute(attrInlineBackgroundBox, sb)
 				}
 				head = node.InsertAfter(head, tail, bgStart)
 				tail = bgStart

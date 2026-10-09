@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
@@ -458,4 +459,179 @@ func TestInlineBackgroundFromItsText(t *testing.T) {
 			t.Errorf("box %q, want %q raised by 3pt", got[0], want[0])
 		}
 	})
+}
+
+// bandModel is a line model that also decides the band of an inline
+// background: twice the font size above the baseline and half of it below,
+// so that the band differs from both the em box and the content area. It
+// counts how often it is asked.
+type bandModel struct {
+	recordingModel
+	asked int
+}
+
+func (m *bandModel) BackgroundArea(f *font.Font) (bag.ScaledPoint, bag.ScaledPoint) {
+	m.asked++
+	return 2 * f.Size, f.Size / 2
+}
+
+// halfBandModel is a bandModel with a band of its own: the font size above
+// the baseline and a quarter of it below.
+type halfBandModel struct{ bandModel }
+
+func (m *halfBandModel) BackgroundArea(f *font.Font) (bag.ScaledPoint, bag.ScaledPoint) {
+	m.asked++
+	return f.Size, f.Size / 4
+}
+
+// rectsOf returns "y height" of each background rule, line by line.
+func rectsOf(vl *node.VList) [][]string {
+	var ret [][]string
+	for _, l := range backgroundRules(vl) {
+		var line []string
+		for _, r := range l {
+			f := strings.Fields(r.Pre)
+			for i, w := range f {
+				if w == "re" && i >= 4 {
+					line = append(line, f[i-3]+" "+f[i-1])
+				}
+			}
+		}
+		ret = append(ret, line)
+	}
+	return ret
+}
+
+// TestInlineBackgroundAreaModel checks that a line model implementing
+// node.BackgroundAreaModel decides the band of an inline background, and that
+// one without it, or no model, leaves the box as it was.
+func TestInlineBackgroundAreaModel(t *testing.T) {
+	fe, ff := lineModelDocument(t)
+	yellow := fe.GetColor("yellow")
+	format := func(t *testing.T, model node.LineModel, width string, items ...any) [][]string {
+		t.Helper()
+		te := NewText()
+		te.Settings[SettingFontFamily] = ff
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		te.Settings[SettingBackgroundArea] = BackgroundAreaAscentDescent
+		if model != nil {
+			te.Settings[SettingLineModel] = model
+		}
+		te.Items = append(te.Items, items...)
+		vl, _, err := fe.FormatParagraph(te, bag.MustSP(width))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rectsOf(vl)
+	}
+	span := func(settings map[SettingType]any, text string) *Text {
+		s := NewText()
+		s.Settings[SettingBackgroundColor] = yellow
+		for k, v := range settings {
+			s.Settings[k] = v
+		}
+		s.Items = append(s.Items, text)
+		return s
+	}
+
+	t.Run("the model's band wins over the content area", func(t *testing.T) {
+		m := &bandModel{}
+		got := format(t, m, "200pt", "before ", span(nil, "marked"), " after")
+		if len(got) != 1 || len(got[0]) != 1 || got[0][0] != "-5 25" {
+			t.Errorf("boxes %q, want one band \"-5 25\"", got)
+		}
+		if m.asked != 1 {
+			t.Errorf("model asked %d times, want once", m.asked)
+		}
+	})
+
+	t.Run("without the interface the box is unchanged", func(t *testing.T) {
+		// TeX Gyre Heros at 10pt, ascent and descent (TestInlineBackgroundArea).
+		want := "-2.84 14.32"
+		for name, model := range map[string]node.LineModel{
+			"no model":                       nil,
+			"a model without BackgroundArea": &recordingModel{},
+		} {
+			got := format(t, model, "200pt", "before ", span(nil, "marked"), " after")
+			if len(got) != 1 || len(got[0]) != 1 || got[0][0] != want {
+				t.Errorf("%s: boxes %q, want %q", name, got, want)
+			}
+		}
+	})
+
+	t.Run("two backgrounds in two sizes on one line", func(t *testing.T) {
+		m := &bandModel{}
+		got := format(t, m, "300pt",
+			span(nil, "small"), " and ",
+			span(map[SettingType]any{SettingSize: bag.MustSP("14pt")}, "large"))
+		if len(got) != 1 || len(got[0]) != 2 || got[0][0] != "-5 25" || got[0][1] != "-7 35" {
+			t.Errorf("boxes %q, want [\"-5 25\" \"-7 35\"] on one line", got)
+		}
+		if m.asked != 2 {
+			t.Errorf("model asked %d times, want once per background", m.asked)
+		}
+	})
+
+	t.Run("a background broken across lines", func(t *testing.T) {
+		m := &bandModel{}
+		got := format(t, m, "60pt", span(nil, "one two three four five six seven eight nine ten"))
+		if len(got) < 2 {
+			t.Fatalf("expected the span to wrap, got %d line(s)", len(got))
+		}
+		for i, l := range got {
+			if len(l) != 1 || l[0] != "-5 25" {
+				t.Errorf("line %d: boxes %q, want one band \"-5 25\"", i, l)
+			}
+		}
+		if m.asked != 1 {
+			t.Errorf("model asked %d times, want once", m.asked)
+		}
+	})
+
+	t.Run("a span with a model of its own decides its band", func(t *testing.T) {
+		para, own := &bandModel{}, &halfBandModel{}
+		got := format(t, para, "200pt", "before ",
+			span(map[SettingType]any{SettingLineModel: node.LineModel(own)}, "marked"), " after")
+		if len(got) != 1 || len(got[0]) != 1 || got[0][0] != "-2.5 12.5" {
+			t.Errorf("boxes %q, want the span's band \"-2.5 12.5\"", got)
+		}
+		if own.asked != 1 || para.asked != 0 {
+			t.Errorf("span's model asked %d, paragraph's %d; want 1 and 0", own.asked, para.asked)
+		}
+	})
+
+	t.Run("without the Text's font the model is not asked", func(t *testing.T) {
+		m := &bandModel{}
+		r := node.NewRule()
+		r.Width, r.Height, r.Depth = bag.MustSP("20pt"), bag.MustSP("4pt"), bag.MustSP("1pt")
+		s := NewText()
+		s.Settings[SettingBackgroundColor] = yellow
+		s.Items = append(s.Items, r)
+		te := NewText()
+		te.Settings[SettingLineModel] = node.LineModel(m)
+		te.Items = append(te.Items, s)
+		vl, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := rectsOf(vl); len(got) != 1 || len(got[0]) != 1 || got[0][0] != "-1 5" {
+			t.Errorf("boxes %q, want the rule's own box \"-1 5\"", got)
+		}
+		if m.asked != 0 {
+			t.Errorf("model asked %d times, want never", m.asked)
+		}
+	})
+
+	for name, setting := range map[string]SettingType{
+		"vertical-align moves the band": SettingYOffset,
+		"a line shift moves the band":   SettingLineShift,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := format(t, &bandModel{}, "200pt", "before ",
+				span(map[SettingType]any{setting: bag.MustSP("3pt")}, "raised"), " after")
+			if len(got) != 1 || len(got[0]) != 1 || got[0][0] != "-2 25" {
+				t.Errorf("boxes %q, want the band \"-5 25\" raised by 3pt", got)
+			}
+		})
+	}
 }

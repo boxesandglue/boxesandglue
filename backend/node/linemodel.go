@@ -1,6 +1,9 @@
 package node
 
-import "github.com/boxesandglue/boxesandglue/backend/bag"
+import (
+	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/font"
+)
 
 // LineModel places each line of a paragraph in its line box and decides the
 // glue between the lines. When LinebreakSettings.LineModel is set, Linebreak
@@ -26,4 +29,20 @@ type LineModel interface {
 	// is already set: above each line but the first, and below the last
 	// line unless OmitLastLeading is set. A nil glue puts nothing there.
 	Leading(line *HList, settings *LinebreakSettings) *Glue
+}
+
+// A LineModel that also implements BackgroundAreaModel decides the box an
+// inline background covers on its lines. The frontend asks it once per
+// background, with the font of the Text that carries the background, when
+// that Text's line model (frontend.SettingLineModel) implements it. The band
+// it returns is painted for the whole background, on every line it spans,
+// and is moved by that Text's vertical offset (vertical-align, LineShift) as
+// the font's box would be. The band wins over frontend.SettingBackgroundArea,
+// which htmlbag sets to frontend.BackgroundAreaAscentDescent by default.
+// When the font of that Text is not known, the model is not asked and each
+// glyph's font gives the box, as without a model.
+type BackgroundAreaModel interface {
+	// BackgroundArea returns the height above and the depth below the
+	// baseline of the band an inline background in font f covers.
+	BackgroundArea(f *font.Font) (height, depth bag.ScaledPoint)
 }
