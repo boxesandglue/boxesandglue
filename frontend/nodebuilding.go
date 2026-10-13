@@ -399,6 +399,13 @@ const (
 	// to, with the same sign convention as SettingIndentLeftRows. Unset
 	// means the first row.
 	SettingIndentStartRows
+	// SettingIndentLeftSteps ([]node.IndentStep) is a left inset that
+	// changes from row to row, see node.LinebreakSettings.IndentSteps. It
+	// replaces SettingIndentLeft and SettingIndentLeftRows.
+	SettingIndentLeftSteps
+	// SettingIndentRightSteps ([]node.IndentStep) is SettingIndentLeftSteps
+	// for the right inset.
+	SettingIndentRightSteps
 	// SettingSynthesizeStyle is CSS's font-synthesis-style (bool): true
 	// answers an italic or oblique the family lacks with its upright slanted
 	// by SyntheticSlant, false with the upright as it is. Unset leaves the
@@ -604,6 +611,10 @@ func (st SettingType) String() string {
 		settingName = "SettingIndentStart"
 	case SettingIndentStartRows:
 		settingName = "SettingIndentStartRows"
+	case SettingIndentLeftSteps:
+		settingName = "SettingIndentLeftSteps"
+	case SettingIndentRightSteps:
+		settingName = "SettingIndentRightSteps"
 	case SettingRowspan:
 		settingName = "SettingRowspan"
 	case SettingSize:
@@ -864,6 +875,8 @@ type Options struct {
 	IndentLeftRows   int
 	IndentRight      bag.ScaledPoint
 	IndentRightRows  int
+	IndentLeftSteps  []node.IndentStep
+	IndentRightSteps []node.IndentStep
 	Leading          bag.ScaledPoint
 	Tolerance        float64
 	EmergencyStretch bag.ScaledPoint
@@ -1549,6 +1562,12 @@ func (fe *Document) paragraphOptions(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	if irr, ok := te.Settings[SettingIndentRightRows]; ok {
 		p.IndentRightRows = irr.(int)
 	}
+	if steps, ok := te.Settings[SettingIndentLeftSteps].([]node.IndentStep); ok {
+		p.IndentLeftSteps = steps
+	}
+	if steps, ok := te.Settings[SettingIndentRightSteps].([]node.IndentStep); ok {
+		p.IndentRightSteps = steps
+	}
 	// A logical start indent (text-indent) goes to whichever edge the
 	// line starts at. The linebreaker's insets are physical, one value per
 	// side, so a physical indent already set on that side is kept and the
@@ -1617,10 +1636,18 @@ func setOutsideMarkerAnchor(hbox *node.HList, p *Options) {
 	if outside, _ := hbox.Attributes["outside-marker"].(bool); !outside {
 		return
 	}
+	// The marker stands on the first row, which is the first step's.
+	left, right := p.IndentLeft, p.IndentRight
+	if len(p.IndentLeftSteps) > 0 {
+		left = p.IndentLeftSteps[0].Inset
+	}
+	if len(p.IndentRightSteps) > 0 {
+		right = p.IndentRightSteps[0].Inset
+	}
 	if rtl, _ := hbox.Attributes["outside-marker-rtl"].(bool); rtl {
-		hbox.Attributes["outside-marker-anchor"] = p.hsize - p.IndentRight
+		hbox.Attributes["outside-marker-anchor"] = p.hsize - right
 	} else {
-		hbox.Attributes["outside-marker-anchor"] = p.IndentLeft
+		hbox.Attributes["outside-marker-anchor"] = left
 	}
 }
 
@@ -1636,6 +1663,8 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	ls.IndentRows = p.IndentLeftRows
 	ls.IndentRight = p.IndentRight
 	ls.IndentRightRows = p.IndentRightRows
+	ls.IndentSteps = p.IndentLeftSteps
+	ls.IndentRightSteps = p.IndentRightSteps
 	ls.Tolerance = 4
 	if p.Tolerance != 0 {
 		ls.Tolerance = p.Tolerance
@@ -2437,7 +2466,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
-		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingTabSize, SettingTabSizeSpaces, SettingTabStops:
+		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingIndentLeftSteps, SettingIndentRightSteps, SettingTabSize, SettingTabSizeSpaces, SettingTabStops:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
 			// ignore
@@ -2908,7 +2937,7 @@ func (fe *Document) leaderPattern(ts TypesettingSettings, str string) (*node.HLi
 // for a float's band (htmlbag) that is recomputed on every pass.
 func isParagraphIndentSetting(k SettingType) bool {
 	switch k {
-	case SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows:
+	case SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingIndentLeftSteps, SettingIndentRightSteps:
 		return true
 	}
 	return false

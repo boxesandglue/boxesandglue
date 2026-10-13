@@ -99,7 +99,10 @@ type linebreaker struct {
 func newLinebreaker(settings *LinebreakSettings) *linebreaker {
 	lb := &linebreaker{
 		settings: settings,
-		easyLine: max(abs(settings.IndentRows), abs(settings.IndentRightRows)),
+		easyLine: max(
+			indentRowSpan(settings.IndentRows, settings.IndentSteps),
+			indentRowSpan(settings.IndentRightRows, settings.IndentRightSteps),
+		),
 	}
 	return lb
 }
@@ -365,28 +368,62 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 }
 
 func (lb *linebreaker) getIndent(row int) bag.ScaledPoint {
-	return indentForRow(lb.settings.Indent, lb.settings.IndentRows, row)
+	return lb.settings.IndentForRow(row)
 }
 
 // getIndentRight is getIndent for the right-hand inset.
 func (lb *linebreaker) getIndentRight(row int) bag.ScaledPoint {
-	return indentForRow(lb.settings.IndentRight, lb.settings.IndentRightRows, row)
+	return lb.settings.IndentRightForRow(row)
 }
 
-// indentForRow selects the inset for a row: 0 rows means every row, a positive
-// count means the first n, a negative count means every row except the first n.
 // IndentForRow returns the left inset of the given row (counted from 0)
-// under these settings, see Indent and IndentRows.
+// under these settings, see Indent, IndentRows and IndentSteps.
 func (ls *LinebreakSettings) IndentForRow(row int) bag.ScaledPoint {
+	if len(ls.IndentSteps) > 0 {
+		return stepsForRow(ls.IndentSteps, row)
+	}
 	return indentForRow(ls.Indent, ls.IndentRows, row)
 }
 
 // IndentRightForRow returns the right inset of the given row (counted from
-// 0) under these settings, see IndentRight and IndentRightRows.
+// 0) under these settings, see IndentRight, IndentRightRows and
+// IndentRightSteps.
 func (ls *LinebreakSettings) IndentRightForRow(row int) bag.ScaledPoint {
+	if len(ls.IndentRightSteps) > 0 {
+		return stepsForRow(ls.IndentRightSteps, row)
+	}
 	return indentForRow(ls.IndentRight, ls.IndentRightRows, row)
 }
 
+// indentRowSpan is the number of rows from the first one on whose inset on
+// one side can differ from the rows after them.
+func indentRowSpan(rows int, steps []IndentStep) int {
+	if len(steps) == 0 {
+		return abs(rows)
+	}
+	span := 0
+	for _, s := range steps {
+		if s.Rows <= 0 {
+			break
+		}
+		span += s.Rows
+	}
+	return span
+}
+
+// stepsForRow is the inset the steps give a row.
+func stepsForRow(steps []IndentStep, row int) bag.ScaledPoint {
+	for _, s := range steps {
+		if s.Rows <= 0 || row < s.Rows {
+			return s.Inset
+		}
+		row -= s.Rows
+	}
+	return 0
+}
+
+// indentForRow selects the inset for a row: 0 rows means every row, a positive
+// count means the first n, a negative count means every row except the first n.
 func indentForRow(indent bag.ScaledPoint, rows, row int) bag.ScaledPoint {
 	switch {
 	case rows == 0:

@@ -100,6 +100,15 @@ type LinebreakSettings struct {
 	// measure keeps working.
 	IndentRight     bag.ScaledPoint
 	IndentRightRows int
+	// IndentSteps, when not empty, replaces Indent and IndentRows: the left
+	// inset changes from row to row as the steps say, a staircase that can
+	// follow the edge of something beside the paragraph, such as two floats
+	// of different heights or the outline of an image. IndentRightSteps does
+	// the same for IndentRight and IndentRightRows. The two sides are
+	// independent, so steps on one side leave the plain inset of the other
+	// as it is.
+	IndentSteps      []IndentStep
+	IndentRightSteps []IndentStep
 	// LineHeight is the room a line takes up, its box and the glue below it
 	// together: Linebreak pads each line to LineHeight with glue. Lines of
 	// the same height are therefore LineHeight apart from baseline to
@@ -163,6 +172,16 @@ type LinebreakSettings struct {
 	// to the first stop past the text before it on the line; after the last
 	// stop it keeps its own width. Without stops tabs are ordinary glue.
 	TabStops []TabStop
+}
+
+// IndentStep is one step of LinebreakSettings.IndentSteps: Inset for the
+// next Rows rows. The steps follow each other from the first row of the
+// paragraph, and the rows after the last step are not indented. A step with
+// Rows 0 (or less) holds for every row from there on, as IndentRows 0 does,
+// and ends the list.
+type IndentStep struct {
+	Inset bag.ScaledPoint
+	Rows  int
 }
 
 // NewLinebreakSettings returns a settings struct with defaults initialized.
