@@ -440,7 +440,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		case *Glue:
 			sumwd += v.Width
 			totalStretchability[v.StretchOrder] += v.Stretch
-			totalShrinkability[v.StretchOrder] += v.Shrink
+			totalShrinkability[v.ShrinkOrder] += v.Shrink
 			glues = append(glues, v)
 		case *Glyph:
 			sumwd += v.Width
@@ -538,6 +538,14 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 	hl.Depth = maxdp
 	hl.Height = maxht
 	hl.GlueSet = r
+	// The order of the glue that was set, as TeX's glue_order: the
+	// stretch order of a short line, the shrink order of a long one.
+	switch {
+	case r > 0:
+		hl.GlueOrder = highestOrderStretch
+	case r < 0:
+		hl.GlueOrder = highestOrderShrink
+	}
 	hl.Badness = badness
 	if useExpand {
 		a := (sumwd - width - shrinkability).ToPT() / sumGlyph.ToPT()
