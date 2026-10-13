@@ -933,7 +933,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 				sumX += v.Width
 			} else {
+				// Inside a running TJ array the glue is a move there, and
+				// Tz scales it by the font expansion in effect, as it
+				// scales the glyphs around it. Outside of one nothing is
+				// written: the next glyph is placed anew with Tm, which Tz
+				// does not scale, so the glue advances by its own width.
+				// The expansion of the text state is then whatever the
+				// line before left behind, which says nothing about this
+				// line.
+				advance := v.Width
 				if oc.textmode < ScopeText {
+					advance = bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 					if curFont := oc.text.font; curFont != nil {
 						if oc.text.font.Size != 0 {
 							// Emit a space glyph so that PDF readers can
@@ -961,7 +971,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						}
 					}
 				}
-				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
+				sumX += advance
 			}
 		case *node.Rule:
 			posX := x + sumX
@@ -1152,15 +1162,18 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// one the next glyph is placed anew at a position that holds
 			// the kern, as after glue. A TJ opened just for the move would
 			// show nothing, and between table cells it would sit outside
-			// any marked-content sequence, which PDF/UA forbids.
+			// any marked-content sequence, which PDF/UA forbids. Inside
+			// one Tz scales the move by the font expansion, as for glue.
+			advance := v.Kern
 			if oc.textmode <= ScopeArray && oc.text.font != nil {
 				y := v.Kern.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
 					oc.gotoTextMode(ScopeArray)
 					oc.writef(" %d ", kern)
+					advance = bag.MultiplyFloat(v.Kern, float64(100+oc.text.expand)/100.0)
 				}
 			}
-			sumX += v.Kern
+			sumX += advance
 		case *node.Lang, *node.Penalty:
 			// ignore
 		case *node.Disc:
