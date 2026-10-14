@@ -967,12 +967,15 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 							// unexpanded.
 							adv := v.Width.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale / oc.text.expandFactor()
 							scale := curFont.Face.Scale
-							// Subtract space glyph advance from the move
+							// Subtract space glyph advance from the move.
+							// Rounded like the other moves: truncating
+							// pulled every word space toward the width of
+							// the space glyph (boxesandglue#87).
 							var spaceAdv float64
 							if spaceGID != 0 {
 								spaceAdv = curFont.Face.AdvanceWidth(spaceGID)
 							}
-							move := int(-1 * 1000 / scale * (adv - spaceAdv))
+							move := int(math.Round(-1 * 1000 / scale * (adv - spaceAdv)))
 							if move != 0 {
 								oc.gotoTextMode(ScopeArray)
 								oc.writef(" %d ", move)

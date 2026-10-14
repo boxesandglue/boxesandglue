@@ -92,10 +92,10 @@ func tjNumbers(t *testing.T, stream string) []int {
 	return ret
 }
 
-// expandedRun renders the glyph b, the node between and, after a color
-// switch, the glyph c, in a line with a font expansion of -2.5 percent. It
-// returns the stream, the font and the width of b.
-func expandedRun(t *testing.T, between node.Node) (string, *font.Font, bag.ScaledPoint) {
+// glyphsAround renders the glyph b, the node between and, after a color
+// switch, the glyph c, in a line with the font expansion expand in percent.
+// It returns the stream, the font and the width of b.
+func glyphsAround(t *testing.T, between node.Node, expand float64) (string, *font.Font, bag.ScaledPoint) {
 	t.Helper()
 	var fnt *font.Font
 	var advance bag.ScaledPoint
@@ -108,13 +108,32 @@ func expandedRun(t *testing.T, between node.Node) (string, *font.Font, bag.Scale
 		node.InsertAfter(head, between, col)
 		glyphRun(head, col, f, "c")
 		hl := node.Hpack(head)
-		hl.Attributes = node.H{"expand": -2.5}
+		if expand != 0 {
+			hl.Attributes = node.H{"expand": expand}
+		}
 		return []*node.VList{node.Vpack(hl)}
 	})
+	return stream, fnt, advance
+}
+
+// expandedRun is glyphsAround with a font expansion of -2.5 percent.
+func expandedRun(t *testing.T, between node.Node) (string, *font.Font, bag.ScaledPoint) {
+	t.Helper()
+	stream, fnt, advance := glyphsAround(t, between, -2.5)
 	if !strings.Contains(stream, "97.5 Tz") {
 		t.Errorf("want 97.5 Tz for an expansion of -2.5:\n%s", stream)
 	}
 	return stream, fnt, advance
+}
+
+// drawnGlue returns the width in pt the PDF draws for a glue written as
+// the space glyph and the TJ move, at the Tz factor tz. The space glyph
+// advances by its width, the move takes off the rest; TJ counts in
+// thousandths of the size given to Tf.
+func drawnGlue(fnt *font.Font, move int, tz float64) float64 {
+	face := fnt.Face
+	spaceAdv := face.AdvanceWidth(face.Codepoint(' '))
+	return (spaceAdv - float64(move)*face.Scale/1000) * fnt.Size.ToPT() * tz
 }
 
 // A kern inside an expanded run is a move in the TJ array. Tz would scale
@@ -154,12 +173,9 @@ func TestAGlueInAnExpandedRunKeepsItsWidth(t *testing.T) {
 	if len(nums) != 1 {
 		t.Fatalf("TJ moves %v, want one for the glue:\n%s", nums, stream)
 	}
-	// The space glyph advances by its width, the move takes off the rest;
-	// TJ counts in thousandths of the size given to Tf.
-	face := fnt.Face
-	spaceAdv := face.AdvanceWidth(face.Codepoint(' '))
-	drawn := (spaceAdv - float64(nums[0])*face.Scale/1000) * fnt.Size.ToPT() * 0.975
-	if diff := drawn - 20; diff > 0.015 || diff < -0.015 {
+	// Half a thousandth of 12pt is 0.006pt.
+	drawn := drawnGlue(fnt, nums[0], 0.975)
+	if diff := drawn - 20; diff > 0.006 || diff < -0.006 {
 		t.Errorf("the PDF draws the glue %.3fpt wide, want 20pt:\n%s", drawn, stream)
 	}
 	xs := tmX(stream)
@@ -169,5 +185,26 @@ func TestAGlueInAnExpandedRunKeepsItsWidth(t *testing.T) {
 	want := bag.MustSP("1cm") + bag.MultiplyFloat(advance, 0.975) + g.Width
 	if xs[1] != want.String() {
 		t.Errorf("the glyph after the color switch starts at x %s, want %s:\n%s", xs[1], want, stream)
+	}
+}
+
+// The TJ move for a glue is rounded, so the PDF draws every word space
+// within half a thousandth of the font size of its width. Truncating the
+// move pulled each one toward the width of the space glyph, by up to a
+// whole thousandth, and the error added up along a line
+// (boxesandglue#87).
+func TestAGlueMoveIsRounded(t *testing.T) {
+	for wd := bag.MustSP("1pt"); wd < bag.MustSP("6pt"); wd += bag.MustSP("0.37pt") {
+		g := node.NewGlue()
+		g.Width = wd
+		stream, fnt, _ := glyphsAround(t, g, 0)
+		nums := tjNumbers(t, stream)
+		if len(nums) != 1 {
+			t.Fatalf("glue %s: TJ moves %v, want one for the glue:\n%s", wd, nums, stream)
+		}
+		drawn := drawnGlue(fnt, nums[0], 1)
+		if diff := drawn - wd.ToPT(); diff > 0.006 || diff < -0.006 {
+			t.Errorf("the PDF draws a glue of %s %.4fpt wide", wd, drawn)
+		}
 	}
 }
