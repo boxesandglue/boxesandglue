@@ -1,6 +1,8 @@
 package document
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -71,30 +73,100 @@ func TestAnIndentAfterAnExpandedLineIsNotScaled(t *testing.T) {
 	}
 }
 
-// A kern inside an expanded run is a move in the TJ array, which Tz scales
-// with the glyphs. The position after it follows the PDF: the glyph placed
-// anew after a color switch starts where the scaled run ended.
-func TestAKernInAnExpandedRunMovesWithIt(t *testing.T) {
-	kern := bag.MustSP("20pt")
+var hexString = regexp.MustCompile(`<[0-9a-fA-F]*>`)
+
+// tjNumbers returns the numbers in the first TJ array of the stream.
+func tjNumbers(t *testing.T, stream string) []int {
+	t.Helper()
+	start := strings.Index(stream, "[")
+	end := strings.Index(stream, "]TJ")
+	if start < 0 || end < start {
+		t.Fatalf("no TJ array in the stream:\n%s", stream)
+	}
+	var ret []int
+	for _, tok := range strings.Fields(hexString.ReplaceAllString(stream[start+1:end], " ")) {
+		if n, err := strconv.Atoi(tok); err == nil {
+			ret = append(ret, n)
+		}
+	}
+	return ret
+}
+
+// expandedRun renders the glyph b, the node between and, after a color
+// switch, the glyph c, in a line with a font expansion of -2.5 percent. It
+// returns the stream, the font and the width of b.
+func expandedRun(t *testing.T, between node.Node) (string, *font.Font, bag.ScaledPoint) {
+	t.Helper()
+	var fnt *font.Font
 	var advance bag.ScaledPoint
-	stream := renderLines(t, func(fnt *font.Font) []*node.VList {
-		head, cur := glyphRun(nil, nil, fnt, "b")
+	stream := renderLines(t, func(f *font.Font) []*node.VList {
+		fnt = f
+		head, cur := glyphRun(nil, nil, f, "b")
 		advance = cur.(*node.Glyph).Width
-		k := node.NewKern()
-		k.Kern = kern
-		head = node.InsertAfter(head, cur, k)
+		head = node.InsertAfter(head, cur, between)
 		col := colorSwitchNode()
-		node.InsertAfter(head, k, col)
-		glyphRun(head, col, fnt, "c")
+		node.InsertAfter(head, between, col)
+		glyphRun(head, col, f, "c")
 		hl := node.Hpack(head)
-		hl.Attributes = node.H{"expand": -3}
+		hl.Attributes = node.H{"expand": -2.5}
 		return []*node.VList{node.Vpack(hl)}
 	})
+	if !strings.Contains(stream, "97.5 Tz") {
+		t.Errorf("want 97.5 Tz for an expansion of -2.5:\n%s", stream)
+	}
+	return stream, fnt, advance
+}
+
+// A kern inside an expanded run is a move in the TJ array. Tz would scale
+// it with the glyphs, so the move is divided by the expansion and the kern
+// keeps its width: only the glyphs are expanded (boxesandglue#86). The
+// glyph placed anew after a color switch starts where the PDF drew the
+// run's end.
+func TestAKernInAnExpandedRunKeepsItsWidth(t *testing.T) {
+	k := node.NewKern()
+	k.Kern = bag.MustSP("20pt")
+	stream, _, advance := expandedRun(t, k)
+	nums := tjNumbers(t, stream)
+	// 20pt at 12pt are 1666.67 thousandths of the font size, 1709.4 before
+	// Tz takes off 2.5 percent.
+	if len(nums) != 1 || nums[0] != -1709 {
+		t.Errorf("TJ moves %v, want [-1709]:\n%s", nums, stream)
+	}
 	xs := tmX(stream)
 	if len(xs) < 2 {
 		t.Fatalf("want a Tm before and after the color switch, got %v:\n%s", xs, stream)
 	}
-	want := bag.MustSP("1cm") + bag.MultiplyFloat(advance, 0.97) + bag.MultiplyFloat(kern, 0.97)
+	want := bag.MustSP("1cm") + bag.MultiplyFloat(advance, 0.975) + k.Kern
+	if xs[1] != want.String() {
+		t.Errorf("the glyph after the color switch starts at x %s, want %s:\n%s", xs[1], want, stream)
+	}
+}
+
+// A glue inside an expanded run is a space glyph and a move in the TJ
+// array, both scaled by Tz. The PDF draws the glue at its set width, as
+// the line breaker assumes, so an expanded line ends at the right margin
+// (boxesandglue#86).
+func TestAGlueInAnExpandedRunKeepsItsWidth(t *testing.T) {
+	g := node.NewGlue()
+	g.Width = bag.MustSP("20pt")
+	stream, fnt, advance := expandedRun(t, g)
+	nums := tjNumbers(t, stream)
+	if len(nums) != 1 {
+		t.Fatalf("TJ moves %v, want one for the glue:\n%s", nums, stream)
+	}
+	// The space glyph advances by its width, the move takes off the rest;
+	// TJ counts in thousandths of the size given to Tf.
+	face := fnt.Face
+	spaceAdv := face.AdvanceWidth(face.Codepoint(' '))
+	drawn := (spaceAdv - float64(nums[0])*face.Scale/1000) * fnt.Size.ToPT() * 0.975
+	if diff := drawn - 20; diff > 0.015 || diff < -0.015 {
+		t.Errorf("the PDF draws the glue %.3fpt wide, want 20pt:\n%s", drawn, stream)
+	}
+	xs := tmX(stream)
+	if len(xs) < 2 {
+		t.Fatalf("want a Tm before and after the color switch, got %v:\n%s", xs, stream)
+	}
+	want := bag.MustSP("1cm") + bag.MultiplyFloat(advance, 0.975) + g.Width
 	if xs[1] != want.String() {
 		t.Errorf("the glyph after the color switch starts at x %s, want %s:\n%s", xs[1], want, stream)
 	}

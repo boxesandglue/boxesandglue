@@ -333,7 +333,7 @@ func (oc *objectContext) newline() {
 // text state across ET and BT, only Q restores it.
 type textState struct {
 	font   *font.Font
-	expand int             // font expansion in percent
+	expand float64         // font expansion in percent
 	scale  float64         // the glyph's fixed horizontal scale; Tz is scale*(100+expand)
 	rise   bag.ScaledPoint // Ts
 	// known reports whether expand, scale and rise hold what the PDF has. All
@@ -351,12 +351,8 @@ func (oc *objectContext) syncText(want textState) {
 	}
 	if !oc.text.known || want.expand != oc.text.expand || want.scale != oc.text.scale {
 		oc.gotoTextMode(ScopeText)
-		if want.scale == 1 {
-			oc.writef("%d Tz ", 100+want.expand)
-		} else {
-			tz := math.Round(want.scale*float64(100+want.expand)*1000) / 1000
-			oc.writef("%s Tz ", strconv.FormatFloat(tz, 'f', -1, 64))
-		}
+		tz := math.Round(want.scale*(100+want.expand)*1000) / 1000
+		oc.writef("%s Tz ", strconv.FormatFloat(tz, 'f', -1, 64))
 		oc.text.expand = want.expand
 		oc.text.scale = want.scale
 	}
@@ -378,6 +374,25 @@ func (oc *objectContext) syncText(want textState) {
 			oc.currentTmYValid = false
 		}
 	}
+}
+
+// expandFactor is the factor by which Tz narrows or widens the glyphs for
+// the font expansion of the text state, 0.97 for an expansion of -3.
+func (ts textState) expandFactor() float64 {
+	return (100 + ts.expand) / 100
+}
+
+// hlistExpand returns the font expansion in percent that packing the
+// hlist set, 0 if none. It is a float64 since boxesandglue#86, an int
+// before.
+func hlistExpand(hl *node.HList) float64 {
+	switch ex := hl.Attributes["expand"].(type) {
+	case float64:
+		return ex
+	case int:
+		return float64(ex)
+	}
+	return 0
 }
 
 // glyphScale is the glyph's fixed horizontal scale, 1 when it has none.
@@ -723,12 +738,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			want := textState{font: v.Font, expand: oc.text.expand, scale: glyphScale(v), rise: v.YOffset}
-			if exp, ok := hlist.Attributes["expand"]; !ok {
-				want.expand = 0
-			} else if ex, ok := exp.(int); ok {
-				want.expand = ex
-			}
+			want := textState{font: v.Font, expand: hlistExpand(hlist), scale: glyphScale(v), rise: v.YOffset}
 			oc.syncText(want)
 			// Glyph 0 here means no font in the stack had the character.
 			// PDF/UA forbids text-showing operators that reference .notdef
@@ -764,7 +774,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.writef("EMC")
 					oc.newline()
 				}
-				sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
+				sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
 				continue
 			}
 			// Bitmap-color path (sbix or CBDT). Tried first because a
@@ -787,7 +797,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						oc.emitColorBitmapGlyph(v, x+oc.shiftX+sumX, yPos, pngGlyph)
 						oc.shiftX = 0
 						oc.usedFaces[v.Font.Face] = true
-						sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
+						sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
 						continue
 					}
 				}
@@ -813,7 +823,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.emitColorSVGGlyph(v, x+oc.shiftX+sumX, yPos, svgBytes)
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
-					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
+					sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
 					continue
 				}
 			}
@@ -832,7 +842,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.emitColorGlyph(v, x+oc.shiftX+sumX, yPos, layers, palette)
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
-					sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
+					sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
 					continue
 				}
 			}
@@ -900,7 +910,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.gotoTextMode(ScopeArray)
 				oc.writef(" %d ", post)
 			}
-			sumX += bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
+			sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
 		case *node.Glue:
 			var od *outputDebug
 			if oc.p.document.DumpOutput {
@@ -933,17 +943,14 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 				sumX += v.Width
 			} else {
-				// Inside a running TJ array the glue is a move there, and
-				// Tz scales it by the font expansion in effect, as it
-				// scales the glyphs around it. Outside of one nothing is
-				// written: the next glyph is placed anew with Tm, which Tz
-				// does not scale, so the glue advances by its own width.
-				// The expansion of the text state is then whatever the
-				// line before left behind, which says nothing about this
-				// line.
-				advance := v.Width
+				// Inside a running TJ array the glue is a move there. Tz
+				// scales it by the font expansion in effect, so the move is
+				// divided by it: only the glyphs carry the expansion, as
+				// the line breaker and packing the line assume, and the
+				// glue keeps its set width (boxesandglue#86). Outside of a
+				// TJ array nothing is written: the next glyph is placed
+				// anew with Tm, which Tz does not scale either.
 				if oc.textmode < ScopeText {
-					advance = bag.MultiplyFloat(v.Width, float64(100+oc.text.expand)/100.0)
 					if curFont := oc.text.font; curFont != nil {
 						if oc.text.font.Size != 0 {
 							// Emit a space glyph so that PDF readers can
@@ -955,8 +962,10 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 								oc.writef("%04x", spaceGID)
 							}
 							// Tz scales the move by the scale of the glyph
-							// before; v.Width already holds its run's.
-							adv := v.Width.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
+							// before and by the font expansion; v.Width
+							// already holds its run's scale and stays
+							// unexpanded.
+							adv := v.Width.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale / oc.text.expandFactor()
 							scale := curFont.Face.Scale
 							// Subtract space glyph advance from the move
 							var spaceAdv float64
@@ -971,7 +980,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						}
 					}
 				}
-				sumX += advance
+				sumX += v.Width
 			}
 		case *node.Rule:
 			posX := x + sumX
@@ -1163,17 +1172,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			// the kern, as after glue. A TJ opened just for the move would
 			// show nothing, and between table cells it would sit outside
 			// any marked-content sequence, which PDF/UA forbids. Inside
-			// one Tz scales the move by the font expansion, as for glue.
-			advance := v.Kern
+			// one the move is divided by the font expansion, as for glue,
+			// so that Tz brings it back to the kern's width: kerns,
+			// letter spacing among them, stay unexpanded.
 			if oc.textmode <= ScopeArray && oc.text.font != nil {
-				y := v.Kern.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale
+				y := v.Kern.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale / oc.text.expandFactor()
 				if kern := int(math.Round(-1000 * y)); kern != 0 {
 					oc.gotoTextMode(ScopeArray)
 					oc.writef(" %d ", kern)
-					advance = bag.MultiplyFloat(v.Kern, float64(100+oc.text.expand)/100.0)
 				}
 			}
-			sumX += advance
+			sumX += v.Kern
 		case *node.Lang, *node.Penalty:
 			// ignore
 		case *node.Disc:

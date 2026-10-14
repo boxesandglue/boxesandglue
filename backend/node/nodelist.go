@@ -559,7 +559,10 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		if a > hs.fontexpansion {
 			a = hs.fontexpansion
 		}
-		hl.Attributes = H{"expand": int(-1 * a * 100)}
+		// The expansion in percent, rounded to the precision Tz is
+		// written with, so that the glyphs shrink by what the line
+		// needs and the PDF draws them as wide as the line assumes.
+		hl.Attributes = H{"expand": math.Round(-1*a*100*1000) / 1000}
 	}
 	return hl
 }
