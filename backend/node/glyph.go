@@ -39,6 +39,9 @@ type Glyph struct {
 	HorizontalScale float64
 	// This allows the glyph to be part of word hyphenation.
 	Hyphenate bool
+	// Shaping is how the glyph's run was shaped, nil if unknown. Hyphenate
+	// shapes the parts of a ligature it sets apart with it.
+	Shaping *font.Shaping
 }
 
 func (g *Glyph) String() string {
@@ -82,6 +85,7 @@ func (g *Glyph) Copy() Node {
 	n.YOffset = g.YOffset
 	n.LineShift = g.LineShift
 	n.HorizontalScale = g.HorizontalScale
+	n.Shaping = g.Shaping
 	n.Attributes = cloneAttributes(g.Attributes)
 	return n
 }

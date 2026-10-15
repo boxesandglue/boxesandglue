@@ -28,6 +28,16 @@ type Atom struct {
 	Hyphenate  bool
 }
 
+// Shaping is how a run of text was shaped: its features, its variations and
+// the letter spacing added after each glyph. The glyphs of the run share it,
+// so that a part of the run can be shaped again the same way, as a ligature
+// that is set apart at a hyphenation point.
+type Shaping struct {
+	Features      []ot.Feature
+	Variations    map[string]float64
+	LetterSpacing bag.ScaledPoint
+}
+
 // MissingGlyphFunc is called when a character cannot be found in the font.
 // The arguments are the font face and the rune that is missing.
 type MissingGlyphFunc func(face *pdf.Face, r rune)

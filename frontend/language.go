@@ -237,17 +237,19 @@ func newHyphen(fnt *font.Font, before node.Node) *node.Glyph {
 // splitLigature puts a Disc before the ligature g that breaks the word after
 // the first k characters of g, as TeX does (bag#90): the line ends with
 // those characters and a hyphen, the next one starts with the rest, and g is
-// dropped. Without a break g stays. Both parts are shaped anew, so they can
-// be ligatures of their own, but only with the font's default features: the
-// ones g was shaped with are not known here.
+// dropped. Without a break g stays. Both parts are shaped anew the way g's
+// run was, so they can be ligatures of their own.
 func splitLigature(g *node.Glyph, k int, fnt *font.Font) {
 	// A Disc before the first node of the list would need a new head.
 	if g.Prev() == nil || g.Font == nil {
 		return
 	}
 	r := []rune(g.Components)
-	pre := shapeLike(g, string(r[:k]))
-	post := shapeLike(g, string(r[k:]))
+	// Pre is followed by the hyphen, so it takes the letter spacing after
+	// its last glyph. After Post the letter spacing of g follows in the
+	// list.
+	pre := shapeLike(g, string(r[:k]), true)
+	post := shapeLike(g, string(r[k:]), false)
 	if pre == nil || post == nil {
 		return
 	}
@@ -261,17 +263,28 @@ func splitLigature(g *node.Glyph, k int, fnt *font.Font) {
 	node.InsertBefore(g.Prev(), g, disc)
 }
 
-// shapeLike shapes text in the font of g and returns the glyphs, which take
-// the scale, offsets and attributes of g.
-func shapeLike(g *node.Glyph, text string) node.Node {
+// shapeLike shapes text in the font of g with the features, variations and
+// letter spacing of its run and returns the glyphs, which take the scale,
+// offsets and attributes of g. spaceAfter adds the letter spacing after the
+// last glyph too.
+func shapeLike(g *node.Glyph, text string, spaceAfter bool) node.Node {
 	scaled := func(wd bag.ScaledPoint) bag.ScaledPoint {
 		if g.HorizontalScale == 0 || g.HorizontalScale == 1 {
 			return wd
 		}
 		return bag.MultiplyFloat(wd, g.HorizontalScale)
 	}
+	sh := g.Shaping
+	if sh == nil {
+		sh = &font.Shaping{}
+	}
 	var head, cur node.Node
-	atoms := g.Font.Shape(text, nil, nil)
+	add := func(n node.Node) {
+		n.SetBidiLevel(g.BidiLevel())
+		head = node.InsertAfter(head, cur, n)
+		cur = n
+	}
+	atoms := g.Font.Shape(text, sh.Features, sh.Variations)
 	for i, a := range atoms {
 		n := g.Copy().(*node.Glyph)
 		n.Codepoint = a.Codepoint
@@ -280,15 +293,17 @@ func shapeLike(g *node.Glyph, text string) node.Node {
 		n.Height = a.Height
 		n.Depth = a.Depth
 		n.XOffset = scaled(a.XOffset)
-		n.SetBidiLevel(g.BidiLevel())
-		head = node.InsertAfter(head, cur, n)
-		cur = n
-		if a.Kernafter != 0 && i < len(atoms)-1 {
+		add(n)
+		last := i == len(atoms)-1
+		if a.Kernafter != 0 && !last {
 			k := node.NewKern()
 			k.Kern = scaled(a.Kernafter)
-			k.SetBidiLevel(g.BidiLevel())
-			head = node.InsertAfter(head, cur, k)
-			cur = k
+			add(k)
+		}
+		if sh.LetterSpacing != 0 && (!last || spaceAfter) {
+			k := node.NewKern()
+			k.Kern = sh.LetterSpacing
+			add(k)
 		}
 	}
 	return head

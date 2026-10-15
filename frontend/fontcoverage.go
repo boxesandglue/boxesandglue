@@ -349,8 +349,7 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 func (fe *Document) shapeForBuild(
 	primaryFnt *font.Font,
 	str string,
-	primaryFeatures []ot.Feature,
-	primaryVariations map[string]float64,
+	primary *font.Shaping,
 	direction Direction,
 	stack []*FontFamily,
 	weight FontWeight,
@@ -360,32 +359,33 @@ func (fe *Document) shapeForBuild(
 	baseFeatures []ot.Feature,
 	settingFeatures []ot.Feature,
 	settingVariations map[string]float64,
-) ([]font.Atom, []uint8, []*font.Font) {
+) ([]font.Atom, []uint8, []*font.Font, []*font.Shaping) {
 	if len(stack) < 2 {
-		atoms, levels := shapeWithBidi(primaryFnt, str, primaryFeatures, primaryVariations, direction)
+		atoms, levels := shapeWithBidi(primaryFnt, str, primary.Features, primary.Variations, direction)
 		atomFonts := make([]*font.Font, len(atoms))
+		atomShapings := make([]*font.Shaping, len(atoms))
 		for i := range atomFonts {
 			atomFonts[i] = primaryFnt
+			atomShapings[i] = primary
 		}
-		return atoms, levels, atomFonts
+		return atoms, levels, atomFonts, atomShapings
 	}
 	runs := fe.coverageSegments(str, stack, weight, style, synth)
 	var atoms []font.Atom
 	var levels []uint8
 	var atomFonts []*font.Font
+	var atomShapings []*font.Shaping
 	for _, run := range runs {
 		runFnt := primaryFnt
-		runFeatures := primaryFeatures
-		runVariations := primaryVariations
+		runShaping := primary
 		if run.StackIndex > 0 && run.Source != nil {
 			rf, _, rfeat, rvar, err := fe.shapeFontFor(run.Source, fontsize, baseFeatures, settingFeatures, settingVariations)
 			if err == nil && rf != nil {
 				runFnt = rf
-				runFeatures = rfeat
-				runVariations = rvar
+				runShaping = &font.Shaping{Features: rfeat, Variations: rvar, LetterSpacing: primary.LetterSpacing}
 			}
 		}
-		runAtoms, runLevels := shapeWithBidi(runFnt, run.Text, runFeatures, runVariations, direction)
+		runAtoms, runLevels := shapeWithBidi(runFnt, run.Text, runShaping.Features, runShaping.Variations, direction)
 		if n := len(runAtoms); n > 0 {
 			// Cross-face kerning is undefined; clip the trailing pair so
 			// the last glyph of this segment doesn't pull the next.
@@ -397,6 +397,7 @@ func (fe *Document) shapeForBuild(
 			switch {
 			case a.Components == "­":
 				atomFonts = append(atomFonts, primaryFnt)
+				atomShapings = append(atomShapings, primary)
 			case a.IsSpace:
 				// Whitespace metric must come from the primary even if the
 				// run resolved to a fallback, so inter-word advance stays
@@ -404,12 +405,14 @@ func (fe *Document) shapeForBuild(
 				// pins whitespace clusters to the primary; this is a
 				// belt-and-suspenders override at the atom layer.
 				atomFonts = append(atomFonts, primaryFnt)
+				atomShapings = append(atomShapings, primary)
 			default:
 				atomFonts = append(atomFonts, runFnt)
+				atomShapings = append(atomShapings, runShaping)
 			}
 		}
 	}
-	return atoms, levels, atomFonts
+	return atoms, levels, atomFonts, atomShapings
 }
 
 // isWhitespaceCluster matches the common-case single-rune whitespace clusters

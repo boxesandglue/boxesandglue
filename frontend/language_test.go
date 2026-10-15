@@ -471,3 +471,89 @@ func TestLinebreakInsideLigature(t *testing.T) {
 		t.Errorf("lines %q, want %q", got, want)
 	}
 }
+
+// discParts writes the Pre and Post of the first Disc that replaces a
+// ligature: glyphs, a ligature in brackets, and a kern as +.
+func discParts(head node.Node) (pre, post string, d *node.Disc) {
+	parts := func(n node.Node) string {
+		var b strings.Builder
+		for ; n != nil; n = n.Next() {
+			switch v := n.(type) {
+			case *node.Glyph:
+				b.WriteString(strings.ReplaceAll(glyphString(v), "‐", "-"))
+			case *node.Kern:
+				b.WriteString("+")
+			}
+		}
+		return b.String()
+	}
+	for n := head; n != nil; n = n.Next() {
+		if d, ok := n.(*node.Disc); ok && d.ReplaceCount > 0 {
+			return parts(d.Pre), parts(d.Post), d
+		}
+	}
+	return "", "", nil
+}
+
+// The parts of a ligature are shaped with the features of its run: without
+// liga the rest of Au[ffi]ndung after Auf- is f and i, not the fi ligature.
+func TestSplitLigatureUsesItsFeatures(t *testing.T) {
+	l, err := GetLanguage("de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		features, wantPost string
+	}{
+		{"", "[fi]"},
+		{"-liga", "fi"},
+	} {
+		head, _ := shapedWord(t, "Auffindung")
+		for n := head; n != nil; n = n.Next() {
+			if g, ok := n.(*node.Glyph); ok {
+				g.Shaping = &font.Shaping{Features: parseOpenTypeFeatures(tc.features)}
+			}
+		}
+		Hyphenate(head, l)
+		pre, post, d := discParts(head)
+		if d == nil {
+			t.Fatalf("%q: no Disc in Au[ffi]ndung", tc.features)
+		}
+		if pre != "f-" || post != tc.wantPost {
+			t.Errorf("%q: Pre %s, Post %s, want f- and %s", tc.features, pre, post, tc.wantPost)
+		}
+	}
+}
+
+// A ligature from Mknodes is set apart the way its run was shaped: Pre and
+// Post have the run's letter spacing between their glyphs and before the
+// hyphen, and their glyphs share the run's shaping.
+func TestSplitLigatureShapesLikeItsRun(t *testing.T) {
+	l, err := GetLanguage("de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fe, ff := lineModelDocument(t)
+	te := NewText()
+	te.Settings[SettingFontFamily] = ff
+	te.Settings[SettingSize] = bag.MustSP("10pt")
+	te.Settings[SettingLetterSpacing] = bag.MustSP("1pt")
+	te.Settings[SettingOpenTypeFeature] = "-kern"
+	te.Items = append(te.Items, "Auffindung")
+	head, _, err := fe.Mknodes(te)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Hyphenate(head, l)
+	pre, post, d := discParts(head)
+	if d == nil {
+		t.Fatal("no Disc in Au[ffi]ndung")
+	}
+	if pre != "f+-" || post != "[fi]" {
+		t.Errorf("Pre %s, Post %s, want f+- and [fi]", pre, post)
+	}
+	lig := d.Next().(*node.Glyph)
+	if sh := d.Pre.(*node.Glyph).Shaping; sh == nil || sh != lig.Shaping || sh.LetterSpacing != bag.MustSP("1pt") {
+		t.Errorf("Pre has shaping %+v, want the ligature's %+v", sh, lig.Shaping)
+	}
+}

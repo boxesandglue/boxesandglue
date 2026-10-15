@@ -2652,7 +2652,8 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	// by coverage, each segment is shaped with its own face, and the
 	// per-atom font is recorded in atomFonts. Single-family inputs
 	// (len(stack) < 2) keep the original single-shape path.
-	atoms, atomLevels, atomFonts := fe.shapeForBuild(fnt, str, fontfeatures, variations, direction, fontfamilyStack, fontweight, fontstyle, synth, fontsize, fontfeatures, settingFontFeatures, settingVariations)
+	shaping := &font.Shaping{Features: fontfeatures, Variations: variations, LetterSpacing: letterSpacing}
+	atoms, atomLevels, atomFonts, atomShapings := fe.shapeForBuild(fnt, str, shaping, direction, fontfamilyStack, fontweight, fontstyle, synth, fontsize, fontfeatures, settingFontFeatures, settingVariations)
 	for i, r := range atoms {
 		atomFnt := atomFonts[i]
 		level := atomLevels[i]
@@ -2799,6 +2800,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			n.Codepoint = r.Codepoint
 			n.Components = r.Components
 			n.Font = atomFnt
+			n.Shaping = atomShapings[i]
 			n.Width = scaled(r.Advance)
 			n.HorizontalScale = glyphScale
 			n.Height = r.Height
