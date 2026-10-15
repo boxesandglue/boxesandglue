@@ -51,3 +51,34 @@ func TestExactFitAtToleranceZero(t *testing.T) {
 		t.Errorf("first line: r %g, demerits %d, want an exact fit that is not an emergency line", bps[0].R, bps[0].Demerits)
 	}
 }
+
+// The demerits of a line are TeX's: (LinePenalty + badness)², 10⁸ once the sum
+// reaches 10000, plus or minus the square of the break's penalty (TeX: The
+// Program §859).
+func TestDemeritsAsTeX(t *testing.T) {
+	glue := NewGlue()
+	penalty := func(p int) Node {
+		n := NewPenalty()
+		n.Penalty = p
+		return n
+	}
+	for _, tc := range []struct {
+		r    float64
+		n    Node
+		want int
+	}{
+		{0, glue, 100},                  // 10²
+		{1, glue, 12100},                // (10 + 100)²
+		{-0.5, glue, 529},               // badness 12.5 rounds to 13, (10 + 13)²
+		{1, penalty(50), 12100 + 2500},  // plus 50²
+		{1, penalty(-50), 12100 - 2500}, // minus 50²
+		{1, penalty(-10000), 12100},     // a forced break adds nothing
+		{5, glue, 100000000},            // badness 10000 caps, 10010 >= 10000
+	} {
+		lb := newLinebreaker(&LinebreakSettings{LinePenalty: 10, Tolerance: 10})
+		_, got := lb.calculateDemerits(&Breakpoint{Fitness: calculateFitnessClass(tc.r)}, tc.r, tc.n)
+		if got != tc.want {
+			t.Errorf("r %g at %T: demerits %d, want %d", tc.r, tc.n, got, tc.want)
+		}
+	}
+}

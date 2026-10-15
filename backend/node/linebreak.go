@@ -331,17 +331,20 @@ func (lb *linebreaker) breakPenalty(n Node) (pi int, flagged bool) {
 }
 
 func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) (fitnessClass int, demerits int) {
-	// compute demerits d and fitness class c
-	badness := 100.0 * math.Pow(math.Abs(r), 3)
-	onePlusBadnessSquared := int(math.Pow(1.0+badness, 2))
+	// compute demerits d and fitness class c as TeX does (TeX: The
+	// Program §859): the line penalty plus the badness, squared, and the
+	// square of the break's penalty.
 	curpenalty, curflagged := lb.breakPenalty(n)
+	if d := lb.settings.LinePenalty + ratioBadness(r); abs(d) >= 10000 {
+		demerits = 100000000
+	} else {
+		demerits = d * d
+	}
 	switch {
-	case curpenalty >= 0:
-		demerits = onePlusBadnessSquared + curpenalty*curpenalty
+	case curpenalty > 0:
+		demerits += curpenalty * curpenalty
 	case curpenalty > -10000 && curpenalty < 0:
-		demerits = onePlusBadnessSquared - curpenalty*curpenalty
-	default:
-		demerits = onePlusBadnessSquared
+		demerits -= curpenalty * curpenalty
 	}
 
 	if _, ok := active.Position.(*Disc); ok {

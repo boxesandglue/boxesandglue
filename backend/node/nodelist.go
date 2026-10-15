@@ -115,6 +115,11 @@ type LinebreakSettings struct {
 	// baseline. A line taller than LineHeight gets no glue. HalfLeading and
 	// LineModel change how the room is made.
 	LineHeight bag.ScaledPoint
+	// LinePenalty is added to the badness of every line before the sum is
+	// squared into the line's demerits, TeX's \linepenalty. It makes each
+	// line cost something, also a perfect one, so of two breaks of the same
+	// quality the one with fewer lines wins. Default 10.
+	LinePenalty int
 	// Tolerance is the largest adjustment ratio a line may have, the amount
 	// its glue stretches or shrinks as a multiple of its stretchability or
 	// shrinkability; a line never shrinks by more than 1. A break that needs
@@ -192,6 +197,7 @@ func NewLinebreakSettings() *LinebreakSettings {
 		DoublehyphenDemerits: 3000,
 		DemeritsFitness:      100,
 		Hyphenpenalty:        50,
+		LinePenalty:          10,
 		Tolerance:            4.0,
 		LineStartGlue:        NewGlue(),
 		LineEndGlue:          NewGlue(),
@@ -507,7 +513,7 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		// Badness 1000000 for overfull boxes
 		badness = 1000000
 	} else if r >= -1 {
-		badness = int(min(math.Round(math.Pow(math.Abs(r), 3)*100.0), 10000))
+		badness = ratioBadness(r)
 	}
 	useExpand := false
 	if hs.fontexpansion != 0 {
@@ -609,4 +615,10 @@ func Boxit(n Node) Node {
 		t.List = InsertBefore(t.List, t.List, r)
 	}
 	return n
+}
+
+// ratioBadness is the badness of a line whose glue is set at adjustment ratio
+// r: 100|r|³, rounded, at most 10000 (TeX's inf_bad).
+func ratioBadness(r float64) int {
+	return int(min(math.Round(100*math.Pow(math.Abs(r), 3)), 10000))
 }
