@@ -313,21 +313,28 @@ func calculateFitnessClass(r float64) int {
 	return c
 }
 
+// breakPenalty is the cost of a break at n as Knuth-Plass counts it: 0 at a
+// glue, the penalty's, a discretionary's plus the Hyphenpenalty, and -10000 at
+// a HardBreak. flagged is set at a discretionary. As in TeX, 10000 or more is
+// no break and -10000 or less a forced one, at a discretionary as well (TeX:
+// The Program §831).
+func (lb *linebreaker) breakPenalty(n Node) (pi int, flagged bool) {
+	switch t := n.(type) {
+	case *Penalty:
+		return t.Penalty, false
+	case *HardBreak:
+		return -10000, false
+	case *Disc:
+		return lb.settings.Hyphenpenalty + t.Penalty, true
+	}
+	return 0, false
+}
+
 func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) (fitnessClass int, demerits int) {
 	// compute demerits d and fitness class c
 	badness := 100.0 * math.Pow(math.Abs(r), 3)
 	onePlusBadnessSquared := int(math.Pow(1.0+badness, 2))
-	var curpenalty int
-	var curflagged bool
-	switch t := n.(type) {
-	case *Penalty:
-		curpenalty = t.Penalty
-	case *HardBreak:
-		curpenalty = -10000
-	case *Disc:
-		curpenalty = lb.settings.Hyphenpenalty + t.Penalty
-		curflagged = true
-	}
+	curpenalty, curflagged := lb.breakPenalty(n)
 	switch {
 	case curpenalty >= 0:
 		demerits = onePlusBadnessSquared + curpenalty*curpenalty
@@ -463,6 +470,8 @@ func (lb *linebreaker) breakHere(n Node) {
 func (lb *linebreaker) mainLoop(n Node) {
 	active := lb.activeNodesA
 	lb.preva = nil
+	pi, _ := lb.breakPenalty(n)
+	forced := pi <= -10000
 
 	// Best anchor for the emergency overfull-line fallback below: the latest
 	// (max sumW = closest to n, so the forced overfull line is as short as
@@ -503,7 +512,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 			// reservoir at all). The two cases are equivalent in semantics
 			// — once a→b is too wide, no later b' > b can become feasible
 			// from a, since the line only grows.
-			if r < -1 || overfullNoShrink || isForcedBreak(n) {
+			if r < -1 || overfullNoShrink || forced {
 				// If line is too wide or a forced break, we can remove the node
 				// from the active list.
 				if r < -1 || overfullNoShrink {
@@ -736,7 +745,7 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			// NOTE: Do NOT reset prevItemBox here. A Disc is not a "box" in TeX terms.
 			// If we reset it, a Glue following a Disc won't be considered as a breakpoint,
 			// causing breaks at Disc (with hyphen) instead of at Glue (space).
-			if !lb.keep {
+			if pi, _ := lb.breakPenalty(t); pi < 10000 && !lb.keep {
 				lb.breakHere(t)
 			}
 		case *Glyph:

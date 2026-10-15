@@ -79,15 +79,7 @@ type candidate struct {
 // addCandidate records n, a legal breakpoint, for the Breaker.
 func (lb *linebreaker) addCandidate(n Node) {
 	c := candidate{Candidate: Candidate{Node: n}, before: lb.lineSums, tabs: len(lb.tabs)}
-	switch t := n.(type) {
-	case *Penalty:
-		c.Penalty = t.Penalty
-	case *HardBreak:
-		c.Penalty = -10000
-	case *Disc:
-		c.Penalty = lb.settings.Hyphenpenalty + t.Penalty
-		c.Flagged = true
-	}
+	c.Penalty, c.Flagged = lb.breakPenalty(n)
 	W, E, Y, Z := lb.computeSum(n)
 	lb.markFirstTab(n)
 	c.after = lineSums{
