@@ -84,13 +84,13 @@ func TestHyphenDemerits(t *testing.T) {
 	for _, tc := range []struct {
 		desc      string
 		prev, cur func() Node
-		want      int
+		want      func(s *LinebreakSettings) int
 	}{
-		{"hyphen after hyphen", disc, disc, 3000},
-		{"paragraph end after hyphen", disc, end, 5000},
-		{"glue after hyphen", disc, glue, 0},
-		{"hyphen after glue", glue, disc, 0},
-		{"paragraph end after glue", glue, end, 0},
+		{"hyphen after hyphen", disc, disc, func(s *LinebreakSettings) int { return s.DoublehyphenDemerits }},
+		{"paragraph end after hyphen", disc, end, func(s *LinebreakSettings) int { return s.FinalHyphenDemerits }},
+		{"glue after hyphen", disc, glue, func(*LinebreakSettings) int { return 0 }},
+		{"hyphen after glue", glue, disc, func(*LinebreakSettings) int { return 0 }},
+		{"paragraph end after glue", glue, end, func(*LinebreakSettings) int { return 0 }},
 	} {
 		s := NewLinebreakSettings()
 		s.Hyphenpenalty = 0
@@ -98,8 +98,8 @@ func TestHyphenDemerits(t *testing.T) {
 		// r 0 is decent, as the previous line, so only the hyphens count
 		// beyond (LinePenalty + 0)².
 		_, got := lb.calculateDemerits(&Breakpoint{Position: tc.prev(), Fitness: 1}, 0, tc.cur())
-		if got -= s.LinePenalty * s.LinePenalty; got != tc.want {
-			t.Errorf("%s: %d demerits beyond the line's own, want %d", tc.desc, got, tc.want)
+		if got -= s.LinePenalty * s.LinePenalty; got != tc.want(s) {
+			t.Errorf("%s: %d demerits beyond the line's own, want %d", tc.desc, got, tc.want(s))
 		}
 	}
 }

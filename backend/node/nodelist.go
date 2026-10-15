@@ -56,10 +56,10 @@ type LinebreakSettings struct {
 	LineStartGlue *Glue
 	// DemeritsFitness is added to the demerits of a line whose fitness
 	// class (tight, decent, loose or very loose) is more than one class
-	// away from the line before, TeX's \adjdemerits. Default 100.
+	// away from the line before, TeX's \adjdemerits. Default 10000.
 	DemeritsFitness int
 	// DoublehyphenDemerits is added when two lines in a row end at a
-	// discretionary, TeX's \doublehyphendemerits. Default 3000.
+	// discretionary, TeX's \doublehyphendemerits. Default 10000.
 	DoublehyphenDemerits int
 	// FinalHyphenDemerits is added when the second to last line of a
 	// paragraph ends at a discretionary, TeX's \finalhyphendemerits.
@@ -200,9 +200,9 @@ type IndentStep struct {
 // NewLinebreakSettings returns a settings struct with defaults initialized.
 func NewLinebreakSettings() *LinebreakSettings {
 	ls := &LinebreakSettings{
-		DoublehyphenDemerits: 3000,
+		DoublehyphenDemerits: 10000,
 		FinalHyphenDemerits:  5000,
-		DemeritsFitness:      100,
+		DemeritsFitness:      10000,
 		Hyphenpenalty:        50,
 		LinePenalty:          10,
 		Tolerance:            4.0,
