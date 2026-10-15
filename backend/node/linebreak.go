@@ -245,8 +245,29 @@ func (lb *linebreaker) computeSum(n Node) (bag.ScaledPoint, bag.ScaledPoint, bag
 	// any other break, the second pass drops it from the next line. n stays
 	// the break itself, so a tab right after the Disc is kept below.
 	start := n
-	if _, isDisc := n.(*Disc); isDisc {
+	if d, isDisc := n.(*Disc); isDisc {
 		start = n.Next()
+		if d.ReplaceCount > 0 {
+			// The nodes the Disc replaces are still ahead in the sums, the
+			// next line drops them and starts with Post instead.
+			for range d.ReplaceCount {
+				if start == nil {
+					break
+				}
+				w += lb.nodeWidth(start)
+				e += lb.nodeExpand(start)
+				start = start.Next()
+			}
+			for p := d.Post; p != nil; p = p.Next() {
+				w -= lb.nodeWidth(p)
+				e -= lb.nodeExpand(p)
+			}
+			// What follows Post is not discarded, as in TeX (TeX: The
+			// Program §840).
+			if d.Post != nil {
+				start = nil
+			}
+		}
 	}
 	for e := start; e != nil && lb.discardedWith(e, n); e = e.Next() {
 		if t, ok := e.(*Glue); ok {
@@ -265,6 +286,37 @@ func (lb *linebreaker) computeSum(n Node) (bag.ScaledPoint, bag.ScaledPoint, bag
 		}
 	}
 	return w, e, y, z
+}
+
+// insertListAfter links the list l in after cur.
+func insertListAfter(cur, l Node) {
+	tail := Tail(l)
+	if next := cur.Next(); next != nil {
+		tail.SetNext(next)
+		next.SetPrev(tail)
+	}
+	cur.SetNext(l)
+	l.SetPrev(cur)
+}
+
+// nodeWidth is the width the first pass adds for n.
+func (lb *linebreaker) nodeWidth(n Node) bag.ScaledPoint {
+	switch t := n.(type) {
+	case *Glue:
+		return t.Width
+	case *Penalty, *Disc, *StartStop, *Lang:
+		return 0
+	}
+	wd, _, _ := n.Sizes(Horizontal)
+	return wd
+}
+
+// nodeExpand is the font expansion the first pass adds for n.
+func (lb *linebreaker) nodeExpand(n Node) bag.ScaledPoint {
+	if g, ok := n.(*Glyph); ok && lb.settings.FontExpansion != 0 {
+		return bag.MultiplyFloat(g.Width, lb.settings.FontExpansion)
+	}
+	return 0
 }
 
 // discardedWith reports whether e, the break n itself or a node after it, is
@@ -848,8 +900,10 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 				}
 				glyf.Width = 0
 			}
-			if e.Position.Type() == TypeDisc {
-				hang(e.Position.(*Disc).Pre.(*Glyph))
+			if d, ok := e.Position.(*Disc); ok {
+				if glyf, ok := Tail(d.Pre).(*Glyph); ok {
+					hang(glyf)
+				}
 			}
 			if glyf, ok := e.Position.Prev().(*Glyph); ok {
 				if len(glyf.Components) == 1 && unicode.IsPunct(rune(glyf.Components[0])) {
@@ -858,23 +912,42 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 		}
 		startPos := e.Position
+		var post Node
 		// startPos.Prev() is nil at paragraph start
 		if startPos.Prev() != nil {
 			startPos = startPos.Next()
+			// A Disc that replaces nodes starts the next line with its
+			// Post in their place.
+			if d, ok := e.Position.(*Disc); ok && d.ReplaceCount > 0 {
+				for range d.ReplaceCount {
+					if startPos != nil && startPos != endNode {
+						startPos = startPos.Next()
+					}
+				}
+				post = CopyList(d.Post)
+			}
 			// What the first pass discarded with the break does not start
 			// the next line: the space after a Disc or a penalty, for
 			// example. A tab stays.
-			for startPos != nil && startPos != endNode && lb.discardedWith(startPos, e.Position) {
+			for post == nil && startPos != nil && startPos != endNode && lb.discardedWith(startPos, e.Position) {
 				startPos = startPos.Next()
 			}
 		}
 		if curPre != nil {
-			InsertAfter(startPos, endNode.Prev(), curPre)
+			insertListAfter(endNode.Prev(), curPre)
+		}
+		if post != nil && startPos != nil {
+			tail := Tail(post)
+			tail.SetNext(startPos)
+			startPos.SetPrev(tail)
+			startPos = post
 		}
 		// Set curPre for the next line, but NOT if we broke at a Disc
 		// that's followed by a Glue (space) - in that case we're breaking
 		// between words, not within a word, so no hyphen should appear.
-		curPre = e.Pre
+		// It is a copy: the Disc keeps its Pre for another run of the
+		// line breaker over the same list.
+		curPre = CopyList(e.Pre)
 		if e.Position.Type() == TypeDisc {
 			if _, isGlue := e.Position.Next().(*Glue); isGlue {
 				curPre = nil // Don't insert hyphen when breaking at word boundary

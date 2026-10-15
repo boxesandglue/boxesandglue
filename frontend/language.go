@@ -185,7 +185,7 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 	// characters up to cur.
 	cur := wordstart
 	chars, at := 0, 0
-	var before node.Node
+	var before, split node.Node
 	for _, step := range l.Hyphenate(str) {
 		at += step
 		for cur != nil && chars < at {
@@ -195,32 +195,103 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 			}
 			cur = cur.Next()
 		}
-		// A point inside a ligature has no node to go between, so it is
-		// left out rather than moved to a wrong place (bag#89).
-		if cur == nil || chars != at {
+		if cur == nil {
+			break
+		}
+		if chars != at {
+			// The point is inside the ligature before: a Disc sets it
+			// apart if the word breaks there, once for each ligature.
+			if g, ok := before.(*node.Glyph); ok && before != split {
+				splitLigature(g, glyphChars(g)-(chars-at), fnt)
+				split = before
+			}
 			continue
 		}
 		if cur.Type() == node.TypeKern {
 			cur = cur.Next()
 		}
 		disc := node.NewDisc()
-		hyphen := node.NewGlyph()
-		if fnt != nil {
-			hyphen.Font = fnt
-			hyphen.Width = fnt.Hyphenchar.Advance
-			hyphen.Components = fnt.Hyphenchar.Components
-			hyphen.Codepoint = fnt.Hyphenchar.Codepoint
-		}
-		// The hyphen ends the line after the glyph before the break, so
-		// it takes that glyph's scale when a word spans two runs.
-		if g, ok := before.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
-			hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
-			hyphen.HorizontalScale = g.HorizontalScale
-		}
-
-		disc.Pre = hyphen
+		disc.Pre = newHyphen(fnt, before)
 		node.InsertBefore(wordstart, cur, disc)
 	}
+}
+
+// newHyphen is the hyphen that ends a line after the glyph before.
+func newHyphen(fnt *font.Font, before node.Node) *node.Glyph {
+	hyphen := node.NewGlyph()
+	if fnt != nil {
+		hyphen.Font = fnt
+		hyphen.Width = fnt.Hyphenchar.Advance
+		hyphen.Components = fnt.Hyphenchar.Components
+		hyphen.Codepoint = fnt.Hyphenchar.Codepoint
+	}
+	// The hyphen ends the line after the glyph before the break, so it
+	// takes that glyph's scale when a word spans two runs.
+	if g, ok := before.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
+		hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
+		hyphen.HorizontalScale = g.HorizontalScale
+	}
+	return hyphen
+}
+
+// splitLigature puts a Disc before the ligature g that breaks the word after
+// the first k characters of g, as TeX does (bag#90): the line ends with
+// those characters and a hyphen, the next one starts with the rest, and g is
+// dropped. Without a break g stays. Both parts are shaped anew, so they can
+// be ligatures of their own, but only with the font's default features: the
+// ones g was shaped with are not known here.
+func splitLigature(g *node.Glyph, k int, fnt *font.Font) {
+	// A Disc before the first node of the list would need a new head.
+	if g.Prev() == nil || g.Font == nil {
+		return
+	}
+	r := []rune(g.Components)
+	pre := shapeLike(g, string(r[:k]))
+	post := shapeLike(g, string(r[k:]))
+	if pre == nil || post == nil {
+		return
+	}
+	tail := node.Tail(pre)
+	node.InsertAfter(pre, tail, newHyphen(fnt, tail))
+	disc := node.NewDisc()
+	disc.Pre = pre
+	disc.Post = post
+	disc.ReplaceCount = 1
+	disc.SetBidiLevel(g.BidiLevel())
+	node.InsertBefore(g.Prev(), g, disc)
+}
+
+// shapeLike shapes text in the font of g and returns the glyphs, which take
+// the scale, offsets and attributes of g.
+func shapeLike(g *node.Glyph, text string) node.Node {
+	scaled := func(wd bag.ScaledPoint) bag.ScaledPoint {
+		if g.HorizontalScale == 0 || g.HorizontalScale == 1 {
+			return wd
+		}
+		return bag.MultiplyFloat(wd, g.HorizontalScale)
+	}
+	var head, cur node.Node
+	atoms := g.Font.Shape(text, nil, nil)
+	for i, a := range atoms {
+		n := g.Copy().(*node.Glyph)
+		n.Codepoint = a.Codepoint
+		n.Components = a.Components
+		n.Width = scaled(a.Advance)
+		n.Height = a.Height
+		n.Depth = a.Depth
+		n.XOffset = scaled(a.XOffset)
+		n.SetBidiLevel(g.BidiLevel())
+		head = node.InsertAfter(head, cur, n)
+		cur = n
+		if a.Kernafter != 0 && i < len(atoms)-1 {
+			k := node.NewKern()
+			k.Kern = scaled(a.Kernafter)
+			k.SetBidiLevel(g.BidiLevel())
+			head = node.InsertAfter(head, cur, k)
+			cur = k
+		}
+	}
+	return head
 }
 
 // Hyphenate inserts hyphenation points in to the list.

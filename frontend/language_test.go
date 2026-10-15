@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"bytes"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/document"
+	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
 	"github.com/speedata/hyphenation"
@@ -323,8 +325,9 @@ func splitLigatures(word string) []string {
 }
 
 // A hyphenation point after a ligature counts the ligature's characters, so
-// it does not move to the right with every ligature before it. A point
-// inside a ligature is left out (bag#89).
+// it does not move to the right with every ligature before it (bag#89). A
+// point inside a ligature is left out when the glyphs have no font to shape
+// its parts with.
 func TestHyphenateAfterLigature(t *testing.T) {
 	l, err := GetLanguage("de")
 	if err != nil {
@@ -340,5 +343,131 @@ func TestHyphenateAfterLigature(t *testing.T) {
 		if got := hyphenatedGlyphs(t, l, splitLigatures(tc.word)); got != tc.want {
 			t.Errorf("%s: got %s, want %s", tc.word, got, tc.want)
 		}
+	}
+}
+
+// shapedWord sets word in TeX Gyre Heros, which has ff, fi, fl and ffi
+// ligatures, as glyph nodes that may be hyphenated.
+func shapedWord(t *testing.T, word string) (node.Node, *font.Font) {
+	t.Helper()
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	face, err := fe.Doc.LoadFace("../qa/fonts/upem/fonts/texgyreheros-regular.otf", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fnt := font.NewFont(face, 10*bag.Factor)
+	var head, cur node.Node
+	for _, a := range fnt.Shape(word, nil, nil) {
+		g := node.NewGlyph()
+		g.Font = fnt
+		g.Hyphenate = true
+		g.Codepoint = a.Codepoint
+		g.Components = a.Components
+		g.Width = a.Advance
+		head = node.InsertAfter(head, cur, g)
+		cur = g
+		if a.Kernafter != 0 {
+			k := node.NewKern()
+			k.Kern = a.Kernafter
+			head = node.InsertAfter(head, cur, k)
+			cur = k
+		}
+	}
+	// The word does not start the list, as in a paragraph after its indent.
+	start := node.NewGlue()
+	head = node.InsertBefore(head, head, start)
+	return head, fnt
+}
+
+// glyphString writes a glyph, a ligature in brackets.
+func glyphString(g *node.Glyph) string {
+	if utf8.RuneCountInString(g.Components) > 1 {
+		return "[" + g.Components + "]"
+	}
+	return g.Components
+}
+
+// glyphText writes the glyphs of a list.
+func glyphText(n node.Node) string {
+	var b strings.Builder
+	for ; n != nil; n = n.Next() {
+		if g, ok := n.(*node.Glyph); ok {
+			b.WriteString(glyphString(g))
+		}
+	}
+	return b.String()
+}
+
+// A hyphenation point inside a ligature gets a Disc that sets the ligature
+// apart if the word breaks there: the line ends with the characters before
+// the point and a hyphen, the next starts with the rest, shaped anew, and a
+// break drops the ligature. A point right after a ligature gets a plain
+// hyphen (bag#90).
+func TestHyphenateInsideLigature(t *testing.T) {
+	l, err := GetLanguage("de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ word, want string }{
+		{"Auflage", "Au{f-|l}[fl]age"},
+		{"Kaffeefilter", "Ka{f-|f}[ff]ee-[fi]l-ter"},
+		{"offiziell", "o[ffi]-zi-ell"},
+		{"Schifffahrt", "Schi[ff]-fahrt"},
+	} {
+		head, _ := shapedWord(t, tc.word)
+		Hyphenate(head, l)
+		var b strings.Builder
+		for n := head; n != nil; n = n.Next() {
+			switch v := n.(type) {
+			case *node.Glyph:
+				b.WriteString(glyphString(v))
+			case *node.Disc:
+				if v.ReplaceCount == 0 {
+					b.WriteString("-")
+				} else {
+					b.WriteString("{" + glyphText(v.Pre) + "|" + glyphText(v.Post) + "}")
+				}
+			}
+		}
+		if got := strings.ReplaceAll(b.String(), "‐", "-"); got != tc.want {
+			t.Errorf("%s: got %s, want %s", tc.word, got, tc.want)
+		}
+	}
+}
+
+// A paragraph that breaks inside the fl ligature of Auflage ends its first
+// line with Auf- and starts the next with l, and neither line has the
+// ligature (bag#90).
+func TestLinebreakInsideLigature(t *testing.T) {
+	l, err := GetLanguage("de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, fnt := shapedWord(t, "Auflage")
+	Hyphenate(head, l)
+	node.AppendLineEndAfter(head, node.Tail(head))
+	width := func(s string) (w bag.ScaledPoint) {
+		for _, a := range fnt.Shape(s, nil, nil) {
+			w += a.Advance + a.Kernafter
+		}
+		return w
+	}
+	s := node.NewLinebreakSettings()
+	s.HSize = max(width("Auf")+fnt.Hyphenchar.Advance, width("lage")) + bag.Factor/10
+	s.LineHeight = 12 * bag.Factor
+	s.LineEndGlue.Stretch = bag.Factor
+	s.LineEndGlue.StretchOrder = node.StretchFil
+	vl, _ := node.Linebreak(head, s)
+	var lines []string
+	for n := vl.List; n != nil; n = n.Next() {
+		if hl, ok := n.(*node.HList); ok {
+			lines = append(lines, strings.ReplaceAll(glyphText(hl.List), "‐", "-"))
+		}
+	}
+	if got, want := strings.Join(lines, "|"), "Auf-|lage"; got != want {
+		t.Errorf("lines %q, want %q", got, want)
 	}
 }
