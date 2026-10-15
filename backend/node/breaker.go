@@ -104,7 +104,7 @@ func (lb *linebreaker) fit(root *Breakpoint, from, to, row int) LineFit {
 	m := lb.measured
 	f := LineFit{
 		Natural: m.width, Measure: m.maxwd,
-		Stretch: lb.sumY - m.from.sumY + sumExpand + lb.settings.EmergencyStretch,
+		Stretch: lb.sumY - m.from.sumY + sumExpand + lb.emergencyStretch,
 		Shrink:  lb.sumZ - m.from.sumZ + sumExpand,
 		Ratio:   r, Feasible: lb.feasible(r),
 	}

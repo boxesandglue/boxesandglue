@@ -90,6 +90,11 @@ type linebreaker struct {
 	cands []candidate
 	// measured is the last line computeAdjustmentRatio measured.
 	measured lineMeasure
+	// emergencyStretch is the EmergencyStretch of this pass: 0 in the pass
+	// with Tolerance, the setting's in the last one.
+	emergencyStretch bag.ScaledPoint
+	// emergency is set once the pass sets an emergency line.
+	emergency bool
 	// easyLine is the first row from which every row has the same measure.
 	// Breakpoints from there on are one class, whatever their line number,
 	// as TeX's easy_line makes them (TeX: The Program §848).
@@ -165,11 +170,11 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 	sumExpand = lb.sumExpand - from.sumExpand
 	lb.measured = lineMeasure{width: thisLineWidth, maxwd: maxwd, from: from}
 	if thisLineWidth < maxwd {
-		// needs to stretch. EmergencyStretch (TeX \emergencystretch) is added
-		// to the per-line stretch capacity unconditionally — it acts as a
-		// last-resort budget so a feasible underfull break can be found when
-		// the only glue on the line is the candidate breakpoint itself (whose
-		// own stretch is discarded at the break).
+		// needs to stretch. In the last pass EmergencyStretch (TeX
+		// \emergencystretch) is added to the per-line stretch capacity, a
+		// budget so a feasible underfull break can be found when the only
+		// glue on the line is the candidate breakpoint itself (whose own
+		// stretch is discarded at the break).
 		//
 		// LineStartGlue / LineEndGlue (TeX \leftskip / \rightskip) are
 		// inserted per line in the post-linebreak pass (see Linebreak),
@@ -201,7 +206,7 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 		if hasFilStretch {
 			r = 0
 		} else {
-			y := lb.sumY - from.sumY + sumExpand + lb.settings.EmergencyStretch
+			y := lb.sumY - from.sumY + sumExpand + lb.emergencyStretch
 			if y > 0 {
 				r = float64(maxwd-thisLineWidth) / float64(y)
 			} else {
@@ -590,6 +595,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 			}
 		}
 		if dmin == math.MaxInt && lb.activeNodesA == nil {
+			lb.emergency = true
 			W, E, Y, Z := lb.computeSum(n)
 			lb.markFirstTab(n)
 			// Anchor the emergency line. A breakpoint a forced break
@@ -690,21 +696,22 @@ func (lb *linebreaker) appendNewBreakpoint(bp *Breakpoint) {
 	lb.preva = bp
 }
 
-// Linebreak breaks the node list starting at n into lines. Returns a VList of
-// HLists and information about each line.
-func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
-	if n == nil {
-		return nil, nil
-	}
+// breakPass finds the breakpoints of the paragraph at n, with the
+// EmergencyStretch if emergencyStretch is set. It returns the line breaker
+// with its active and inactive breakpoints, the paragraph's root breakpoint
+// and its last node.
+func breakPass(n Node, settings *LinebreakSettings, emergencyStretch bool) (lb *linebreaker, root *Breakpoint, endNode Node) {
 	var prevItemBox bool
-	lb := newLinebreaker(settings)
+	lb = newLinebreaker(settings)
+	if emergencyStretch {
+		lb.emergencyStretch = settings.EmergencyStretch
+	}
 	if lb.ts = NewTabStops(settings); lb.ts != nil {
 		lb.firstTab = map[Node]int{}
 		lb.runs = lb.measureTabRuns(n)
 	}
-	root := &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
+	root = &Breakpoint{id: int(breakpointNextID.Add(1)), Fitness: 1, Position: n}
 	lb.activeNodesA = root
-	var endNode Node
 
 	for e := n; e != nil; e = e.Next() {
 		// breakable after
@@ -774,6 +781,22 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			lb.sumW += wd
 		}
 		endNode = e
+	}
+	return lb, root, endNode
+}
+
+// Linebreak breaks the node list starting at n into lines. Returns a VList of
+// HLists and information about each line.
+func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
+	if n == nil {
+		return nil, nil
+	}
+	// TeX uses \emergencystretch in a last pass only, when the pass with
+	// \tolerance ends in an emergency line (TeX: The Program §873). Under a
+	// Breaker there are no passes, every line is measured with it.
+	lb, root, endNode := breakPass(n, settings, settings.Breaker != nil)
+	if lb.emergency && settings.EmergencyStretch > 0 && settings.Breaker == nil {
+		lb, root, endNode = breakPass(n, settings, true)
 	}
 	// The order of the breakpoints is from last breakpoint to first breakpoint.
 	var bps []*Breakpoint

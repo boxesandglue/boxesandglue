@@ -66,9 +66,11 @@ type LinebreakSettings struct {
 	// Default 5000.
 	FinalHyphenDemerits int
 	// EmergencyStretch is stretch the line breaker adds to every line it
-	// measures, TeX's \emergencystretch. Unlike TeX, which uses it in a
-	// last pass only, it counts for every line. Packing a line does not
-	// know it, so a line that needs it comes out loose. Default 0.
+	// measures in a last pass, TeX's \emergencystretch: a paragraph is
+	// broken again with it only when it cannot be broken within Tolerance
+	// without an emergency line. Packing a line does not know it, so a line
+	// that needs it comes out loose. Under a Breaker it counts for every
+	// line. Default 0.
 	EmergencyStretch bag.ScaledPoint
 	// FontExpansion is the fraction of its width by which a glyph may be
 	// narrowed or widened, 0.02 for 2 percent (hz, microtype's expansion).
