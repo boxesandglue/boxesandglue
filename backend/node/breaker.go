@@ -62,8 +62,8 @@ type LineFit struct {
 	// one that cannot reach its measure, negative for one that shrinks, less
 	// than -1 for one too wide even shrunk.
 	Ratio float64
-	// Feasible is whether Knuth-Plass would take the line: Ratio from -1 to
-	// below the Tolerance.
+	// Feasible is whether Knuth-Plass would take the line: Ratio from
+	// -Tolerance (-1 at most) to Tolerance.
 	Feasible bool
 }
 
@@ -114,7 +114,7 @@ func (lb *linebreaker) fit(root *Breakpoint, from, to, row int) LineFit {
 		Natural: m.width, Measure: m.maxwd,
 		Stretch: lb.sumY - m.from.sumY + sumExpand + lb.settings.EmergencyStretch,
 		Shrink:  lb.sumZ - m.from.sumZ + sumExpand,
-		Ratio:   r, Feasible: -1 <= r && r < lb.settings.Tolerance,
+		Ratio:   r, Feasible: lb.feasible(r),
 	}
 	lb.lineSums, lb.tabs = sums, tabs
 	return f

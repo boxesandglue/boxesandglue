@@ -290,6 +290,14 @@ func (lb *linebreaker) removeActiveNode(active *Breakpoint) {
 	lb.inactiveNodesP = active
 }
 
+// feasible reports whether a line with adjustment ratio r may be taken. TeX
+// takes a line whose badness is at most \tolerance, and badness grows with
+// |r| either way, so the line may stretch by at most Tolerance and shrink by
+// at most Tolerance, never past its shrinkability (TeX: The Program §851).
+func (lb *linebreaker) feasible(r float64) bool {
+	return -min(1, lb.settings.Tolerance) <= r && r <= lb.settings.Tolerance
+}
+
 func calculateFitnessClass(r float64) int {
 	var c int
 	switch {
@@ -515,7 +523,7 @@ func (lb *linebreaker) mainLoop(n Node) {
 			// There might be active breakpoints (after cleanup), so all of them
 			// are a candidate for a final breakpoint. For each fitness class,
 			// we chose the best candidate (with the fewest total demerits)
-			if -1 <= r && r < lb.settings.Tolerance {
+			if lb.feasible(r) {
 				// That looks like a good breakpoint.
 				c, demerits := lb.calculateDemerits(active, r, n)
 

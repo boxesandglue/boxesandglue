@@ -116,11 +116,13 @@ type LinebreakSettings struct {
 	// LineModel change how the room is made.
 	LineHeight bag.ScaledPoint
 	// Tolerance is the largest adjustment ratio a line may have, the amount
-	// its glue stretches as a multiple of its stretchability. A break that
-	// needs more is not feasible; if no break is, Linebreak still breaks
-	// and leaves a line overfull. Unlike TeX's \tolerance it is a ratio,
-	// not a badness: the default 4.0 is a badness of 6400, and TeX's 200
-	// is a ratio of about 1.26.
+	// its glue stretches or shrinks as a multiple of its stretchability or
+	// shrinkability; a line never shrinks by more than 1. A break that needs
+	// more is not feasible; if no break is, Linebreak still breaks and
+	// leaves a line overfull. Unlike TeX's \tolerance it is a ratio, not a
+	// badness, but it limits a line the same way, as badness grows with the
+	// ratio: the default 4.0 is a badness of 6400, and TeX's 200 is a ratio
+	// of about 1.26. 0 takes only lines that fit exactly.
 	Tolerance float64
 	// SqueezeOverfullBoxes lets the glue of a line that is still too wide
 	// shrink past its shrinkability, so the line keeps to HSize with spaces
