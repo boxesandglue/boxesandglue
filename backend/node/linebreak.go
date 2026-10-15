@@ -49,6 +49,10 @@ type Breakpoint struct {
 	calculatedExpand bag.ScaledPoint
 	R                float64
 	Demerits         int
+	// Emergency is set on a line that no feasible break could end, which
+	// the line breaker sets anyway. Its R is past Tolerance, or below -1
+	// for an overfull line.
+	Emergency bool
 }
 
 // lineSums are the running sums of the first pass: the natural width, the
@@ -617,14 +621,17 @@ func (lb *linebreaker) mainLoop(n Node) {
 			} else if bestOverfull != nil {
 				lastInactive = bestOverfull
 			}
-			width := lb.sumW
 			var pre Node
-			switch v := n.(type) {
-			case *Penalty:
-				width += v.Width
-			case *Disc:
-				width += 5 * bag.Factor
-				pre = v.Pre
+			if d, ok := n.(*Disc); ok {
+				pre = d.Pre
+			}
+			// The line is not feasible, but a caller sees what it is: R is
+			// its real adjustment ratio, -Inf for an overfull line with
+			// nothing to shrink, and the fitness class follows from it, as
+			// in TeX (TeX: The Program §852, §853).
+			r, _, overfullNoShrink := lb.computeAdjustmentRatio(n, lastInactive)
+			if overfullNoShrink {
+				r = math.Inf(-1)
 			}
 
 			bp := &Breakpoint{
@@ -634,15 +641,16 @@ func (lb *linebreaker) mainLoop(n Node) {
 				Line:     lastInactive.Line + 1,
 				from:     lastInactive,
 				next:     active,
-				Fitness:  3,
+				Fitness:  calculateFitnessClass(r),
 				Width:    lb.sumW - lastInactive.sumW,
 				lineSums: lineSums{
 					sumW: W, sumExpand: E, sumY: Y, sumZ: Z,
 					stretchFil: lb.stretchFil, stretchFill: lb.stretchFill, stretchFilll: lb.stretchFilll,
 				},
 				calculatedExpand: lb.sumExpand - lastInactive.sumExpand,
-				R:                0,
+				R:                r,
 				Demerits:         lastInactive.Demerits + 1000,
+				Emergency:        true,
 			}
 			lb.appendNewBreakpoint(bp)
 		}

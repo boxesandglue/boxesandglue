@@ -113,3 +113,57 @@ func TestEmergencyAnchorPrefersALineThatFits(t *testing.T) {
 		}
 	}
 }
+
+// TestEmergencyLineReportsItsRatio: an emergency line is marked and reports
+// the adjustment ratio it has, not 0, which would read as an exact fit
+// (bag#91). The loose line before the forced break is past Tolerance, the
+// lines before it are feasible and not marked.
+func TestEmergencyLineReportsItsRatio(t *testing.T) {
+	words := sevenGlyphWords(14)
+	head := buildWordsBreak(words, 12, forcedPenalty, bag.Factor, 3*bag.Factor)
+	s := emergencySettings()
+	_, bps := Linebreak(head, s)
+	var loose *Breakpoint
+	for _, bp := range bps {
+		if bp.Emergency {
+			loose = bp
+			continue
+		}
+		if bp.R < -1 || bp.R > s.Tolerance {
+			t.Errorf("line %d: r %g past Tolerance but not marked as an emergency line", bp.Line, bp.R)
+		}
+	}
+	if loose == nil {
+		t.Fatal("no emergency line")
+	}
+	if loose.R <= s.Tolerance {
+		t.Errorf("emergency line: r %g, want a loose line past Tolerance %g", loose.R, s.Tolerance)
+	}
+	if loose.Fitness != 3 {
+		t.Errorf("emergency line: fitness %d, want 3 (very loose)", loose.Fitness)
+	}
+}
+
+// TestEmergencyLineOverfull: a word wider than the measure gives an overfull
+// emergency line, which reports a ratio below -1 and the tight fitness class.
+func TestEmergencyLineOverfull(t *testing.T) {
+	words := []string{"aaaa", strings.Repeat("a", 120), "aaaa"}
+	head := buildWordsBreak(words, -1, nil, bag.Factor, 3*bag.Factor)
+	_, bps := Linebreak(head, emergencySettings())
+	found := false
+	for _, bp := range bps {
+		if !bp.Emergency {
+			continue
+		}
+		found = true
+		if bp.R >= -1 {
+			t.Errorf("line %d: r %g, want an overfull line below -1", bp.Line, bp.R)
+		}
+		if bp.Fitness != 0 {
+			t.Errorf("line %d: fitness %d, want 0 (tight)", bp.Line, bp.Fitness)
+		}
+	}
+	if !found {
+		t.Fatal("no emergency line")
+	}
+}
