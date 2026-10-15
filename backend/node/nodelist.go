@@ -515,19 +515,28 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		// a long line
 		r = float64(width-sumwd) / float64(shrinkability)
 	}
-	badness := 10000
-	if r < -1 {
-		// Badness 1000000 for overfull boxes
+	// As in TeX (TeX: The Program §658 and §664), only glue of order normal
+	// has a badness and a limit: infinite stretch or shrink takes up any
+	// difference, so the box has badness 0 and is never overfull
+	// (boxesandglue#94).
+	setOrder := highestOrderStretch
+	if r < 0 {
+		setOrder = highestOrderShrink
+	}
+	overfull := r < -1 && setOrder == StretchNormal
+	var badness int
+	switch {
+	case setOrder != StretchNormal:
+		badness = 0
+	case overfull:
 		badness = 1000000
-	} else if r >= -1 {
+	default:
 		badness = ratioBadness(r)
 	}
 	useExpand := false
-	if hs.fontexpansion != 0 {
-		if r < -1 {
-			r = -1
-			useExpand = true
-		}
+	if hs.fontexpansion != 0 && overfull {
+		r = -1
+		useExpand = true
 	}
 	if math.IsInf(r, 0) {
 		// Nothing can stretch or shrink, so as in TeX the glue keeps its
@@ -539,10 +548,11 @@ func HpackToWithEnd(firstNode Node, lastNode Node, width bag.ScaledPoint, opts .
 		switch {
 		case r >= 0 && highestOrderStretch == g.StretchOrder:
 			g.Width += bag.ScaledPoint(r * float64(g.Stretch))
-		case r >= -1 && r <= 0 && highestOrderShrink == g.ShrinkOrder:
-			g.Width += bag.ScaledPoint(r * float64(g.Shrink))
-		case r < -1 && highestOrderShrink == g.ShrinkOrder:
-			if hs.squeezeOverfullBoxes {
+		case r < 0 && highestOrderShrink == g.ShrinkOrder:
+			// Normal shrink stops at its amount (r = -1, also where font
+			// expansion takes over), unless an overfull box may be
+			// squeezed; infinite shrink has no such limit.
+			if r >= -1 || setOrder != StretchNormal || hs.squeezeOverfullBoxes {
 				g.Width += bag.ScaledPoint(r * float64(g.Shrink))
 			}
 		}
