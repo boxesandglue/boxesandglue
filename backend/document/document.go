@@ -722,9 +722,18 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		oc.curOutputDebug = od
 	}
 	sumX := bag.ScaledPoint(0)
+	// textRun is true while the last thing this list showed is a glyph in
+	// a TJ array. spaceOwed is true when a start/stop node ended that
+	// array, a color change with ET for one: the glue that follows still
+	// writes its space glyph, so that text read in content-stream order
+	// keeps the word boundary (boxesandglue#93). Both are local to the
+	// list, so a space is never owed across a line, a table cell or a
+	// marked-content sequence.
+	var textRun, spaceOwed bool
 	for hItem := hlist.List; hItem != nil; hItem = hItem.Next() {
 		switch v := hItem.(type) {
 		case *node.Glyph:
+			textRun, spaceOwed = false, false
 			if oc.p.document.DumpOutput {
 				od = &outputDebug{
 					Name: "glyph",
@@ -911,7 +920,10 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.writef(" %d ", post)
 			}
 			sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
+			textRun = true
 		case *node.Glue:
+			owed := spaceOwed && oc.currentTmYValid
+			textRun, spaceOwed = false, false
 			var od *outputDebug
 			if oc.p.document.DumpOutput {
 				od = &outputDebug{
@@ -949,10 +961,22 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				// the line breaker and packing the line assume, and the
 				// glue keeps its set width (boxesandglue#86). Outside of a
 				// TJ array nothing is written: the next glyph is placed
-				// anew with Tm, which Tz does not scale either.
-				if oc.textmode < ScopeText {
+				// anew with Tm, which Tz does not scale either. A glue
+				// owed a space starts a TJ array of its own instead.
+				if oc.textmode < ScopeText || owed {
 					if curFont := oc.text.font; curFont != nil {
 						if oc.text.font.Size != 0 {
+							if owed {
+								// A start/stop node ended the text's TJ
+								// array. Tf, Tz and Ts survive ET, the
+								// text matrix does not: place the glue on
+								// the baseline of the text before. The
+								// space stays in the marked-content
+								// sequence of that text, as no BDC or EMC
+								// came in between.
+								oc.moveto(x+oc.shiftX+sumX, oc.currentTmY)
+								oc.shiftX = 0
+							}
 							// Emit a space glyph so that PDF readers can
 							// extract proper word boundaries.
 							spaceGID := curFont.Face.Codepoint(' ')
@@ -986,6 +1010,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				sumX += v.Width
 			}
 		case *node.Rule:
+			textRun, spaceOwed = false, false
 			posX := x + sumX
 			posY := y
 			if hlist.VAlign == node.VAlignTop {
@@ -1001,6 +1026,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			sumX += v.Width
 		case *node.Image:
+			textRun, spaceOwed = false, false
 			oc.gotoTextMode(ScopePage)
 			if v.Used {
 				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
@@ -1158,6 +1184,10 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			if v.Position == node.PDFOutputHere {
 				oc.moveto(-posX, -posY)
+				// The text matrix no longer holds the text's baseline.
+				textRun, spaceOwed = false, false
+			} else if textRun && oc.textmode > ScopeArray {
+				spaceOwed = true
 			}
 		case *node.Kern:
 			if oc.p.document.DumpOutput {
@@ -1191,6 +1221,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		case *node.Disc:
 			// ignore
 		case *node.HList:
+			// The box may be an inline formula with a marked-content
+			// sequence of its own, and it ends where its text ends.
+			textRun, spaceOwed = false, false
 			moveY := y + v.Shift
 			if hlist.VAlign == node.VAlignTop {
 				moveY -= v.Height
@@ -1309,6 +1342,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			sumX += v.Width
 		case *node.VList:
+			textRun, spaceOwed = false, false
 			top := y + hlist.Height + v.Shift
 			if hlist.VAlign == node.VAlignTop {
 				top = y + v.Shift
