@@ -3,6 +3,7 @@ package frontend
 import (
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/font"
@@ -164,39 +165,61 @@ func GetLanguage(langname string) (*lang.Lang, error) {
 	return l, nil
 }
 
-func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node, fnt *font.Font) {
-	cur := wordstart
-	if word.Len() > 0 {
-		str := word.String()
-		word.Reset()
-		bp := l.Hyphenate(str)
-		for _, step := range bp {
-			var before node.Node
-			for i := 0; i <= step-1; i++ {
-				before = cur
-				cur = cur.Next()
-				if cur.Type() == node.TypeKern {
-					cur = cur.Next()
-				}
-			}
-			disc := node.NewDisc()
-			hyphen := node.NewGlyph()
-			if fnt != nil {
-				hyphen.Font = fnt
-				hyphen.Width = fnt.Hyphenchar.Advance
-				hyphen.Components = fnt.Hyphenchar.Components
-				hyphen.Codepoint = fnt.Hyphenchar.Codepoint
-			}
-			// The hyphen ends the line after the glyph before the break, so
-			// it takes that glyph's scale when a word spans two runs.
-			if g, ok := before.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
-				hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
-				hyphen.HorizontalScale = g.HorizontalScale
-			}
+// glyphChars is the number of characters a glyph sets: those of its
+// Components, more than one for a ligature, or its one codepoint.
+func glyphChars(g *node.Glyph) int {
+	if g.Components == "" {
+		return 1
+	}
+	return utf8.RuneCountInString(g.Components)
+}
 
-			disc.Pre = hyphen
-			node.InsertBefore(wordstart, cur, disc)
+func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node, fnt *font.Font) {
+	if word.Len() == 0 {
+		return
+	}
+	str := word.String()
+	word.Reset()
+	// The points count characters, and a ligature glyph sets several of
+	// them, so the walk counts characters too. chars is the number of
+	// characters up to cur.
+	cur := wordstart
+	chars, at := 0, 0
+	var before node.Node
+	for _, step := range l.Hyphenate(str) {
+		at += step
+		for cur != nil && chars < at {
+			if g, ok := cur.(*node.Glyph); ok {
+				chars += glyphChars(g)
+				before = cur
+			}
+			cur = cur.Next()
 		}
+		// A point inside a ligature has no node to go between, so it is
+		// left out rather than moved to a wrong place (bag#89).
+		if cur == nil || chars != at {
+			continue
+		}
+		if cur.Type() == node.TypeKern {
+			cur = cur.Next()
+		}
+		disc := node.NewDisc()
+		hyphen := node.NewGlyph()
+		if fnt != nil {
+			hyphen.Font = fnt
+			hyphen.Width = fnt.Hyphenchar.Advance
+			hyphen.Components = fnt.Hyphenchar.Components
+			hyphen.Codepoint = fnt.Hyphenchar.Codepoint
+		}
+		// The hyphen ends the line after the glyph before the break, so
+		// it takes that glyph's scale when a word spans two runs.
+		if g, ok := before.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
+			hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
+			hyphen.HorizontalScale = g.HorizontalScale
+		}
+
+		disc.Pre = hyphen
+		node.InsertBefore(wordstart, cur, disc)
 	}
 }
 

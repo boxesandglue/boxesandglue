@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/document"
@@ -269,5 +270,75 @@ func TestEachLanguageKeepsAWordCacheOfItsOwn(t *testing.T) {
 	})
 	if fresh-getting <= cached {
 		t.Errorf("a new language hyphenated %q with %.0f allocations, as a language that had hyphenated it already does (%.0f): it found the word in another's cache", word, fresh-getting, cached)
+	}
+}
+
+// hyphenatedGlyphs hyphenates a word whose glyphs set the given characters,
+// several for a ligature, and writes it back with a ligature in brackets
+// and a hyphenation point as "-".
+func hyphenatedGlyphs(t *testing.T, l *lang.Lang, glyphs []string) string {
+	t.Helper()
+	var head, cur node.Node
+	for _, c := range glyphs {
+		g := node.NewGlyph()
+		g.Hyphenate = true
+		g.Components = c
+		g.Width = 5 * bag.Factor
+		head = node.InsertAfter(head, cur, g)
+		cur = g
+	}
+	Hyphenate(head, l)
+	var b strings.Builder
+	for n := head; n != nil; n = n.Next() {
+		switch v := n.(type) {
+		case *node.Glyph:
+			if utf8.RuneCountInString(v.Components) > 1 {
+				b.WriteString("[" + v.Components + "]")
+			} else {
+				b.WriteString(v.Components)
+			}
+		case *node.Disc:
+			b.WriteString("-")
+		}
+	}
+	return b.String()
+}
+
+// splitLigatures splits a word into one glyph per character, except for the
+// ligatures in brackets.
+func splitLigatures(word string) []string {
+	var glyphs []string
+	for len(word) > 0 {
+		if word[0] == '[' {
+			end := strings.IndexByte(word, ']')
+			glyphs = append(glyphs, word[1:end])
+			word = word[end+1:]
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(word)
+		glyphs = append(glyphs, string(r))
+		word = word[size:]
+	}
+	return glyphs
+}
+
+// A hyphenation point after a ligature counts the ligature's characters, so
+// it does not move to the right with every ligature before it. A point
+// inside a ligature is left out (bag#89).
+func TestHyphenateAfterLigature(t *testing.T) {
+	l, err := GetLanguage("de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ word, want string }{
+		{"Schi[fff]ahrt", "Schi[fff]ahrt"},
+		{"Schi[ff]fahrt", "Schi[ff]-fahrt"},
+		{"beschä[ft]igt", "beschä[ft]igt"},
+		{"Donaudampfschi[fff]ahrtsgesellscha[ft]", "Donau-dampf-schi[fff]ahrts-ge-sell-scha[ft]"},
+		{"Donaudampfschi[ff]fahrtsgesellscha[ft]", "Donau-dampf-schi[ff]-fahrts-ge-sell-scha[ft]"},
+	} {
+		if got := hyphenatedGlyphs(t, l, splitLigatures(tc.word)); got != tc.want {
+			t.Errorf("%s: got %s, want %s", tc.word, got, tc.want)
+		}
 	}
 }
