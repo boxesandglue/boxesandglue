@@ -347,8 +347,14 @@ func (lb *linebreaker) calculateDemerits(active *Breakpoint, r float64, n Node) 
 		demerits -= curpenalty * curpenalty
 	}
 
+	// A line after one that ends at a discretionary: TeX counts the
+	// paragraph's end as a hyphenated break, so a hyphen on the second to
+	// last line costs FinalHyphenDemerits instead.
 	if _, ok := active.Position.(*Disc); ok {
-		if curflagged {
+		switch {
+		case n.Next() == nil:
+			demerits += lb.settings.FinalHyphenDemerits
+		case curflagged:
 			demerits += lb.settings.DoublehyphenDemerits
 		}
 	}

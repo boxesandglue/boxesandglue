@@ -61,6 +61,10 @@ type LinebreakSettings struct {
 	// DoublehyphenDemerits is added when two lines in a row end at a
 	// discretionary, TeX's \doublehyphendemerits. Default 3000.
 	DoublehyphenDemerits int
+	// FinalHyphenDemerits is added when the second to last line of a
+	// paragraph ends at a discretionary, TeX's \finalhyphendemerits.
+	// Default 5000.
+	FinalHyphenDemerits int
 	// EmergencyStretch is stretch the line breaker adds to every line it
 	// measures, TeX's \emergencystretch. Unlike TeX, which uses it in a
 	// last pass only, it counts for every line. Packing a line does not
@@ -195,6 +199,7 @@ type IndentStep struct {
 func NewLinebreakSettings() *LinebreakSettings {
 	ls := &LinebreakSettings{
 		DoublehyphenDemerits: 3000,
+		FinalHyphenDemerits:  5000,
 		DemeritsFitness:      100,
 		Hyphenpenalty:        50,
 		LinePenalty:          10,
