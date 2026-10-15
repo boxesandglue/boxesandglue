@@ -1,4 +1,4 @@
-[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/boxesandglue/boxesandglue)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de)
+[![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/boxesandglue/boxesandglue)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de/#boxesandglue)
 
 
 # Boxes and Glue
@@ -31,11 +31,17 @@ The frontend has high level methods to create a PDF document, load fonts, insert
 
 The backend has the small building blocks that are used to create documents. These building blocks are called “nodes” which can be chained together in linked lists, a node list.
 
-See the [architecture overview](https://github.com/boxesandglue/boxesandglue/discussions/2) for a more detailed description.
+See the [architecture overview](https://boxesandglue.dev/goapi/architecture/) for a more detailed description.
 
-## Status
+## Installation
 
-This library is still under development. Expect API changes.
+```bash
+go get github.com/boxesandglue/boxesandglue
+```
+
+## Documentation
+
+The [Go API manual](https://boxesandglue.dev/goapi/) explains fonts, paragraphs, tables, images and the node lists, the [Go reference](https://pkg.go.dev/github.com/boxesandglue/boxesandglue) lists every type and function.
 
 ## Contact
 
@@ -155,6 +161,6 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 
 Boxes and Glue is part of a broader ecosystem of PDF, typesetting and publishing technologies.
 
-**[Explore the constellation →](https://constellation.speedata.de)**
+**[Explore the constellation →](https://constellation.speedata.de/#boxesandglue)**
 
 
