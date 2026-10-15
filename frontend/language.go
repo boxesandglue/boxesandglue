@@ -1,8 +1,8 @@
 package frontend
 
 import (
-	"io"
 	"strings"
+	"sync"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/font"
@@ -84,7 +84,7 @@ func IsHyphenationSupported(langname string) bool {
 // The empty pattern set is the natural no-op: doHyphenate finds no matching
 // substring patterns, so no break positions are emitted.
 func newNoopLang(langname string) (*lang.Lang, error) {
-	l, err := lang.NewFromReader(strings.NewReader(""))
+	l, err := sharedLang("")
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +92,33 @@ func newNoopLang(langname string) (*lang.Lang, error) {
 	return l, nil
 }
 
+var (
+	sharedLangsMu sync.Mutex
+	// sharedLangs holds each pattern set parsed once, by its name in
+	// hyphenationpatterns, "" being the empty set.
+	sharedLangs = map[string]*lang.Lang{}
+)
+
+// sharedLang returns a Lang of the caller's own over the patterns named vn,
+// parsing them on their first use.
+func sharedLang(vn string) (*lang.Lang, error) {
+	sharedLangsMu.Lock()
+	defer sharedLangsMu.Unlock()
+	l, ok := sharedLangs[vn]
+	if !ok {
+		var err error
+		if l, err = lang.NewFromReader(strings.NewReader(hyphenationpatterns[vn])); err != nil {
+			return nil, err
+		}
+		sharedLangs[vn] = l
+	}
+	return l.Copy(), nil
+}
+
 // GetLanguageCached returns the language object for langname using
 // fe.Doc.Languages as a per-document cache. Use this from style-resolution
-// code that may request the same language many times — pattern parsing for
-// known languages still costs work, and creating a no-op for unknown tags
-// allocates two empty maps. Cached entries are keyed by the original tag
+// code that may request the same language many times, so the document holds
+// one language object per tag. Cached entries are keyed by the original tag
 // (case preserved); GetLanguage normalisation still applies on miss.
 func (fe *Document) GetLanguageCached(langname string) (*lang.Lang, error) {
 	if l, ok := fe.Doc.Languages[langname]; ok {
@@ -122,23 +144,19 @@ func (fe *Document) GetLanguageCached(langname string) (*lang.Lang, error) {
 // pattern availability should consult IsHyphenationSupported first.
 func GetLanguage(langname string) (*lang.Lang, error) {
 	newLangname := strings.ToLower(langname)
-	var r io.Reader
-	if vn, ok := languagecodeVarname[newLangname]; ok {
-		r = strings.NewReader(hyphenationpatterns[vn])
-	} else {
+	vn, ok := languagecodeVarname[newLangname]
+	if !ok {
 		if split := strings.Split(newLangname, "_"); len(split) > 1 {
 			newLangname = split[0]
-			if vn, ok := languagecodeVarname[newLangname]; ok {
-				r = strings.NewReader(hyphenationpatterns[vn])
-			}
+			vn, ok = languagecodeVarname[newLangname]
 		}
 	}
-	if r == nil {
+	if !ok {
 		bag.Logger.Debug("No hyphenation patterns; using no-op hyphenator", "name", langname)
 		return newNoopLang(langname)
 	}
 	bag.Logger.Debug("Load language from memory", "name", langname)
-	l, err := lang.NewFromReader(r)
+	l, err := sharedLang(vn)
 	if err != nil {
 		return nil, err
 	}

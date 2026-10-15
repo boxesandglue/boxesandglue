@@ -3,6 +3,8 @@ package lang
 import (
 	"io"
 	"os"
+	"slices"
+	"unicode/utf8"
 
 	"github.com/speedata/hyphenation"
 )
@@ -46,12 +48,21 @@ func NewFromReader(r io.Reader) (*Lang, error) {
 	return l, nil
 }
 
+// Copy returns a Lang of its own over the same patterns, which Hyphenate
+// never changes, so copies may hyphenate at once with different minimums.
+func (l *Lang) Copy() *Lang {
+	c := *l
+	return &c
+}
+
 // Hyphenate returns a slice of hyphenation points
 func (l *Lang) Hyphenate(word string) []int {
-	l.lang.Leftmin = l.Lefthyphenmin
-	l.lang.Rightmin = l.Righthyphenmin
-
-	hyphenpoints := l.lang.Hyphenate(word)
+	// The patterns keep their own minimums at zero, so they can be shared;
+	// these are the bounds they would apply, a point counting runes from the
+	// word's start.
+	first := 1 + max(l.Lefthyphenmin, 0)
+	end := utf8.RuneCountInString(word) + 1 - max(l.Righthyphenmin, 0)
+	hyphenpoints := slices.DeleteFunc(l.lang.Hyphenate(word), func(p int) bool { return p < first || p >= end })
 	// The slice hyphenpoints contains the valid break points
 	// after a character.
 	// We need the number of characters to move forward,

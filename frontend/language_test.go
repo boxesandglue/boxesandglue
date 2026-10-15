@@ -3,12 +3,17 @@ package frontend
 import (
 	"bytes"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"unicode"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/document"
+	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
+	"github.com/speedata/hyphenation"
 )
 
 func TestLoadLang(t *testing.T) {
@@ -162,6 +167,87 @@ func TestHyphenTakesScaleOfGlyphBeforeBreak(t *testing.T) {
 		}
 		if g, ok := disc.Pre.(*node.Glyph); !ok || g.HorizontalScale != tc.want {
 			t.Errorf("com|puter at %g|%g: hyphen %v, want scale %g", tc.first, tc.second, disc.Pre, tc.want)
+		}
+	}
+}
+
+// hyphenatedBy is what hyphenation's own minimums give for word, as the
+// distances Lang.Hyphenate returns.
+func hyphenatedBy(t *testing.T, patterns string, left, right int, word string) []int {
+	t.Helper()
+	hl, err := hyphenation.New(strings.NewReader(patterns))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hl.Leftmin, hl.Rightmin = left, right
+	points := hl.Hyphenate(word)
+	for i := len(points) - 1; i > 0; i-- {
+		points[i] -= points[i-1]
+	}
+	return points
+}
+
+var minimumWords = []string{"a", "an", "computer", "developers", "hyphenation", "extraordinary", "supercalifragilistic", "naïveté"}
+
+func TestHyphenateBreaksAsThePatternsOwnMinimumsDid(t *testing.T) {
+	for _, m := range []struct{ left, right int }{{-1, -1}, {0, 0}, {1, 1}, {2, 3}, {3, 2}, {4, 4}, {10, 10}} {
+		l, err := GetLanguage("en")
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.Lefthyphenmin, l.Righthyphenmin = m.left, m.right
+		for _, word := range minimumWords {
+			want := hyphenatedBy(t, hyphenationpatterns["en"], m.left, m.right, word)
+			if got := l.Hyphenate(word); !slices.Equal(got, want) {
+				t.Errorf("%q at minimums %d and %d: %v, want %v", word, m.left, m.right, got, want)
+			}
+		}
+	}
+}
+
+// Two documents' languages share their patterns, and each hyphenates by its
+// own minimums even while the other does.
+func TestTwoLanguagesHyphenateAtOnceByTheirOwnMinimums(t *testing.T) {
+	var langs [2]*lang.Lang
+	for i, m := range []int{1, 5} {
+		l, err := GetLanguage("en")
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.Lefthyphenmin, l.Righthyphenmin = m, m
+		langs[i] = l
+	}
+	var wants [2][][]int
+	for i, m := range []int{1, 5} {
+		for _, word := range minimumWords {
+			wants[i] = append(wants[i], hyphenatedBy(t, hyphenationpatterns["en"], m, m, word))
+		}
+	}
+	var wg sync.WaitGroup
+	for i := range langs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 200 {
+				for k, word := range minimumWords {
+					if got := langs[i].Hyphenate(word); !slices.Equal(got, wants[i][k]) {
+						t.Errorf("%q at minimums %d: %v, want %v", word, langs[i].Lefthyphenmin, got, wants[i][k])
+						return
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestGetLanguageParsesEachPatternSetOnce(t *testing.T) {
+	for _, tag := range []string{"en", "de_DE", "made-up-tag"} {
+		if _, err := GetLanguage(tag); err != nil {
+			t.Fatal(err)
+		}
+		if allocs := testing.AllocsPerRun(10, func() { _, _ = GetLanguage(tag) }); allocs > 5 {
+			t.Errorf("GetLanguage(%q) again made %.0f allocations, want at most 5: its patterns were parsed again", tag, allocs)
 		}
 	}
 }
