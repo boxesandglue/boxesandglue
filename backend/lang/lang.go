@@ -49,9 +49,11 @@ func NewFromReader(r io.Reader) (*Lang, error) {
 }
 
 // Copy returns a Lang of its own over the same patterns, which Hyphenate
-// never changes, so copies may hyphenate at once with different minimums.
+// never changes, with a word cache of its own, so copies may hyphenate at once
+// with different minimums and a copy's cache goes away with it.
 func (l *Lang) Copy() *Lang {
 	c := *l
+	c.lang = l.lang.Clone()
 	return &c
 }
 

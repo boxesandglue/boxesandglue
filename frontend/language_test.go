@@ -246,8 +246,28 @@ func TestGetLanguageParsesEachPatternSetOnce(t *testing.T) {
 		if _, err := GetLanguage(tag); err != nil {
 			t.Fatal(err)
 		}
-		if allocs := testing.AllocsPerRun(10, func() { _, _ = GetLanguage(tag) }); allocs > 5 {
-			t.Errorf("GetLanguage(%q) again made %.0f allocations, want at most 5: its patterns were parsed again", tag, allocs)
+		if allocs := testing.AllocsPerRun(10, func() { _, _ = GetLanguage(tag) }); allocs > 10 {
+			t.Errorf("GetLanguage(%q) again made %.0f allocations, want at most 10: its patterns were parsed again", tag, allocs)
 		}
+	}
+}
+
+// A language from GetLanguage hyphenates with a word cache of its own, so the
+// words one document hyphenates are not kept for every later one.
+func TestEachLanguageKeepsAWordCacheOfItsOwn(t *testing.T) {
+	const word = "hyphenation"
+	warm, err := GetLanguage("en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	warm.Hyphenate(word)
+	cached := testing.AllocsPerRun(10, func() { warm.Hyphenate(word) })
+	getting := testing.AllocsPerRun(10, func() { _, _ = GetLanguage("en") })
+	fresh := testing.AllocsPerRun(10, func() {
+		l, _ := GetLanguage("en")
+		l.Hyphenate(word)
+	})
+	if fresh-getting <= cached {
+		t.Errorf("a new language hyphenated %q with %.0f allocations, as a language that had hyphenated it already does (%.0f): it found the word in another's cache", word, fresh-getting, cached)
 	}
 }
