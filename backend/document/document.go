@@ -3426,7 +3426,11 @@ func (d *PDFDocument) Finish() error {
 	af := pdf.Array{}
 	nameTreeData := pdf.NameTreeData{}
 	for _, attachment := range d.Attachments {
-		filespec, ferr := d.embedFilespec(attachment, "Alternative")
+		rel := attachment.AFRelationship
+		if rel == "" {
+			rel = "Alternative"
+		}
+		filespec, ferr := d.embedFilespec(attachment, rel)
 		if ferr != nil {
 			return ferr
 		}

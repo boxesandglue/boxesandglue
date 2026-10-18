@@ -25,6 +25,13 @@ type Attachment struct {
 	MimeType string
 	// Data of the attachment
 	Data []byte
+	// AFRelationship is the /AFRelationship of a document-level
+	// attachment, its relation to the document: Alternative, Data,
+	// Source, Supplement or Unspecified (PDF 2.0 also knows
+	// EncryptedPayload, FormData and Schema). Empty means Alternative.
+	// Factur-X uses Data for the profiles MINIMUM and BASIC WL and
+	// Alternative for the others.
+	AFRelationship string
 }
 
 // AttachFile attaches a file to the document
