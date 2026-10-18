@@ -352,6 +352,8 @@ const (
 	// Lower values encourage hyphenation, higher discourage. TeX default
 	// is 50; lower (5–25) helps long compound words in German typesetting,
 	// higher (200+) discourages hyphenation in narrow English columns.
+	// 0 is a value too, unlike the HyphenPenalty option, where it keeps
+	// the default.
 	SettingHyphenPenalty
 	// SettingLinebreakTolerance carries node.LinebreakSettings.Tolerance as
 	// float64: the largest adjustment ratio a line may have, how far its
@@ -360,7 +362,9 @@ const (
 	// \tolerance: TeX's 200 is a ratio of about 1.26 and its 10000 one of
 	// about 4.64. The default is 4; set higher per paragraph or per element
 	// to give the line breaker more room (e.g. for narrow columns or text
-	// with few hyphenation opportunities).
+	// with few hyphenation opportunities). 0 accepts only lines that fit
+	// exactly, unlike the Tolerance option, where it keeps the default; a
+	// negative value is ignored.
 	SettingLinebreakTolerance
 	// SettingLinebreakEmergencyStretch carries
 	// node.LinebreakSettings.EmergencyStretch, TeX's \emergencystretch, as
@@ -1682,8 +1686,11 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	// -bag-linebreak-hyphen-penalty routed through htmlbag). The settings
 	// path takes precedence over the option-based defaults above so that
 	// per-element CSS can tune the line breaker's behaviour.
+	// A setting that is present counts, 0 included: Tolerance 0 accepts
+	// only lines that fit exactly, Hyphenpenalty 0 makes a hyphen cost
+	// nothing beyond the line's badness.
 	if v, ok := te.Settings[SettingLinebreakTolerance]; ok {
-		if t, ok := v.(float64); ok && t > 0 {
+		if t, ok := v.(float64); ok && t >= 0 {
 			ls.Tolerance = t
 		}
 	}
@@ -1693,7 +1700,7 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 		}
 	}
 	if v, ok := te.Settings[SettingHyphenPenalty]; ok {
-		if hp, ok := v.(int); ok && hp != 0 {
+		if hp, ok := v.(int); ok {
 			ls.Hyphenpenalty = hp
 		}
 	}
