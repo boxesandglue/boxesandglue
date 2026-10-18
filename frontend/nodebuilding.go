@@ -362,12 +362,14 @@ const (
 	// to give the line breaker more room (e.g. for narrow columns or text
 	// with few hyphenation opportunities).
 	SettingLinebreakTolerance
-	// SettingLinebreakEmergencyStretch carries TeX's \emergencystretch as
-	// bag.ScaledPoint. It adds a per-line stretch budget that the breaker
-	// may draw on as a last resort, so a feasible underfull break can be
-	// found when no natural stretch is available on the line (e.g. very
-	// long words in narrow columns). Default 0 disables it. Typical values
-	// are 1–3em of the body font size.
+	// SettingLinebreakEmergencyStretch carries
+	// node.LinebreakSettings.EmergencyStretch, TeX's \emergencystretch, as
+	// bag.ScaledPoint: extra stretch for every line in a last pass of the
+	// line breaker. That pass runs only when the paragraph cannot be broken
+	// within the tolerance without an emergency line (e.g. very long words
+	// in narrow columns), and a line that needs the stretch comes out
+	// loose. Default 0 disables it. Typical values are 1–3em of the body
+	// font size.
 	SettingLinebreakEmergencyStretch
 	// SettingHalfLeading selects the leading model for a paragraph (bool).
 	// When true, the leading (line height minus the line's natural
@@ -921,12 +923,13 @@ func Tolerance(tolerance float64) TypesettingOption {
 	}
 }
 
-// EmergencyStretch sets a per-line stretch budget that the line breaker
-// may use as a last resort when no natural stretch is available on a
-// candidate line. This is TeX's \emergencystretch and helps narrow
-// columns containing long words: without it the breaker may go overfull
-// rather than produce an underfull line. Default is 0 (disabled).
-// Typical values are 1–3em of the body font size.
+// EmergencyStretch sets extra stretch for every line in a last pass of the
+// line breaker, TeX's \emergencystretch (see
+// node.LinebreakSettings.EmergencyStretch). That pass runs only when the
+// paragraph cannot be broken within the tolerance without an emergency
+// line, an overfull or too loose one; a line that needs the stretch comes
+// out loose. It helps narrow columns containing long words. Default is 0
+// (disabled). Typical values are 1–3em of the body font size.
 func EmergencyStretch(es bag.ScaledPoint) TypesettingOption {
 	return func(p *Options) {
 		p.EmergencyStretch = es
