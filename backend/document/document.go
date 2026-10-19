@@ -3,6 +3,7 @@ package document
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -2282,6 +2283,7 @@ func (p *Page) Shipout() {
 	}
 	for i := range usedImages {
 		page.Images = append(page.Images, i)
+		p.document.placedImages[i] = true
 	}
 	if err := materializeShadingsOnPage(page, p.document, allShadings); err != nil {
 		bag.Logger.Error("write shading pattern", "err", err)
@@ -2759,6 +2761,7 @@ type PDFDocument struct {
 	outputDebug          *outputDebug
 	curOutputDebug       *outputDebug
 	usedPDFImages        map[string]*pdf.Imagefile
+	placedImages         map[*pdf.Imagefile]bool // images on shipped out pages, checked in Finish
 	numDestinations      map[int]NumDest
 	DefaultLanguageTag   string // BCP 47 language tag for the document catalog (e.g. "de", "en-US")
 	Author               string
@@ -2866,6 +2869,7 @@ func NewDocument(w io.Writer) *PDFDocument {
 		CompressLevel:     9,
 		producer:          "boxesandglue.dev",
 		usedPDFImages:     make(map[string]*pdf.Imagefile),
+		placedImages:      make(map[*pdf.Imagefile]bool),
 		outputDebug: &outputDebug{
 			Name: "pdfdocument",
 		},
@@ -3194,6 +3198,9 @@ func (d *PDFDocument) Finish() error {
 	// NewDocument by the caller). The PDF header is written lazily on the
 	// first byte to outfile, which happens during FinishAndClose below.
 	d.PDFWriter.SetVersion(d.Format.pdfVersion())
+	if err = d.checkImages(); err != nil {
+		return err
+	}
 	d.PDFWriter.Catalog = pdf.Dict{}
 
 	d.writeLinkActions()
@@ -3452,6 +3459,35 @@ func (d *PDFDocument) Finish() error {
 	}
 
 	return nil
+}
+
+// checkImages returns an error for each placed image that the claimed
+// conformance does not allow. PDF/X-3 is based on PDF 1.3 and allows
+// neither 16 bits per component nor a soft mask (transparency); a color
+// key mask is fine.
+func (d *PDFDocument) checkImages() error {
+	if !d.Format.IsPDFX3() {
+		return nil
+	}
+	var msgs []string
+	for imgf := range d.placedImages {
+		name := imgf.Filename
+		if name == "" {
+			name = "(loaded without a file name)"
+		}
+		if bpc := imgf.BitsPerComponent(); bpc > 8 {
+			msgs = append(msgs, fmt.Sprintf("image %s has %d bits per channel, which PDF/X-3 does not allow; convert it to 8 bits", name, bpc))
+		}
+		if imgf.HasSoftMask() {
+			msgs = append(msgs, fmt.Sprintf("image %s has an alpha channel, which PDF/X-3 does not allow (no transparency); flatten it or use PDF/X-4", name))
+		}
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	// Map order is random, keep the message stable.
+	slices.Sort(msgs)
+	return errors.New(strings.Join(msgs, "\n"))
 }
 
 // Callback represents the type of callback to register.
