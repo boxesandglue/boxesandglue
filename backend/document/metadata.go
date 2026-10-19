@@ -133,9 +133,7 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		if f.IsPDFA() || f.IsPDFUA() || f.IsPDFX() {
 			x.start("dc:title")
 			x.start("rdf:Alt")
-			x.start("rdf:li", "xml:lang", "x-default")
-			x.text(t)
-			x.end("rdf:li")
+			x.textElement("rdf:li", t, "xml:lang", "x-default")
 			x.end("rdf:Alt")
 			x.end("dc:title")
 		} else {
@@ -147,9 +145,7 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 		if f.IsPDFA() {
 			x.start("dc:creator")
 			x.start("rdf:Seq")
-			x.start("rdf:li")
-			x.text(a)
-			x.end("rdf:li")
+			x.textElement("rdf:li", a)
 			x.end("rdf:Seq")
 			x.end("dc:creator")
 		} else {

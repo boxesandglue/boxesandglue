@@ -32,3 +32,27 @@ func TestMetadataDeclaresPDFUAIDForPDFA(t *testing.T) {
 		}
 	}
 }
+
+// The XMP values of dc:title and dc:creator are exactly the title and the
+// author, without surrounding white space. Otherwise Acrobat's PDF/X-4
+// preflight reports that the document properties and the XMP disagree.
+func TestMetadataLanguageAlternativeValue(t *testing.T) {
+	for _, format := range []string{"PDF/A-3b", "PDF/UA-1", "PDF/X-3", "PDF/X-4"} {
+		f, err := ParseFormat(format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := NewDocument(&bytes.Buffer{})
+		d.Format = f
+		d.Title = "A & B"
+		d.Author = "C"
+		var xmp bytes.Buffer
+		d.getMetadata(&xmp)
+		if !strings.Contains(xmp.String(), `<rdf:li xml:lang="x-default">A &amp; B</rdf:li>`) {
+			t.Errorf("%s: title not written as the exact value in\n%s", format, xmp.String())
+		}
+		if f.IsPDFA() && !strings.Contains(xmp.String(), "<rdf:li>C</rdf:li>") {
+			t.Errorf("%s: author not written as the exact value in\n%s", format, xmp.String())
+		}
+	}
+}

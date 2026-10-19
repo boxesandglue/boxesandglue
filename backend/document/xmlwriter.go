@@ -52,17 +52,16 @@ func (x *xmlWriter) empty(name string, attrs ...string) {
 	fmt.Fprint(x.w, "/>\n")
 }
 
-// text writes raw text content (XML-escaped) at the current position,
-// without any surrounding element or indentation.
-func (x *xmlWriter) text(s string) {
-	fmt.Fprint(x.w, xmlEscape(s))
-}
-
-// textElement writes an element with text content on a single line:
-// <name>text</name>
-func (x *xmlWriter) textElement(name, text string) {
+// textElement writes an element with text content and optional attributes
+// on a single line: <name attr="value">text</name>. The text is the
+// element's whole value, so no white space may surround it.
+func (x *xmlWriter) textElement(name, text string, attrs ...string) {
 	x.writeIndent()
-	fmt.Fprintf(x.w, "<%s>%s</%s>\n", name, xmlEscape(text), name)
+	fmt.Fprintf(x.w, "<%s", name)
+	for i := 0; i+1 < len(attrs); i += 2 {
+		fmt.Fprintf(x.w, " %s=%q", attrs[i], attrs[i+1])
+	}
+	fmt.Fprintf(x.w, ">%s</%s>\n", xmlEscape(text), name)
 }
 
 func (x *xmlWriter) writeIndent() {

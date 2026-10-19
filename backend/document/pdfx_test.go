@@ -137,7 +137,7 @@ func TestPDFXTitleFallback(t *testing.T) {
 		if !strings.Contains(out, "/Title (Untitled)") {
 			t.Errorf("%s: no /Title (Untitled) in the Info dictionary", f)
 		}
-		if !strings.Contains(strings.Join(strings.Fields(out), ""), `<dc:title><rdf:Alt><rdf:lixml:lang="x-default">Untitled</rdf:li></rdf:Alt></dc:title>`) {
+		if !strings.Contains(out, `<rdf:li xml:lang="x-default">Untitled</rdf:li>`) {
 			t.Errorf("%s: dc:title is not a language alternative", f)
 		}
 	}
