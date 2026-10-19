@@ -1,6 +1,8 @@
 package frontend
 
 import (
+	"slices"
+
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/boxesandglue/backend/node"
@@ -8,25 +10,60 @@ import (
 )
 
 type styles struct {
-	// decoration is the line currently open, or TextDecorationLineNone.
-	decoration TextDecorationLine
-	// style is how that line is drawn.
+	// decorations are the decoration lines open at this point, in the order
+	// they opened. Several can be open at once: an underlined and struck run,
+	// or a struck span inside an underlined one.
+	decorations []*openDecoration
+	// backgrounds is the stack of inline background boxes open at this point
+	// of the line, outermost first. See postLinebreakBackgroundLine.
+	backgrounds []*inlineBackground
+}
+
+// openDecoration is a decoration line whose start marker the walk has passed
+// but not its stop marker.
+type openDecoration struct {
+	// start is the marker that opened the line; its stop points back to it.
+	start *node.StartStop
+	// style is how the line is drawn.
 	style TextDecorationStyle
 	// col overrides the text colour; nil means CSS's `currentColor`.
 	col *color.Color
 	// pos is the line's offset from the baseline, negative below it.
 	pos       bag.ScaledPoint
 	linewidth bag.ScaledPoint
-	// backgrounds is the stack of inline background boxes open at this point
-	// of the line, outermost first. See postLinebreakBackgroundLine.
-	backgrounds []*inlineBackground
+}
+
+// newOpenDecoration reads the line a decoration start marker describes.
+func newOpenDecoration(ss *node.StartStop) *openDecoration {
+	d := &openDecoration{start: ss, style: TextDecorationStyleSolid}
+	if v, ok := ss.GetAttribute("decorationpos"); ok {
+		if pos, ok := v.(bag.ScaledPoint); ok {
+			d.pos = pos
+		}
+	}
+	if v, ok := ss.GetAttribute("decorationlw"); ok {
+		if lw, ok := v.(bag.ScaledPoint); ok {
+			d.linewidth = lw
+		}
+	}
+	if v, ok := ss.GetAttribute("decorationstyle"); ok {
+		if style, ok := v.(TextDecorationStyle); ok {
+			d.style = style
+		}
+	}
+	if v, ok := ss.GetAttribute("decorationcolor"); ok {
+		if col, ok := v.(*color.Color); ok {
+			d.col = col
+		}
+	}
+	return d
 }
 
 // DecorationOffset returns where a text-decoration line sits relative to the
 // baseline, as a fraction of the font size. The fractions match the underline
 // offset this package has always used; no font exposes its post/OS-2
 // underline or strikeout metrics here yet, so all three lines are derived the
-// same way.
+// same way. line is a single line, not a set of them.
 func DecorationOffset(line TextDecorationLine, fontsize bag.ScaledPoint) bag.ScaledPoint {
 	switch line {
 	case TextDecorationUnderline:
@@ -62,7 +99,7 @@ func lastInked(start, stop node.Node) node.Node {
 	return stop
 }
 
-func drawDecoration(head, start, stop node.Node, st *styles) node.Node {
+func drawDecoration(head, start, stop node.Node, st *openDecoration) node.Node {
 	wd, _, _ := node.Dimensions(start, stop, node.Horizontal)
 	pd := pdfdraw.NewStandalone().LineWidth(st.linewidth)
 	if st.col != nil {
@@ -134,69 +171,74 @@ func wave(pd *pdfdraw.Object, wd, pos, lw bag.ScaledPoint) *pdfdraw.Object {
 }
 
 func postLinebreakHL(n node.Node, st *styles) node.Node {
-	decoratedFromStart := st.decoration != TextDecorationLineNone
-	var decorationStart, decorationStop node.Node
+	// from is where each line drawn in this list begins. A line already open
+	// when the list starts begins at its head, recorded as nil because drawing
+	// in front of the head moves it. A line that opens in a nested list and
+	// is still open after it has no entry: the nested list drew it.
+	from := make(map[*openDecoration]node.Node, len(st.decorations))
+	for _, d := range st.decorations {
+		from[d] = nil
+	}
 	var head, tail node.Node
 	head = n
 	for e := n; e != nil; e = e.Next() {
 		tail = e
-		if hl, ok := e.(*node.HList); ok {
-			hl.List = postLinebreakHL(hl.List, st)
-		} else if vl, ok := e.(*node.VList); ok {
-			vl.List = postLinebreakHL(vl.List, st)
-		} else if ss, ok := e.(*node.StartStop); ok {
-			if val, ok := ss.GetAttribute("decoration"); ok {
-				if line, _ := val.(TextDecorationLine); line != TextDecorationLineNone {
-					st.decoration = line
-					decorationStart = ss
-					if pos, ok := ss.GetAttribute("decorationpos"); ok {
-						if pos != nil {
-							st.pos = pos.(bag.ScaledPoint)
-						}
-					}
-					if lw, ok := ss.GetAttribute("decorationlw"); ok {
-						if lw != nil {
-							st.linewidth = lw.(bag.ScaledPoint)
-						}
-					}
-					st.style = TextDecorationStyleSolid
-					if v, ok := ss.GetAttribute("decorationstyle"); ok {
-						if style, ok := v.(TextDecorationStyle); ok {
-							st.style = style
-						}
-					}
-					st.col = nil
-					if v, ok := ss.GetAttribute("decorationcolor"); ok {
-						if col, ok := v.(*color.Color); ok {
-							st.col = col
-						}
-					}
-				} else {
-					if decoratedFromStart {
-						head = drawDecoration(head, head, e, st)
-					}
-					st.decoration = TextDecorationLineNone
-					decorationStop = ss
+		switch t := e.(type) {
+		case *node.HList:
+			t.List = postLinebreakHL(t.List, st)
+		case *node.VList:
+			t.List = postLinebreakHL(t.List, st)
+		case *node.StartStop:
+			val, ok := t.GetAttribute("decoration")
+			if !ok {
+				continue
+			}
+			if line, _ := val.(TextDecorationLine); line != TextDecorationLineNone {
+				d := newOpenDecoration(t)
+				st.decorations = append(st.decorations, d)
+				from[d] = t
+				continue
+			}
+			i := st.openDecoration(t.StartNode)
+			if i < 0 {
+				continue
+			}
+			d := st.decorations[i]
+			st.decorations = slices.Delete(st.decorations, i, i+1)
+			if begin, ok := from[d]; ok {
+				if begin == nil {
+					begin = head
 				}
+				head = drawDecoration(head, begin, e, d)
 			}
 		}
-		if decorationStart != nil && decorationStop != nil {
-			head = drawDecoration(head, decorationStart, decorationStop, st)
-			decorationStart = nil
-			decorationStop = nil
-		}
 	}
-	if st.decoration != TextDecorationLineNone {
-		if decorationStart == nil && decorationStop == nil {
-			// whole line
-			head = drawDecoration(head, head, lastInked(head, tail), st)
+	// Lines still open run on into the next line; here they end at the text.
+	for _, d := range st.decorations {
+		begin, ok := from[d]
+		if !ok {
+			continue
 		}
-		if decorationStart != nil {
-			// up to the end
-			head = drawDecoration(head, decorationStart, lastInked(decorationStart, tail), st)
+		if begin == nil {
+			begin = head
 		}
+		head = drawDecoration(head, begin, lastInked(begin, tail), d)
 	}
 	return head
+}
+
+// openDecoration returns the index of the open line that start opened. A stop
+// marker without a start closes the line opened last. -1 means none is open.
+func (st *styles) openDecoration(start *node.StartStop) int {
+	if start == nil {
+		return len(st.decorations) - 1
+	}
+	for i, d := range st.decorations {
+		if d.start == start {
+			return i
+		}
+	}
+	return -1
 }
 
 func postLinebreak(vl *node.VList) *node.VList {

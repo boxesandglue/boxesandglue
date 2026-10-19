@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -101,19 +102,32 @@ const (
 	FontStyleOblique
 )
 
-// TextDecorationLine sets the underline type
+// TextDecorationLine is a set of text-decoration lines. The lines combine with
+// |, as CSS's text-decoration-line takes several at once ("underline
+// line-through").
 type TextDecorationLine int
 
 const (
-	// TextDecorationLineNone means no underline
-	TextDecorationLineNone TextDecorationLine = iota
+	// TextDecorationLineNone means no line
+	TextDecorationLineNone TextDecorationLine = 0
 	// TextDecorationUnderline is a simple underlining
-	TextDecorationUnderline
+	TextDecorationUnderline TextDecorationLine = 1 << (iota - 1)
 	// TextDecorationOverline has a line above
 	TextDecorationOverline
 	// TextDecorationLineThrough is a strike out
 	TextDecorationLineThrough
 )
+
+// textDecorationLines are the single lines a TextDecorationLine set is made of.
+var textDecorationLines = []TextDecorationLine{TextDecorationUnderline, TextDecorationOverline, TextDecorationLineThrough}
+
+// TextDecoration is one text decoration: a set of lines drawn in one style and
+// colour. A nil Color takes the text colour of the run, CSS's `currentColor`.
+type TextDecoration struct {
+	Line  TextDecorationLine
+	Style TextDecorationStyle
+	Color *color.Color
+}
 
 // TextDecorationStyle is the CSS text-decoration-style property: how the
 // decoration line is drawn.
@@ -449,6 +463,14 @@ const (
 	// paragraph's own font, which it loads as its glyphs would if no glyph
 	// has yet. Read at the paragraph level. Unset records nothing.
 	SettingRecordLineTrims
+	// SettingTextDecorations ([]TextDecoration) are decorations of a run in
+	// addition to the one SettingTextDecorationLine, SettingTextDecorationStyle
+	// and SettingTextDecorationColor describe. Each is drawn with its own style
+	// and colour, so a struck span inside an underlined one keeps both lines:
+	// in CSS the decorations of the ancestors propagate to a descendant, its
+	// own do not replace them. A child text that sets the list replaces the
+	// parent's, as with any setting, so it has to hold the ancestors' entries.
+	SettingTextDecorations
 )
 
 // BackgroundArea is the box an inline background covers vertically. CSS 2.1
@@ -635,6 +657,8 @@ func (st SettingType) String() string {
 		settingName = "SettingTabStops"
 	case SettingTextDecorationLine:
 		settingName = "SettingTextDecorationLine"
+	case SettingTextDecorations:
+		settingName = "SettingTextDecorations"
 	case SettingVAlign:
 		settingName = "SettingVAlign"
 	case SettingWidth:
@@ -765,6 +789,10 @@ func debugText(ts *Text, enc *xml.Encoder) {
 			}
 		case TextDecorationLine:
 			if t == 0 {
+				showSetting = false
+			}
+		case []TextDecoration:
+			if len(t) == 0 {
 				showSetting = false
 			}
 		case HangingPunctuation:
@@ -2392,10 +2420,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	var col *color.Color
 	var hyperlink document.Hyperlink
 	var hasHyperlink bool
-	// The text-decoration line to draw, or TextDecorationLineNone, and how.
+	// The text-decoration lines to draw, or TextDecorationLineNone, and how,
+	// and the decorations propagated from the ancestors.
 	decorationLine := TextDecorationLineNone
 	decorationStyle := TextDecorationStyleSolid
 	var decorationColor *color.Color
+	var decorations []TextDecoration
 	fontfeatures := make([]ot.Feature, 0, len(fe.DefaultFeatures))
 	for _, f := range fe.DefaultFeatures {
 		fontfeatures = append(fontfeatures, f)
@@ -2463,6 +2493,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingTextDecorationColor:
 			if col, ok := v.(*color.Color); ok {
 				decorationColor = col
+			}
+		case SettingTextDecorations:
+			if d, ok := v.([]TextDecoration); ok {
+				decorations = d
 			}
 		case SettingFontExpansion:
 			// ignore
@@ -2583,30 +2617,51 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			head = hyperlinkStart
 		}
 	}
-	var decorationStart *node.StartStop
 	if decorationLine != TextDecorationLineNone {
-		decorationStart = node.NewStartStop()
-		decorationStart.SetAttribute("decoration", decorationLine)
-		decorationStart.SetAttribute("decorationpos", DecorationOffset(decorationLine, fontsize))
-		decorationStart.SetAttribute("decorationlw", fontsize/20)
-		decorationStart.SetAttribute("decorationstyle", decorationStyle)
-		if decorationColor != nil {
-			decorationStart.SetAttribute("decorationcolor", decorationColor)
-		} else if col != nil {
-			// CSS text-decoration-color defaults to currentColor. Glyphs
-			// are filled but the rule is stroked, and stroking has its own
-			// colour state that nobody sets, so without an explicit colour
-			// the rule would come out in the PDF default black. Hand the
-			// run's text colour to the drawing instead.
-			decorationStart.SetAttribute("decorationcolor", col)
+		// Clip, so the append never writes into the settings' slice.
+		decorations = append(slices.Clip(decorations), TextDecoration{Line: decorationLine, Style: decorationStyle, Color: decorationColor})
+	}
+	// One start marker per line of each decoration: the lines differ in
+	// offset, and the decorations in style and colour. The stop markers at the
+	// end of the run point back to them, which is how postLinebreak pairs
+	// them while several lines are open at once.
+	var decorationStarts []*node.StartStop
+	// markers is the last of the markers in front of the glyphs, which the
+	// glyph loop starts inserting after.
+	var markers node.Node
+	if head != nil {
+		markers = node.Tail(head)
+	}
+	for _, d := range decorations {
+		for _, line := range textDecorationLines {
+			if d.Line&line == 0 {
+				continue
+			}
+			decorationStart := node.NewStartStop()
+			decorationStart.SetAttribute("decoration", line)
+			decorationStart.SetAttribute("decorationpos", DecorationOffset(line, fontsize))
+			decorationStart.SetAttribute("decorationlw", fontsize/20)
+			decorationStart.SetAttribute("decorationstyle", d.Style)
+			if d.Color != nil {
+				decorationStart.SetAttribute("decorationcolor", d.Color)
+			} else if col != nil {
+				// CSS text-decoration-color defaults to currentColor. Glyphs
+				// are filled but the rule is stroked, and stroking has its own
+				// colour state that nobody sets, so without an explicit colour
+				// the rule would come out in the PDF default black. Hand the
+				// run's text colour to the drawing instead.
+				decorationStart.SetAttribute("decorationcolor", col)
+			}
+			decorationStart.SetAttribute("SettingTextDecorationLine", line)
+			if markers != nil {
+				head = node.InsertAfter(head, markers, decorationStart)
+			} else {
+				head = decorationStart
+			}
+			markers = decorationStart
+			decorationStart.Action = node.ActionUserSetting
+			decorationStarts = append(decorationStarts, decorationStart)
 		}
-		decorationStart.SetAttribute("SettingTextDecorationLine", decorationLine)
-		if head != nil {
-			head = node.InsertAfter(head, head, decorationStart)
-		} else {
-			head = decorationStart
-		}
-		decorationStart.Action = node.ActionUserSetting
 	}
 	// The colour operator has to precede the glyphs, so it is the node the
 	// glyph loop starts inserting after. Keep it separate from head: head is
@@ -2619,11 +2674,12 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		colStart.ShipoutCallback = func(n node.Node) string {
 			return col.PDFStringNonStroking() + " "
 		}
-		if head != nil {
-			head = node.InsertAfter(head, head, colStart)
+		if markers != nil {
+			head = node.InsertAfter(head, markers, colStart)
 		} else {
 			head = colStart
 		}
+		markers = colStart
 	}
 	// Reconcile the white-space mode with the older SettingPreserveWhitespace
 	// boolean. The boolean is still set directly — the leader-pattern builder
@@ -2642,10 +2698,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		hyphensMode = "none"
 	}
 
-	cur = head
-	if colStart != nil {
-		cur = colStart
-	}
+	cur = markers
 	scaled := func(wd bag.ScaledPoint) bag.ScaledPoint {
 		if hscale == 1 {
 			return wd
@@ -2880,9 +2933,9 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		node.InsertAfter(head, cur, stop)
 		cur = stop
 	}
-	if decorationLine != TextDecorationLineNone {
+	for i := len(decorationStarts) - 1; i >= 0; i-- {
 		decorationStop := node.NewStartStop()
-		decorationStop.StartNode = decorationStart
+		decorationStop.StartNode = decorationStarts[i]
 		decorationStop.SetAttribute("decoration", TextDecorationLineNone)
 		head = node.InsertAfter(head, cur, decorationStop)
 		cur = decorationStop
