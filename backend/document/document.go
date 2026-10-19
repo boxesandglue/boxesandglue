@@ -3373,14 +3373,20 @@ func (d *PDFDocument) Finish() error {
 
 	}
 
-	// PDF/UA requires a document title (dc:title in XMP and a non-empty
-	// Info /Title, surfaced via DisplayDocTitle). If the caller never set
-	// one by the time metadata is written, fall back to a placeholder so the
-	// file stays conformant, but warn: a real, meaningful title should be set
-	// for accessibility.
-	if d.Format.IsPDFUA() && d.Title == "" {
-		bag.Logger.Warn("PDF/UA: no document title set; using a default placeholder. Set a real title for accessibility.")
-		d.Title = "Untitled"
+	// PDF/UA and PDF/X require a document title (dc:title in XMP and a
+	// non-empty Info /Title, for PDF/UA surfaced via DisplayDocTitle). If
+	// the caller never set one by the time metadata is written, fall back
+	// to a placeholder so the file stays conformant, but warn: a real,
+	// meaningful title should be set.
+	if d.Title == "" {
+		switch {
+		case d.Format.IsPDFUA():
+			bag.Logger.Warn("PDF/UA: no document title set; using a default placeholder. Set a real title for accessibility.")
+			d.Title = "Untitled"
+		case d.Format.IsPDFX():
+			bag.Logger.Warn("PDF/" + d.Format.PDFX.Variant + ": no document title set; using a default placeholder. Set a real title.")
+			d.Title = "Untitled"
+		}
 	}
 
 	rdf := d.PDFWriter.NewObject()

@@ -127,10 +127,10 @@ func (d *PDFDocument) getMetadata(w io.Writer) {
 	x.textElement("pdf:Producer", d.producer)
 
 	if t := d.Title; t != "" {
-		// PDF/A and PDF/UA both require dc:title as a language-alternative
+		// PDF/A, PDF/UA and PDF/X require dc:title as a language-alternative
 		// (rdf:Alt with x-default); plain dc:title text is non-conformant
-		// for both standards.
-		if f.IsPDFA() || f.IsPDFUA() {
+		// for these standards.
+		if f.IsPDFA() || f.IsPDFUA() || f.IsPDFX() {
 			x.start("dc:title")
 			x.start("rdf:Alt")
 			x.start("rdf:li", "xml:lang", "x-default")

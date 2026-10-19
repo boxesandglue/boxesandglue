@@ -120,3 +120,39 @@ func TestPDFX3ImageErrorNamesFile(t *testing.T) {
 		t.Errorf("got error %v, want %q", err, want)
 	}
 }
+
+// PDF/X requires a title. Without one, Finish falls back to "Untitled" and
+// writes dc:title as a language alternative, as for PDF/UA.
+func TestPDFXTitleFallback(t *testing.T) {
+	for _, f := range []Format{FormatPDFX3, FormatPDFX4} {
+		var buf bytes.Buffer
+		d := NewDocument(&buf)
+		d.Format = f
+		d.CompressLevel = 0
+		d.NewPage().Shipout()
+		if err := d.Finish(); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "/Title (Untitled)") {
+			t.Errorf("%s: no /Title (Untitled) in the Info dictionary", f)
+		}
+		if !strings.Contains(strings.Join(strings.Fields(out), ""), `<dc:title><rdf:Alt><rdf:lixml:lang="x-default">Untitled</rdf:li></rdf:Alt></dc:title>`) {
+			t.Errorf("%s: dc:title is not a language alternative", f)
+		}
+	}
+}
+
+// Plain PDF keeps an empty title.
+func TestPDFNoTitleFallback(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.CompressLevel = 0
+	d.NewPage().Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "Untitled") {
+		t.Error("plain PDF got a placeholder title")
+	}
+}
