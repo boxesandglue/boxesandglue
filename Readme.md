@@ -1,7 +1,7 @@
 [![Go reference documentation](https://img.shields.io/badge/doc-go%20reference-73FA79)](https://pkg.go.dev/github.com/boxesandglue/boxesandglue)&nbsp;[![Homepage](https://img.shields.io/badge/homepage-boxesandglue.dev-blue)](https://boxesandglue.dev)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de/#boxesandglue)
 
 
-# Boxes and Glue
+# boxes and glue
 
 This is a PDF typesetting library/backend in the spirit of TeX's algorithms. TeX is a typesetting system which is well known for its superb output quality.
 
@@ -12,8 +12,8 @@ This is why this repository is called “boxes and glue”.
 ## Features
 
 * High speed (“Ludicrous mode”). A simple document is created within 10ms on a macBook. This includes loading an OpenType font, typesetting text and writing the PDF file.
-* High output quality. Boxes and glue uses TeX's line breaking algorithm to create the optimal line breaks.
-* Extensibility: See the API section below. Boxes and glue is split into a high level frontend and a low level backend to provide the API you need.
+* High output quality. boxes and glue uses TeX's line breaking algorithm to create the optimal line breaks.
+* Extensibility: See the API section below. boxes and glue is split into a high level frontend and a low level backend to provide the API you need.
 * OpenType features and font shaping with harfbuzz. Harfbuzz is well known for its awesome language support.
 
 ## API
@@ -159,7 +159,7 @@ To get a PDF/UA (universal accessibility) document, insert the following lines b
 
 ## Ecosystem
 
-Boxes and Glue is part of a broader ecosystem of PDF, typesetting and publishing technologies.
+boxes and glue is part of a broader ecosystem of PDF, typesetting and publishing technologies.
 
 **[Explore the constellation →](https://constellation.speedata.de/#boxesandglue)**
 
