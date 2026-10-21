@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
@@ -2227,30 +2228,37 @@ func shapeWithBidi(fnt *font.Font, str string, features []ot.Feature, variations
 	if str == "" {
 		return nil, nil
 	}
-	// Soft-hyphen handling. The shaper is configured to drop default-ignorables
-	// from the buffer (font.ShapeDir sets BufferFlagRemoveDefaultIgnorables), so
-	// U+00AD never reaches the atom loop on its own. We split the input on
-	// U+00AD here, shape each segment in its own bidi pass, and emit a sentinel
-	// atom between segments (Components == "­", IsSpace=false). The atom
-	// loop in BuildNodelistFromString recognises this sentinel and turns it
-	// into a discretionary break (or drops it for `hyphens: none`).
-	if strings.ContainsRune(str, '­') {
-		segments := strings.Split(str, "­")
+	// Soft hyphen and zero width space. The shaper is configured to drop
+	// default-ignorables from the buffer (font.ShapeDir sets
+	// BufferFlagRemoveDefaultIgnorables), so U+00AD and U+200B never reach
+	// the atom loop on their own. We split the input on them here, shape each
+	// segment in its own bidi pass, and emit a sentinel atom in place of each
+	// (Components is the character, IsSpace=false). The atom loop in
+	// BuildNodelistFromString turns a soft hyphen into a discretionary break
+	// (or drops it for `hyphens: none`) and a zero width space into a break
+	// opportunity without width.
+	if strings.ContainsAny(str, "\u00AD\u200B") {
+		lvl := uint8(0)
+		if paragraphDir == DirectionRTL {
+			lvl = 1
+		}
 		var atoms []font.Atom
 		var levels []uint8
-		for i, seg := range segments {
-			if i > 0 {
-				lvl := uint8(0)
-				if paragraphDir == DirectionRTL {
-					lvl = 1
-				}
-				atoms = append(atoms, font.Atom{Components: "­"})
-				levels = append(levels, lvl)
+		start := 0
+		for i, r := range str {
+			if r != '\u00AD' && r != '\u200B' {
+				continue
 			}
-			segAtoms, segLevels := shapeWithBidi(fnt, seg, features, variations, paragraphDir)
+			segAtoms, segLevels := shapeWithBidi(fnt, str[start:i], features, variations, paragraphDir)
 			atoms = append(atoms, segAtoms...)
 			levels = append(levels, segLevels...)
+			atoms = append(atoms, font.Atom{Components: string(r)})
+			levels = append(levels, lvl)
+			start = i + utf8.RuneLen(r)
 		}
+		segAtoms, segLevels := shapeWithBidi(fnt, str[start:], features, variations, paragraphDir)
+		atoms = append(atoms, segAtoms...)
+		levels = append(levels, segLevels...)
 		return atoms, levels
 	}
 	defaultDir := bidi.LeftToRight
@@ -2836,6 +2844,25 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					}
 				}
 			}
+		} else if r.Components == "\u200B" {
+			// Zero width space (U+200B). CSS Text 3 §5.1: no width, but a
+			// soft wrap opportunity. A glue without width, stretch or shrink
+			// is a legal breakpoint after a glyph. `pre` and `nowrap` do not
+			// wrap, so the glue gets an infinite penalty in front of it, as a
+			// no-break space does. The glue stays in either case: xts marks
+			// an empty paragraph with a lone zero width space.
+			if !whiteSpace.breaksAtSpace() {
+				p := node.NewPenalty()
+				p.Penalty = 10000
+				head = node.InsertAfter(head, cur, p)
+				cur = p
+			}
+			g := node.NewGlue()
+			g.Attributes = node.H{"origin": "zwsp"}
+			head = node.InsertAfter(head, cur, g)
+			cur = g
+			// A space after the zero width space still counts.
+			lastglue = nil
 		} else if r.Components == "­" {
 			// Soft hyphen (U+00AD). CSS Text 3 §6:
 			//   * `hyphens: none`   → never break here, drop the codepoint
