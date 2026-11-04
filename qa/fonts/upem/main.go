@@ -45,7 +45,7 @@ func typesetSample() error {
 	paperheight := bag.MustSP("297mm")
 	sep := onecm / 2
 	textwd := bag.MustSP("125pt")
-	textht := bag.MustSP(("6cm")) //approx
+	textht := bag.MustSP(("6cm")) // approx
 
 	locX := []bag.ScaledPoint{sep}
 	locY := []bag.ScaledPoint{paperheight - sep}
