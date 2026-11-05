@@ -200,9 +200,34 @@ type FontSource struct {
 	// (see font.Font.Slant). GetFontSource sets it to SyntheticSlant on the
 	// copy of an upright it makes for a missing italic.
 	Slant float64
+	// UnicodeRange restricts the source to these code points, as CSS's
+	// unicode-range descriptor does. Empty covers all of Unicode. Sources of
+	// one family with the same weight and style form a composite face: each
+	// character takes the last added source whose range contains it and
+	// that has a glyph for it.
+	UnicodeRange []CodepointRange
 	// upright is the source a synthetic oblique was copied from, whose face
 	// it shares.
 	upright *FontSource
+}
+
+// CodepointRange is the code points Low to High, both included.
+type CodepointRange struct {
+	Low, High rune
+}
+
+// Covers reports whether r lies in the source's UnicodeRange, which is true
+// for every r when the source has no range.
+func (fs *FontSource) Covers(r rune) bool {
+	if len(fs.UnicodeRange) == 0 {
+		return true
+	}
+	for _, cr := range fs.UnicodeRange {
+		if r >= cr.Low && r <= cr.High {
+			return true
+		}
+	}
+	return false
 }
 
 // MetricsOverride is a face's ascent, descent and line gap as fractions of
@@ -228,8 +253,11 @@ func (fs *FontSource) String() string {
 
 // FontFamily is a struct that keeps font with different weights and styles together.
 type FontFamily struct {
-	doc          *Document
-	familyMember map[FontWeight]map[FontStyle]*FontSource
+	doc *Document
+	// familyMember holds the sources per weight and style, the last added
+	// first: a composite face when there are several (see
+	// FontSource.UnicodeRange).
+	familyMember map[FontWeight]map[FontStyle][]*FontSource
 	// rangeMembers are @font-face entries that cover a weight range (CSS
 	// Fonts 4 `font-weight: 200 900`), typically variable fonts with a
 	// wght axis. They are matched by containment and instantiated per
@@ -238,8 +266,12 @@ type FontFamily struct {
 	// synthetic caches the slanted copy of each upright standing in for a
 	// missing italic.
 	synthetic map[*FontSource]*FontSource
+	// syntheticFaces caches the slanted composite face per first upright.
+	syntheticFaces map[*FontSource][]*FontSource
 	// synthesizeStyle is the family's default for SettingSynthesizeStyle.
 	synthesizeStyle bool
+	// rangeStyles caches stylesAt for the weights range members cover.
+	rangeStyles map[FontWeight]map[FontStyle][]*FontSource
 	// rangeInstances caches the per-weight FontSource derived from a
 	// range member, so repeated lookups return pointer-identical sources:
 	// the face cache and the coverage cache key by identity.
@@ -270,20 +302,25 @@ type rangeInstanceKey struct {
 	w    FontWeight
 }
 
-// AddMember adds a member to the font family.
+// AddMember adds a member to the font family. A member added at a weight and
+// style the family already has joins the earlier ones in a composite face
+// and is tried first: a character takes the last added member whose
+// UnicodeRange contains it and that has a glyph for it, as the @font-face
+// rules of CSS combine.
 func (ff *FontFamily) AddMember(fontsource *FontSource, weight FontWeight, style FontStyle) error {
-	ff.doc.fontlocal[fontsource.Name] = fontsource
-	bag.Logger.Debug("Add member to font family", "id", ff.ID, "weight", weight, "style", style, "source", fontsource)
 	if fontsource == nil {
 		return fmt.Errorf("Font source is nil")
 	}
+	ff.doc.fontlocal[fontsource.Name] = fontsource
+	bag.Logger.Debug("Add member to font family", "id", ff.ID, "weight", weight, "style", style, "source", fontsource)
+	ff.rangeStyles = nil
 	if ff.familyMember == nil {
-		ff.familyMember = make(map[FontWeight]map[FontStyle]*FontSource)
+		ff.familyMember = make(map[FontWeight]map[FontStyle][]*FontSource)
 	}
 	if ff.familyMember[weight] == nil {
-		ff.familyMember[weight] = make(map[FontStyle]*FontSource)
+		ff.familyMember[weight] = make(map[FontStyle][]*FontSource)
 	}
-	ff.familyMember[weight][style] = fontsource
+	ff.familyMember[weight][style] = append([]*FontSource{fontsource}, ff.familyMember[weight][style]...)
 	return nil
 }
 
@@ -303,6 +340,7 @@ func (ff *FontFamily) AddMemberRange(fontsource *FontSource, weightMin, weightMa
 	if weightMin == weightMax {
 		return ff.AddMember(fontsource, weightMin, style)
 	}
+	ff.rangeStyles = nil
 	ff.doc.fontlocal[fontsource.Name] = fontsource
 	bag.Logger.Debug("Add range member to font family", "id", ff.ID, "min", weightMin, "max", weightMax, "style", style, "source", fontsource)
 	ff.rangeMembers = append(ff.rangeMembers, rangeMember{fs: fontsource, min: weightMin, max: weightMax, style: style})
@@ -323,29 +361,40 @@ func (ff *FontFamily) hasWeight(w FontWeight) bool {
 	return false
 }
 
-// stylesAt returns the style map in effect at weight w. Point members
-// registered exactly at w take precedence; range members covering w fill
-// in styles the point map does not provide, as per-weight instances.
-func (ff *FontFamily) stylesAt(w FontWeight) map[FontStyle]*FontSource {
+// stylesAt returns the style map in effect at weight w, each style's
+// sources the last added first. Point members registered exactly at w take
+// precedence; range members covering w fill in styles the point map does
+// not provide, as per-weight instances.
+func (ff *FontFamily) stylesAt(w FontWeight) map[FontStyle][]*FontSource {
 	m := ff.familyMember[w]
-	var merged map[FontStyle]*FontSource
-	for _, r := range ff.rangeMembers {
-		if w < r.min || w > r.max {
-			continue
-		}
-		if m[r.style] != nil || merged[r.style] != nil {
+	if len(ff.rangeMembers) == 0 {
+		return m
+	}
+	if merged, ok := ff.rangeStyles[w]; ok {
+		return merged
+	}
+	var merged map[FontStyle][]*FontSource
+	for i := len(ff.rangeMembers) - 1; i >= 0; i-- {
+		r := ff.rangeMembers[i]
+		if w < r.min || w > r.max || m[r.style] != nil {
 			continue
 		}
 		if merged == nil {
-			merged = make(map[FontStyle]*FontSource, len(m)+1)
+			merged = make(map[FontStyle][]*FontSource, len(m)+1)
 			maps.Copy(merged, m)
 		}
-		merged[r.style] = ff.instanceAt(r.fs, w)
+		merged[r.style] = append(merged[r.style], ff.instanceAt(r.fs, w))
 	}
-	if merged != nil {
-		return merged
+	if merged == nil {
+		merged = m
 	}
-	return m
+	// Cached so a composite face is the same list at every lookup, which
+	// the per-character lookup of the coverage fallback asks for often.
+	if ff.rangeStyles == nil {
+		ff.rangeStyles = make(map[FontWeight]map[FontStyle][]*FontSource)
+	}
+	ff.rangeStyles[w] = merged
+	return merged
 }
 
 // instanceAt returns the per-weight instance of a range member's font
@@ -368,6 +417,7 @@ func (ff *FontFamily) instanceAt(base *FontSource, w FontWeight) *FontSource {
 		Index:             base.Index,
 		VariationSettings: vs,
 		Metrics:           base.Metrics,
+		UnicodeRange:      base.UnicodeRange,
 	}
 	if ff.rangeInstances == nil {
 		ff.rangeInstances = make(map[rangeInstanceKey]*FontSource)
@@ -399,16 +449,35 @@ func synthesisOf(ts TypesettingSettings) synthesisSetting {
 	return synthesisSetting{on: on, set: set}
 }
 
-// lookup is GetFontSource under the text's synthesis setting.
+// lookup is GetFontSource under the text's synthesis setting: the first
+// available font of the composite face, the first source whose UnicodeRange
+// contains the space, as CSS defines it. A face where none does takes its
+// last added source.
 func (ff *FontFamily) lookup(weight FontWeight, style FontStyle, s synthesisSetting) (*FontSource, error) {
+	faces, err := ff.faces(weight, style, s)
+	if err != nil {
+		return nil, err
+	}
+	for _, fs := range faces {
+		if fs.Covers(' ') {
+			return fs, nil
+		}
+	}
+	return faces[0], nil
+}
+
+// faces returns the sources of the composite face closest to the requested
+// weight and style under the text's synthesis setting, the last added first.
+// The list is never empty when err is nil.
+func (ff *FontFamily) faces(weight FontWeight, style FontStyle, s synthesisSetting) ([]*FontSource, error) {
 	synthesize := ff != nil && ff.synthesizeStyle
 	if s.set {
 		synthesize = s.on
 	}
-	return ff.fontSource(weight, style, synthesize)
+	return ff.fontSources(weight, style, synthesize)
 }
 
-func (ff *FontFamily) fontSource(weight FontWeight, style FontStyle, synthesize bool) (*FontSource, error) {
+func (ff *FontFamily) fontSources(weight FontWeight, style FontStyle, synthesize bool) ([]*FontSource, error) {
 	bag.Logger.Log(context.Background(), -8, "FontFamily#GetFontSource", "weight", weight, "style", style)
 	if ff == nil {
 		return nil, fmt.Errorf("no font family specified")
@@ -469,11 +538,11 @@ func (ff *FontFamily) fontSource(weight FontWeight, style FontStyle, synthesize 
 	}
 found:
 	ffMemberWeight := ff.stylesAt(weight)
-	if ff := ffMemberWeight[style]; ff != nil {
+	if ff := ffMemberWeight[style]; len(ff) > 0 {
 		return ff, nil
 	}
 	synthetic := ff.synthesize(ffMemberWeight, style, synthesize)
-	slanted := synthetic != nil && synthetic.Slant != 0
+	slanted := len(synthetic) > 0 && synthetic[0].Slant != 0
 	if key := (missingStyle{weight, style, slanted}); !ff.missingStyles[key] {
 		if ff.missingStyles == nil {
 			ff.missingStyles = make(map[missingStyle]bool)
@@ -489,11 +558,11 @@ found:
 		}
 		bag.Logger.Warn(msg)
 	}
-	if synthetic != nil {
+	if len(synthetic) > 0 {
 		return synthetic, nil
 	}
 	// fallback to normal
-	if ff := ffMemberWeight[FontStyleNormal]; ff != nil {
+	if ff := ffMemberWeight[FontStyleNormal]; len(ff) > 0 {
 		return ff, nil
 	}
 	return nil, ErrUnfulfilledFamilyRequest
@@ -571,33 +640,44 @@ func (ff FontFamily) String() string {
 	return strings.Join(ret, "")
 }
 
-// synthesize returns the upright of members slanted by SyntheticSlant when
+// synthesize returns the uprights of members slanted by SyntheticSlant when
 // style is an italic or oblique members lack and on is set, and nil
 // otherwise. An oblique takes a real italic before a synthetic one, as CSS
 // font matching does.
-func (ff *FontFamily) synthesize(members map[FontStyle]*FontSource, style FontStyle, on bool) *FontSource {
+func (ff *FontFamily) synthesize(members map[FontStyle][]*FontSource, style FontStyle, on bool) []*FontSource {
 	if !on || (style != FontStyleItalic && style != FontStyleOblique) {
 		return nil
 	}
-	if italic := members[FontStyleItalic]; italic != nil {
+	if italic := members[FontStyleItalic]; len(italic) > 0 {
 		return italic
 	}
-	upright := members[FontStyleNormal]
-	if upright == nil {
+	uprights := members[FontStyleNormal]
+	if len(uprights) == 0 {
 		return nil
 	}
-	s := ff.synthetic[upright]
-	if s == nil {
-		c := *upright
-		c.Slant = SyntheticSlant
-		c.upright = upright
-		s = &c
-		if ff.synthetic == nil {
-			ff.synthetic = make(map[*FontSource]*FontSource)
-		}
-		ff.synthetic[upright] = s
+	if s, ok := ff.syntheticFaces[uprights[0]]; ok && len(s) == len(uprights) {
+		return s
 	}
-	return s
+	slanted := make([]*FontSource, len(uprights))
+	for i, upright := range uprights {
+		s := ff.synthetic[upright]
+		if s == nil {
+			c := *upright
+			c.Slant = SyntheticSlant
+			c.upright = upright
+			s = &c
+			if ff.synthetic == nil {
+				ff.synthetic = make(map[*FontSource]*FontSource)
+			}
+			ff.synthetic[upright] = s
+		}
+		slanted[i] = s
+	}
+	if ff.syntheticFaces == nil {
+		ff.syntheticFaces = make(map[*FontSource][]*FontSource)
+	}
+	ff.syntheticFaces[uprights[0]] = slanted
+	return slanted
 }
 
 // SetSynthesizeStyle sets the family's default for SettingSynthesizeStyle,

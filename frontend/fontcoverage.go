@@ -200,18 +200,22 @@ func (fe *Document) hasGlyph(fs *FontSource, cp ot.Codepoint) bool {
 	return has
 }
 
-// resolveClusterSource picks the first family in stack whose resolved source
-// covers EVERY non-ignorable codepoint in cluster. Variation Selectors
-// (U+FE0E/U+FE0F) bias the search but never veto: a font that lacks the VS
-// itself is still acceptable as long as it covers the base character — VS
-// glyphs are typically unencoded and the renderer keys color/text-presentation
-// off the VS in the source string anyway.
+// resolveClusterSource picks the first family in stack with a source that
+// covers EVERY non-ignorable codepoint in cluster. Within a family the
+// sources of its composite face (faces[i]) are tried the last added first; a
+// source qualifies when its UnicodeRange contains the codepoints and it has
+// the glyphs. The range is checked first, so a source no character of the
+// text falls into is never loaded. Variation Selectors (U+FE0E/U+FE0F) bias
+// the search but never veto: a font that lacks the VS itself is still
+// acceptable as long as it covers the base character — VS glyphs are
+// typically unencoded and the renderer keys color/text-presentation off the
+// VS in the source string anyway.
 //
-// Returns the resolved source plus the stack index. A nil source means no
-// stack entry covered the cluster — caller falls back to the primary so a
-// .notdef glyph is at least visible (parity with current single-family
-// behaviour where any uncovered codepoint goes straight to .notdef).
-func (fe *Document) resolveClusterSource(cluster string, stack []*FontFamily, weight FontWeight, style FontStyle, synth synthesisSetting) (*FontSource, int) {
+// Returns the resolved source plus the stack index. When no source covers
+// the cluster it returns the primary (first available font of stack[0]) so a
+// .notdef glyph is at least visible (parity with single-family behaviour
+// where any uncovered codepoint goes straight to .notdef).
+func (fe *Document) resolveClusterSource(cluster string, faces [][]*FontSource, primary *FontSource) (*FontSource, int) {
 	// Strip variation selectors and other default-ignorables for the
 	// coverage decision; we keep them in the cluster string because shape
 	// time still consumes them (HarfBuzz handles VS internally).
@@ -224,32 +228,61 @@ func (fe *Document) resolveClusterSource(cluster string, stack []*FontFamily, we
 	}
 	if len(probeRunes) == 0 {
 		// All-ignorable cluster (rare: standalone VS, ZWJ). Stay on primary.
-		fs, _ := stack[0].lookup(weight, style, synth)
-		return fs, 0
+		return primary, 0
 	}
-	for i, ff := range stack {
-		fs, err := ff.lookup(weight, style, synth)
-		if err != nil || fs == nil {
-			continue
-		}
-		ok := true
-		for _, r := range probeRunes {
-			if !fe.hasGlyph(fs, ot.Codepoint(r)) {
-				ok = false
-				break
+	for i, sources := range faces {
+		for _, fs := range sources {
+			if fe.sourceCovers(fs, probeRunes) {
+				return fs, i
 			}
-		}
-		if ok {
-			return fs, i
 		}
 	}
 	// No coverage: pin to primary so the .notdef stays attached to the
 	// originally-intended face (matches single-family behaviour exactly).
-	if len(stack) > 0 {
-		fs, _ := stack[0].lookup(weight, style, synth)
-		return fs, 0
+	return primary, 0
+}
+
+// sourceCovers reports whether every rune lies in fs's UnicodeRange and has
+// a glyph in fs. All ranges are checked before the first glyph, which loads
+// the face.
+func (fe *Document) sourceCovers(fs *FontSource, runes []rune) bool {
+	for _, r := range runes {
+		if !fs.Covers(r) {
+			return false
+		}
 	}
-	return nil, 0
+	for _, r := range runes {
+		if !fe.hasGlyph(fs, ot.Codepoint(r)) {
+			return false
+		}
+	}
+	return true
+}
+
+// stackFaces returns the composite face of each family in stack, nil for a
+// family without a source at weight and style, and the primary: the first
+// available font of stack[0].
+func stackFaces(stack []*FontFamily, weight FontWeight, style FontStyle, synth synthesisSetting) ([][]*FontSource, *FontSource) {
+	faces := make([][]*FontSource, len(stack))
+	for i, ff := range stack {
+		faces[i], _ = ff.faces(weight, style, synth)
+	}
+	primary, _ := stack[0].lookup(weight, style, synth)
+	return faces, primary
+}
+
+// needsCoverage reports whether text in stack has to be split by coverage:
+// there is a second family to fall back to, or the only family is a
+// composite face of several sources.
+func needsCoverage(stack []*FontFamily, weight FontWeight, style FontStyle, synth synthesisSetting) bool {
+	switch len(stack) {
+	case 0:
+		return false
+	case 1:
+		faces, err := stack[0].faces(weight, style, synth)
+		return err == nil && len(faces) > 1
+	}
+	return true
 }
 
 // isCoverageIgnorable returns true for codepoints that should not veto a
@@ -292,13 +325,14 @@ func isCoverageIgnorable(r rune) bool {
 // CSS spec says inter-word advance is the primary's; otherwise tab/space
 // metrics would jitter at face boundaries.
 //
-// Returns nil if stack is empty or has only the primary; the caller should
-// check `len(stack) >= 2` BEFORE entering coverage so single-family inputs
-// take the unchanged single-shape path.
+// Returns nil if stack is empty; the caller should check needsCoverage
+// BEFORE entering coverage so single-face inputs take the unchanged
+// single-shape path.
 func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontWeight, style FontStyle, synth synthesisSetting) []coverageRun {
 	if len(stack) == 0 || s == "" {
 		return nil
 	}
+	faces, primary := stackFaces(stack, weight, style, synth)
 	var runs []coverageRun
 	// start is where the last run starts in s. Its text is cut from s as it
 	// grows, since appending each cluster copies the run so far every time.
@@ -309,10 +343,9 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 		var src *FontSource
 		var idx int
 		if isWhitespaceCluster(cluster) {
-			fs, _ := stack[0].lookup(weight, style, synth)
-			src, idx = fs, 0
+			src, idx = primary, 0
 		} else {
-			src, idx = fe.resolveClusterSource(cluster, stack, weight, style, synth)
+			src, idx = fe.resolveClusterSource(cluster, faces, primary)
 		}
 		if n := len(runs); n > 0 && runs[n-1].Source == src && runs[n-1].StackIndex == idx {
 			runs[n-1].Text = s[start:g.End()]
@@ -335,8 +368,11 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 // each atom. The atom loop sets node.Glyph.Font from atomFonts[i] so per-glyph
 // fallback survives without changing the atom struct.
 //
-// When fontfamilyStack has fewer than two entries the function takes the
-// single-shape path and atomFonts is uniformly the primary font.
+// When needsCoverage says no, a single family with a single source, the
+// function takes the single-shape path and atomFonts is uniformly the
+// primary font. primarySource is the source primaryFnt was made from; runs
+// resolved to another source, a fallback family or another source of a
+// composite face, are shaped with that source's font.
 //
 // Soft-hyphen sentinel atoms (Components == "­") carry the primary font so
 // the Disc branch picks the primary's Hyphenchar — fallback faces typically
@@ -348,6 +384,7 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 // kerning within a single shape() call.
 func (fe *Document) shapeForBuild(
 	primaryFnt *font.Font,
+	primarySource *FontSource,
 	str string,
 	primary *font.Shaping,
 	direction Direction,
@@ -360,7 +397,7 @@ func (fe *Document) shapeForBuild(
 	settingFeatures []ot.Feature,
 	settingVariations map[string]float64,
 ) ([]font.Atom, []uint8, []*font.Font, []*font.Shaping) {
-	if len(stack) < 2 {
+	if !needsCoverage(stack, weight, style, synth) {
 		atoms, levels := shapeWithBidi(primaryFnt, str, primary.Features, primary.Variations, direction)
 		atomFonts := make([]*font.Font, len(atoms))
 		atomShapings := make([]*font.Shaping, len(atoms))
@@ -378,7 +415,7 @@ func (fe *Document) shapeForBuild(
 	for _, run := range runs {
 		runFnt := primaryFnt
 		runShaping := primary
-		if run.StackIndex > 0 && run.Source != nil {
+		if run.Source != nil && run.Source != primarySource {
 			rf, _, rfeat, rvar, err := fe.shapeFontFor(run.Source, fontsize, baseFeatures, settingFeatures, settingVariations)
 			if err == nil && rf != nil {
 				runFnt = rf

@@ -2719,12 +2719,20 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	}
 	var lastglue node.Node
 	// When a CSS prioritised font-family list resolves to two or more
-	// families, the input is segmented along grapheme-cluster boundaries
-	// by coverage, each segment is shaped with its own face, and the
-	// per-atom font is recorded in atomFonts. Single-family inputs
-	// (len(stack) < 2) keep the original single-shape path.
+	// families, or the family is a composite face of several sources
+	// (@font-face rules with unicode-range), the input is segmented along
+	// grapheme-cluster boundaries by coverage, each segment is shaped with
+	// its own face, and the per-atom font is recorded in atomFonts.
+	// Single-face inputs keep the original single-shape path.
 	shaping := &font.Shaping{Features: fontfeatures, Variations: variations, LetterSpacing: letterSpacing}
-	atoms, atomLevels, atomFonts, atomShapings := fe.shapeForBuild(fnt, str, shaping, direction, fontfamilyStack, fontweight, fontstyle, synth, fontsize, fontfeatures, settingFontFeatures, settingVariations)
+	if len(fontfamilyStack) == 0 || fontfamilyStack[0] != fontfamily {
+		// A single family can still be a composite face of several
+		// sources, which coverage splits the text between. A stack that
+		// does not start with the family is one an enclosing text set, and
+		// a family set further in replaces it.
+		fontfamilyStack = []*FontFamily{fontfamily}
+	}
+	atoms, atomLevels, atomFonts, atomShapings := fe.shapeForBuild(fnt, fs, str, shaping, direction, fontfamilyStack, fontweight, fontstyle, synth, fontsize, fontfeatures, settingFontFeatures, settingVariations)
 	for i, r := range atoms {
 		atomFnt := atomFonts[i]
 		level := atomLevels[i]
