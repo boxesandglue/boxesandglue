@@ -33,6 +33,11 @@ const (
 
 var cutmarkLength bag.ScaledPoint = OneCM
 
+// registrationColor is the resource name of the color space crop marks are
+// drawn in, a Separation of the colorant All, which prints on every plate
+// including spot colors.
+const registrationColor = "/CSAll"
+
 // Object contains a vertical list and coordinates to be placed on a page.
 type Object struct {
 	Vlist *node.VList
@@ -2100,7 +2105,8 @@ func (p *Page) Shipout() {
 			distance = bleedamount
 		}
 
-		instructions := []string{fmt.Sprintf("q 1 1 1 1 K %s w 1 0 0 1 %s %s Tm", width, bag.ScaledPoint(0), bag.ScaledPoint(0))}
+		p.document.cutmarksDrawn = true
+		instructions := []string{fmt.Sprintf("q %s CS 1 SCN %s w", registrationColor, width)}
 		// top right
 		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", wd, ht+distance, wd, ht+distance+length))
 		instructions = append(instructions, fmt.Sprintf("%s %s m %s %s l S", wd+distance, ht, wd+distance+length, ht))
@@ -2785,6 +2791,7 @@ type PDFDocument struct {
 	tracing              VTrace
 	DumpOutput           bool
 	ShowCutmarks         bool
+	cutmarksDrawn        bool // a page has crop marks, so the PDF needs registrationColor
 	ShowHyperlinks       bool
 	SuppressInfo         bool
 	xmpExtensions        []XMPExtension
@@ -3146,6 +3153,26 @@ func clipTo(x, y, wd, ht bag.ScaledPoint, content string) string {
 	return fmt.Sprintf("q %s %s %s %s re W n\n%s\nQ", x, y, wd, ht, content)
 }
 
+// writeSeparation writes a Separation color space of the colorant name, whose
+// full tint looks like the given CMYK values in the alternate color space.
+func (d *PDFDocument) writeSeparation(name string, alternate any, c, m, y, k float64) pdf.Objectnumber {
+	obj := d.PDFWriter.NewObject()
+	obj.Array = []any{
+		"/Separation",
+		pdf.Name(name),
+		alternate,
+		pdf.Dict{
+			"C0":           pdf.Serialize(pdf.Array{0, 0, 0, 0}),
+			"C1":           pdf.Serialize(pdf.Array{c, m, y, k}),
+			"Domain":       "[ 0 1 ]",
+			"FunctionType": "2",
+			"N":            "1",
+		},
+	}
+	obj.Save()
+	return obj.ObjectNumber
+}
+
 // NewPage creates a new Page object and adds it to the page list in the
 // document. The CurrentPage field of the document is set to the page.
 func (d *PDFDocument) NewPage() *Page {
@@ -3248,23 +3275,21 @@ func (d *PDFDocument) Finish() error {
 			sep.Name = col.Basecolor
 			sep.ID = fmt.Sprintf("/CS%d", col.SpotcolorID)
 
-			sepObj := d.PDFWriter.NewObject()
-			sepObj.Array = []any{
-				"/Separation",
-				pdf.Name(col.Basecolor),
-				pdf.Array{"/ICCBased", cp.ObjectNumber},
-				pdf.Dict{
-					"C0":           pdf.Serialize(pdf.Array{0, 0, 0, 0}),
-					"C1":           pdf.Serialize(pdf.Array{sep.C, sep.M, sep.Y, sep.K}),
-					"Domain":       "[ 0 1 ]",
-					"FunctionType": "2",
-					"N":            "1",
-				},
-			}
-			sepObj.Save()
-			sep.Obj = sepObj.ObjectNumber
+			sep.Obj = d.writeSeparation(col.Basecolor, pdf.Array{"/ICCBased", cp.ObjectNumber}, sep.C, sep.M, sep.Y, sep.K)
 			d.PDFWriter.Colorspaces = append(d.PDFWriter.Colorspaces, &sep)
 		}
+	}
+
+	if d.cutmarksDrawn {
+		var alternate any = "/DeviceCMYK"
+		if cp != nil && d.ColorProfile.Colors == 4 {
+			alternate = pdf.Array{"/ICCBased", cp.ObjectNumber}
+		}
+		d.PDFWriter.Colorspaces = append(d.PDFWriter.Colorspaces, &pdf.Separation{
+			ID:   registrationColor,
+			Name: "All",
+			Obj:  d.writeSeparation("All", alternate, 1, 1, 1, 1),
+		})
 	}
 
 	if d.Format.NeedsColorProfile() {
