@@ -4,17 +4,22 @@ import (
 	"io"
 	"os"
 	"slices"
-	"unicode/utf8"
+	"unicode"
 
 	"github.com/speedata/hyphenation"
 )
 
 // Lang represents a language for for hyphenation
 type Lang struct {
-	lang           *hyphenation.Lang
-	Name           string
+	lang *hyphenation.Lang
+	Name string
+	// Lefthyphenmin and Righthyphenmin are the characters a word keeps at
+	// least before and after a hyphen, Wordhyphenmin the characters it needs
+	// to be hyphenated at all. Nonspacing marks and punctuation do not count
+	// (CSS Text 4, hyphenate-limit-chars).
 	Lefthyphenmin  int
 	Righthyphenmin int
+	Wordhyphenmin  int
 }
 
 // LoadPatternFile loads the hyphenation patterns with the given file name
@@ -31,7 +36,7 @@ func LoadPatternFile(fn string) (*Lang, error) {
 		return nil, err
 	}
 
-	l := &Lang{lang: hl, Lefthyphenmin: 2, Righthyphenmin: 3}
+	l := &Lang{lang: hl, Lefthyphenmin: 3, Righthyphenmin: 3}
 
 	return l, nil
 }
@@ -43,7 +48,7 @@ func NewFromReader(r io.Reader) (*Lang, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &Lang{lang: hl, Lefthyphenmin: 2, Righthyphenmin: 3}
+	l := &Lang{lang: hl, Lefthyphenmin: 3, Righthyphenmin: 3}
 
 	return l, nil
 }
@@ -59,12 +64,26 @@ func (l *Lang) Copy() *Lang {
 
 // Hyphenate returns a slice of hyphenation points
 func (l *Lang) Hyphenate(word string) []int {
-	// The patterns keep their own minimums at zero, so they can be shared;
-	// these are the bounds they would apply, a point counting runes from the
-	// word's start.
-	first := 1 + max(l.Lefthyphenmin, 0)
-	end := utf8.RuneCountInString(word) + 1 - max(l.Righthyphenmin, 0)
-	hyphenpoints := slices.DeleteFunc(l.lang.Hyphenate(word), func(p int) bool { return p < first || p >= end })
+	// The patterns keep their own minimums at zero, so they can be shared.
+	hyphenpoints := l.lang.Hyphenate(word)
+	if len(hyphenpoints) == 0 {
+		return nil
+	}
+	// counted[i] is the number of characters in the first i runes.
+	counted := make([]int, 1, len(word)+1)
+	chars := 0
+	for _, r := range word {
+		if !unicode.Is(unicode.Mn, r) && !unicode.IsPunct(r) {
+			chars++
+		}
+		counted = append(counted, chars)
+	}
+	if chars < l.Wordhyphenmin {
+		return nil
+	}
+	hyphenpoints = slices.DeleteFunc(hyphenpoints, func(p int) bool {
+		return counted[p] < l.Lefthyphenmin || chars-counted[p] < l.Righthyphenmin
+	})
 	// The slice hyphenpoints contains the valid break points
 	// after a character.
 	// We need the number of characters to move forward,

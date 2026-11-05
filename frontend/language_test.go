@@ -182,7 +182,8 @@ func hyphenatedBy(t *testing.T, patterns string, left, right int, word string) [
 	if err != nil {
 		t.Fatal(err)
 	}
-	hl.Leftmin, hl.Rightmin = left, right
+	// Leftmin leaves one character more than it says.
+	hl.Leftmin, hl.Rightmin = max(left-1, 0), right
 	points := hl.Hyphenate(word)
 	for i := len(points) - 1; i > 0; i-- {
 		points[i] -= points[i-1]
@@ -205,6 +206,68 @@ func TestHyphenateBreaksAsThePatternsOwnMinimumsDid(t *testing.T) {
 				t.Errorf("%q at minimums %d and %d: %v, want %v", word, m.left, m.right, got, want)
 			}
 		}
+	}
+}
+
+func hyphenationPoints(l *lang.Lang, word string) []int {
+	var points []int
+	at := 0
+	for _, step := range l.Hyphenate(word) {
+		at += step
+		points = append(points, at)
+	}
+	return points
+}
+
+// The minimums are exact: hy-phen is two characters before the hyphen.
+func TestHyphenateMinimumsCountCharacters(t *testing.T) {
+	l, err := GetLanguage("en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := hyphenationPoints(l, "hyphenation"), []int{6, 7}; !slices.Equal(got, want) {
+		t.Errorf("default minimums: %v, want %v", got, want)
+	}
+	l.Lefthyphenmin, l.Righthyphenmin = 2, 4
+	if got, want := hyphenationPoints(l, "hyphenation"), []int{2, 6, 7}; !slices.Equal(got, want) {
+		t.Errorf("minimums 2, 4: %v, want %v", got, want)
+	}
+	l.Righthyphenmin = 5
+	if got, want := hyphenationPoints(l, "hyphenation"), []int{2, 6}; !slices.Equal(got, want) {
+		t.Errorf("minimums 2, 5: %v, want %v", got, want)
+	}
+}
+
+func TestHyphenateWordMinimum(t *testing.T) {
+	l, err := GetLanguage("en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Wordhyphenmin = 11
+	if got := hyphenationPoints(l, "hyphenation"); len(got) == 0 {
+		t.Errorf("a word of the minimum length has no points")
+	}
+	l.Wordhyphenmin = 12
+	if got := hyphenationPoints(l, "hyphenation"); len(got) != 0 {
+		t.Errorf("a shorter word has the points %v", got)
+	}
+}
+
+// Nonspacing marks and punctuation take no part in the counts.
+func TestHyphenateMinimumsSkipMarksAndPunctuation(t *testing.T) {
+	l, err := GetLanguage("en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Lefthyphenmin, l.Righthyphenmin = 2, 2
+	l.Wordhyphenmin = 11
+	marked := "hyphenatio\u0301n"
+	if got := hyphenationPoints(l, marked); len(got) == 0 {
+		t.Errorf("the word has no points")
+	}
+	l.Wordhyphenmin = 12
+	if got := hyphenationPoints(l, marked); len(got) != 0 {
+		t.Errorf("the mark counted: %v", got)
 	}
 }
 
