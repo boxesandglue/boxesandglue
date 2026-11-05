@@ -182,8 +182,7 @@ func hyphenatedBy(t *testing.T, patterns string, left, right int, word string) [
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Leftmin leaves one character more than it says.
-	hl.Leftmin, hl.Rightmin = max(left-1, 0), right
+	hl.Leftmin, hl.Rightmin = left, right
 	points := hl.Hyphenate(word)
 	for i := len(points) - 1; i > 0; i-- {
 		points[i] -= points[i-1]
