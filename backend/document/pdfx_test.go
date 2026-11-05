@@ -156,3 +156,50 @@ func TestPDFNoTitleFallback(t *testing.T) {
 		t.Error("plain PDF got a placeholder title")
 	}
 }
+
+// finishPDF writes a page with a link in format f and returns the PDF.
+func finishPDF(t *testing.T, f Format) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.Format = f
+	d.Title = "Title"
+	p := d.NewPage()
+	link := node.NewStartStop()
+	link.Action = node.ActionHyperlink
+	link.Value = &Hyperlink{URI: "https://example.com"}
+	end := node.NewStartStop()
+	end.StartNode = link
+	node.InsertAfter(link, link, end)
+	p.OutputAt(bag.MustSP("2cm"), bag.MustSP("20cm"), node.Vpack(node.Hpack(link)))
+	p.Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// PDF/X has no use for a link: an annotation in the printed area and an action
+// are both refused. A color reset must not be RGB, and whatever RGB the
+// content brings gets a device independent meaning through DefaultRGB.
+func TestPDFXLinksAndRGB(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		format    Format
+		annot     bool
+		defaultCS bool
+	}{
+		{"PDF", FormatPDF, true, false},
+		{"PDF/A-3b", FormatPDFA3b, true, true},
+		{"PDF/X-3", FormatPDFX3, false, true},
+		{"PDF/X-4", FormatPDFX4, false, true},
+	} {
+		out := finishPDF(t, tc.format)
+		if got := bytes.Contains(out, []byte("/Annot")); got != tc.annot {
+			t.Errorf("%s: annotation %t, want %t", tc.name, got, tc.annot)
+		}
+		if got := bytes.Contains(out, []byte("/DefaultRGB")); got != tc.defaultCS {
+			t.Errorf("%s: DefaultRGB %t, want %t", tc.name, got, tc.defaultCS)
+		}
+	}
+}

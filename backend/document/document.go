@@ -31,7 +31,16 @@ const (
 	OneCM bag.ScaledPoint = 1857685
 )
 
+// ColorReset is the content stream code back to black for fill and stroke.
+// DeviceGray prints on the black plate only and is allowed beside any output
+// intent, which DeviceRGB is not.
+const ColorReset = "0 G 0 g "
+
 var cutmarkLength bag.ScaledPoint = OneCM
+
+// cutmarkDistance is the least distance of a crop mark from the sheet. The
+// marks keep clear of the bleed as well.
+const cutmarkDistance = 5 * bag.Factor
 
 // registrationColor is the resource name of the color space crop marks are
 // drawn in, a Separation of the colorant All, which prints on every plate
@@ -471,7 +480,7 @@ func (oc *objectContext) emitColorGlyph(g *node.Glyph, x, y bag.ScaledPoint, lay
 		// HarfBuzz equivalent: hb_paint_context_t::foreground
 		// (OT/Color/COLR/COLR.hh:80).
 		if layer.ColorIndex == ot.ForegroundColorIndex || int(layer.ColorIndex) >= len(palette) {
-			oc.writef("0 0 0 rg ")
+			oc.writef("0 g ")
 		} else {
 			c := palette[layer.ColorIndex]
 			col := color.Color{
@@ -497,7 +506,7 @@ func (oc *objectContext) emitColorGlyph(g *node.Glyph, x, y bag.ScaledPoint, lay
 	// Reset fill color to black so the next normal text run is not
 	// rendered in the last layer's color.
 	oc.gotoTextMode(ScopeText)
-	oc.writef("0 0 0 rg ")
+	oc.writef("0 g ")
 }
 
 // emitColorSVGGlyph paints one SVG-in-OpenType glyph by parsing the
@@ -1063,6 +1072,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			switch action {
 			case node.ActionHyperlink:
+				if oc.p.document.dropsLinks() {
+					break
+				}
 				hyperlink := startNode.Value.(*Hyperlink)
 				if isStartNode {
 					hyperlink.startposX = posX
@@ -1079,15 +1091,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						Rect:    [4]float64{hyperlink.startposX.ToPT(), rectLLY.ToPT(), posX.ToPT(), rectURY.ToPT()},
 						Subtype: "Link",
 					}
-					if oc.p.document.ShowHyperlinks {
-						a.Dictionary = pdf.Dict{
-							"Border": "[0 0 1]",
-						}
-					} else {
-						a.Dictionary = pdf.Dict{
-							"Border": "[0 0 0]",
-						}
-					}
+					a.Dictionary = oc.p.document.linkDictionary()
 
 					if hyperlink.Local != "" {
 						a.Action = oc.p.document.gotoAction(hyperlink.Local)
@@ -1717,6 +1721,9 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 
 			switch action {
 			case node.ActionHyperlink:
+				if oc.p.document.dropsLinks() {
+					break
+				}
 				hyperlink := startNode.Value.(*Hyperlink)
 				if isStartNode {
 					hyperlink.startposX = posX
@@ -1728,15 +1735,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						Rect:    [4]float64{hyperlink.startposX.ToPT(), hyperlink.startposY.ToPT(), posX.ToPT(), (posY + rectHT).ToPT()},
 						Subtype: "Link",
 					}
-					if oc.p.document.ShowHyperlinks {
-						a.Dictionary = pdf.Dict{
-							"Border": "[0 0 1]",
-						}
-					} else {
-						a.Dictionary = pdf.Dict{
-							"Border": "[0 0 0]",
-						}
-					}
+					a.Dictionary = oc.p.document.linkDictionary()
 
 					if hyperlink.Local != "" {
 						a.Action = oc.p.document.gotoAction(hyperlink.Local)
@@ -2100,10 +2099,7 @@ func (p *Page) Shipout() {
 
 	if p.document.ShowCutmarks {
 		x, y, wd, ht := p.ExtraOffset, p.ExtraOffset, p.Width+p.ExtraOffset, p.Height+p.ExtraOffset
-		distance, length, width := 5*bag.Factor, cutmarkLength, bag.Factor/2
-		if distance < bleedamount {
-			distance = bleedamount
-		}
+		distance, length, width := max(cutmarkDistance, bleedamount), cutmarkLength, bag.Factor/2
 
 		p.document.cutmarksDrawn = true
 		instructions := []string{fmt.Sprintf("q %s CS 1 SCN %s w", registrationColor, width)}
@@ -2792,6 +2788,7 @@ type PDFDocument struct {
 	DumpOutput           bool
 	ShowCutmarks         bool
 	cutmarksDrawn        bool // a page has crop marks, so the PDF needs registrationColor
+	linksDropped         bool // the warning of dropsLinks went out
 	ShowHyperlinks       bool
 	SuppressInfo         bool
 	xmpExtensions        []XMPExtension
@@ -3153,6 +3150,33 @@ func clipTo(x, y, wd, ht bag.ScaledPoint, content string) string {
 	return fmt.Sprintf("q %s %s %s %s re W n\n%s\nQ", x, y, wd, ht, content)
 }
 
+// dropsLinks reports whether links stay out of the PDF: PDF/X allows neither
+// an annotation in the printed area nor an action.
+func (d *PDFDocument) dropsLinks() bool {
+	if !d.Format.IsPDFX() {
+		return false
+	}
+	if !d.linksDropped {
+		d.linksDropped = true
+		bag.Logger.Warn("PDF/X does not allow links, leaving them out")
+	}
+	return true
+}
+
+// linkDictionary returns the entries of a link annotation.
+func (d *PDFDocument) linkDictionary() pdf.Dict {
+	border := "[0 0 0]"
+	if d.ShowHyperlinks {
+		border = "[0 0 1]"
+	}
+	dict := pdf.Dict{"Border": border}
+	// PDF/A: an annotation has to print.
+	if d.Format.IsPDFA() {
+		dict["F"] = "4"
+	}
+	return dict
+}
+
 // writeSeparation writes a Separation color space of the colorant name, whose
 // full tint looks like the given CMYK values in the alternate color space.
 func (d *PDFDocument) writeSeparation(name string, alternate any, c, m, y, k float64) pdf.Objectnumber {
@@ -3182,10 +3206,10 @@ func (d *PDFDocument) NewPage() *Page {
 		Height:    d.DefaultPageHeight,
 		pageIndex: len(d.Pages),
 	}
+	d.CurrentPage.ExtraOffset = d.Bleed
 	if d.ShowCutmarks {
-		d.CurrentPage.ExtraOffset = cutmarkLength
+		d.CurrentPage.ExtraOffset = cutmarkLength + max(cutmarkDistance, d.Bleed)
 	}
-	d.CurrentPage.ExtraOffset += d.Bleed
 
 	d.Pages = append(d.Pages, d.CurrentPage)
 	return d.CurrentPage
@@ -3278,6 +3302,23 @@ func (d *PDFDocument) Finish() error {
 			sep.Obj = d.writeSeparation(col.Basecolor, pdf.Array{"/ICCBased", cp.ObjectNumber}, sep.C, sep.M, sep.Y, sep.K)
 			d.PDFWriter.Colorspaces = append(d.PDFWriter.Colorspaces, &sep)
 		}
+	}
+
+	// PDF/A and PDF/X: beside a CMYK output intent, DeviceRGB needs a device
+	// independent meaning, so CSS and image colors in RGB count as sRGB.
+	if d.Format.NeedsColorProfile() && d.ColorProfile.Colors != 3 {
+		srgb := d.PDFWriter.NewObject()
+		srgb.Data.Write(srgbData)
+		srgb.Dictionary = pdf.Dict{"N": "3"}
+		if err = srgb.Save(); err != nil {
+			return err
+		}
+		defaultRGB := d.PDFWriter.NewObject()
+		defaultRGB.Array = []any{"/ICCBased", srgb.ObjectNumber}
+		if err = defaultRGB.Save(); err != nil {
+			return err
+		}
+		d.PDFWriter.DefaultRGB = defaultRGB.ObjectNumber
 	}
 
 	if d.cutmarksDrawn {

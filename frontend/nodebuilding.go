@@ -2963,7 +2963,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		stop.StartNode = colStart
 		stop.Position = node.PDFOutputPage
 		stop.ShipoutCallback = func(n node.Node) string {
-			return "0 0 0 RG 0 0 0 rg "
+			return document.ColorReset
 		}
 		node.InsertAfter(head, cur, stop)
 		cur = stop
