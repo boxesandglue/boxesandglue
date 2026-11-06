@@ -224,10 +224,10 @@ func TestHyphenateMinimumsCountCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := hyphenationPoints(l, "hyphenation"), []int{6, 7}; !slices.Equal(got, want) {
+	if got, want := hyphenationPoints(l, "hyphenation"), []int{2, 6, 7}; !slices.Equal(got, want) {
 		t.Errorf("default minimums: %v, want %v", got, want)
 	}
-	l.Lefthyphenmin, l.Righthyphenmin = 2, 4
+	l.Righthyphenmin = 4
 	if got, want := hyphenationPoints(l, "hyphenation"), []int{2, 6, 7}; !slices.Equal(got, want) {
 		t.Errorf("minimums 2, 4: %v, want %v", got, want)
 	}
@@ -398,9 +398,9 @@ func TestHyphenateAfterLigature(t *testing.T) {
 	for _, tc := range []struct{ word, want string }{
 		{"Schi[fff]ahrt", "Schi[fff]ahrt"},
 		{"Schi[ff]fahrt", "Schi[ff]-fahrt"},
-		{"beschä[ft]igt", "beschä[ft]igt"},
-		{"Donaudampfschi[fff]ahrtsgesellscha[ft]", "Donau-dampf-schi[fff]ahrts-ge-sell-scha[ft]"},
-		{"Donaudampfschi[ff]fahrtsgesellscha[ft]", "Donau-dampf-schi[ff]-fahrts-ge-sell-scha[ft]"},
+		{"beschä[ft]igt", "be-schä[ft]igt"},
+		{"Donaudampfschi[fff]ahrtsgesellscha[ft]", "Do-nau-dampf-schi[fff]ahrts-ge-sell-scha[ft]"},
+		{"Donaudampfschi[ff]fahrtsgesellscha[ft]", "Do-nau-dampf-schi[ff]-fahrts-ge-sell-scha[ft]"},
 	} {
 		if got := hyphenatedGlyphs(t, l, splitLigatures(tc.word)); got != tc.want {
 			t.Errorf("%s: got %s, want %s", tc.word, got, tc.want)
@@ -476,7 +476,7 @@ func TestHyphenateInsideLigature(t *testing.T) {
 	for _, tc := range []struct{ word, want string }{
 		{"Auflage", "Au{f-|l}[fl]age"},
 		{"Kaffeefilter", "Ka{f-|f}[ff]ee-[fi]l-ter"},
-		{"offiziell", "o[ffi]-zi-ell"},
+		{"offiziell", "o{f-|[fi]}[ffi]-zi-ell"},
 		{"Schifffahrt", "Schi[ff]-fahrt"},
 	} {
 		head, _ := shapedWord(t, tc.word)

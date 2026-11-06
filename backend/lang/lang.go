@@ -16,7 +16,7 @@ type Lang struct {
 	// Lefthyphenmin and Righthyphenmin are the characters a word keeps at
 	// least before and after a hyphen, Wordhyphenmin the characters it needs
 	// to be hyphenated at all. Nonspacing marks and punctuation do not count
-	// (CSS Text 4, hyphenate-limit-chars).
+	// (CSS Text 4, hyphenate-limit-chars). The defaults are TeX's: 2, 3 and 0.
 	Lefthyphenmin  int
 	Righthyphenmin int
 	Wordhyphenmin  int
@@ -36,7 +36,7 @@ func LoadPatternFile(fn string) (*Lang, error) {
 		return nil, err
 	}
 
-	l := &Lang{lang: hl, Lefthyphenmin: 3, Righthyphenmin: 3}
+	l := &Lang{lang: hl, Lefthyphenmin: 2, Righthyphenmin: 3}
 
 	return l, nil
 }
@@ -48,7 +48,7 @@ func NewFromReader(r io.Reader) (*Lang, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &Lang{lang: hl, Lefthyphenmin: 3, Righthyphenmin: 3}
+	l := &Lang{lang: hl, Lefthyphenmin: 2, Righthyphenmin: 3}
 
 	return l, nil
 }
