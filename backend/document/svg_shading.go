@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/svgreader"
 )
 
@@ -16,13 +17,172 @@ type pendingShading struct {
 	pattern pdf.ShadingPattern
 }
 
-// svgShadingCollector implements svgreader.ShadingRegistrar. It accepts
-// gradient fills encountered during rendering, allocates a per-page-unique
-// name from the host document, and stashes the resulting Pattern definition
-// for later registration on the actual pdf.Page.
+// svgResources are the PDF resources of a content stream that an SVG produced.
+// Like the fonts of a rule they wait for the page output: a node can be built
+// several times while a table is measured, and only one of them gets shipped.
+type svgResources struct {
+	shadings []pendingShading
+	gstates  []pdf.ExtGState
+	forms    []*svgForm
+	masks    []*svgMask
+}
+
+// svgMask is the soft mask of a gradient whose stops differ in opacity. Its
+// name is the one of the graphics state: the name that the document derives
+// from the contents needs the object number of the form, which does not exist
+// while the SVG is rendered.
+type svgMask struct {
+	name     pdf.Name
+	gradient *svgreader.LinearGradient
+	opacity  float64
+	bbox     [4]float64
+}
+
+// svgForm is a group of an SVG with an opacity, which ends up as a Form XObject
+// with a transparency group.
+type svgForm struct {
+	svgResources
+	name    pdf.Name
+	content string
+	bbox    [4]float64
+	faces   []*pdf.Face
+}
+
+// svgShadingCollector implements svgreader.ShadingRegistrar and
+// svgreader.OpacityRegistrar. It accepts gradient fills, alpha values and
+// groups encountered during rendering, allocates per-page-unique names from
+// the host document, and stashes the resulting definitions for later
+// registration on the actual pdf.Page or on the form they are used in.
 type svgShadingCollector struct {
-	doc       *PDFDocument
-	collected []pendingShading
+	doc  *PDFDocument
+	root svgResources
+	open []*svgForm // the groups being rendered
+}
+
+// current returns the resources of the content stream being rendered.
+func (c *svgShadingCollector) current() *svgResources {
+	if n := len(c.open); n > 0 {
+		return &c.open[n-1].svgResources
+	}
+	return &c.root
+}
+
+// allowsTransparency reports whether the format allows transparency and warns
+// once if not. The drawing is painted opaque then.
+func (c *svgShadingCollector) allowsTransparency() bool {
+	if c.doc.Format.AllowsTransparency() {
+		return true
+	}
+	if !c.doc.warnedSVGTransparency {
+		c.doc.warnedSVGTransparency = true
+		bag.Logger.Warn("The PDF format does not allow transparency, painting SVG opaque")
+	}
+	return false
+}
+
+// RegisterAlpha implements svgreader.OpacityRegistrar.
+func (c *svgShadingCollector) RegisterAlpha(fill, stroke float64) string {
+	if !c.allowsTransparency() {
+		return ""
+	}
+	var gs pdf.ExtGState
+	if fill != 1 {
+		gs.FillAlpha = &fill
+	}
+	if stroke != 1 {
+		gs.StrokeAlpha = &stroke
+	}
+	cur := c.current()
+	cur.gstates = append(cur.gstates, gs)
+	return string(gs.ResourceName())
+}
+
+// BeginGroup implements svgreader.OpacityRegistrar.
+func (c *svgShadingCollector) BeginGroup() bool {
+	if !c.allowsTransparency() {
+		return false
+	}
+	c.open = append(c.open, &svgForm{})
+	return true
+}
+
+// EndGroup implements svgreader.OpacityRegistrar.
+func (c *svgShadingCollector) EndGroup(content string, bbox [4]float64) string {
+	form := c.open[len(c.open)-1]
+	c.open = c.open[:len(c.open)-1]
+	c.doc.svgFormCounter++
+	form.name = pdf.Name(fmt.Sprintf("FmSVG%d", c.doc.svgFormCounter))
+	form.content = content
+	form.bbox = bbox
+	cur := c.current()
+	cur.forms = append(cur.forms, form)
+	return string(form.name)
+}
+
+// RegisterGradientMask implements svgreader.OpacityRegistrar.
+func (c *svgShadingCollector) RegisterGradientMask(mask svgreader.GradientMask) string {
+	if !c.allowsTransparency() {
+		return ""
+	}
+	c.doc.svgMaskCounter++
+	item := &svgMask{
+		name:     pdf.Name(fmt.Sprintf("GSMask%d", c.doc.svgMaskCounter)),
+		gradient: mask.Gradient,
+		opacity:  mask.Opacity,
+		bbox:     mask.BBox,
+	}
+	cur := c.current()
+	cur.masks = append(cur.masks, item)
+	return string(item.name)
+}
+
+// setFaces gives each form the fonts of the drawing. A form has no access to
+// the resources of its page, and the text renderer does not know about groups.
+func setFaces(forms []*svgForm, faces []*pdf.Face) {
+	for _, form := range forms {
+		form.faces = faces
+		setFaces(form.forms, faces)
+	}
+}
+
+// materializeSVGForms writes the forms and hooks them into res. A form is
+// written once, however often its rule is shipped out.
+func materializeSVGForms(res *pdf.Resources, doc *PDFDocument, items []*svgForm) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if res.Forms == nil {
+		res.Forms = make(map[pdf.Name]*pdf.Form)
+	}
+	for _, item := range items {
+		form, ok := doc.svgForms[item]
+		if !ok {
+			content := doc.PDFWriter.NewObject()
+			content.SetCompression(doc.CompressLevel)
+			content.Data.WriteString(item.content)
+			form = doc.PDFWriter.AddForm(content, item.bbox)
+			form.Group = &pdf.TransparencyGroup{Isolated: true}
+			form.Faces = item.faces
+			if err := materializeShadings(&form.Resources, doc, item.shadings); err != nil {
+				return err
+			}
+			if err := materializeExtGStates(&form.Resources, doc, item.gstates); err != nil {
+				return err
+			}
+			if err := materializeSVGForms(&form.Resources, doc, item.forms); err != nil {
+				return err
+			}
+			if err := materializeSVGMasks(&form.Resources, doc, item.masks); err != nil {
+				return err
+			}
+			if doc.svgForms == nil {
+				doc.svgForms = make(map[*svgForm]*pdf.Form)
+			}
+			doc.svgForms[item] = form
+		}
+		res.Forms[item.name] = form
+	}
+	return nil
 }
 
 func (c *svgShadingCollector) RegisterShading(req svgreader.ShadingRequest) string {
@@ -33,8 +193,61 @@ func (c *svgShadingCollector) RegisterShading(req svgreader.ShadingRequest) stri
 	name := pdf.Name(fmt.Sprintf("Sh%d", c.doc.shadingCounter))
 
 	pattern := buildShadingPattern(req)
-	c.collected = append(c.collected, pendingShading{name: name, pattern: pattern})
+	cur := c.current()
+	cur.shadings = append(cur.shadings, pendingShading{name: name, pattern: pattern})
 	return string(name)
+}
+
+// materializeSVGMasks writes the soft masks and hooks their graphics states
+// into res. A mask is a form with a gray gradient of the stop opacities, whose
+// pattern matrix holds only the transformation of the gradient: the
+// coordinates of a soft mask are those of the place that sets it.
+func materializeSVGMasks(res *pdf.Resources, doc *PDFDocument, items []*svgMask) error {
+	if len(items) == 0 {
+		return nil
+	}
+	if res.ExtGStates == nil {
+		res.ExtGStates = make(map[pdf.Name]*pdf.Object)
+	}
+	for _, item := range items {
+		obj, ok := doc.svgMasks[item]
+		if !ok {
+			g := item.gradient
+			m := g.GradientTransform
+			gray := func(s svgreader.GradientStop) []float64 {
+				return []float64{s.StopOpacity * item.opacity}
+			}
+			pattern, err := doc.PDFWriter.WriteShadingPattern(pdf.ShadingPattern{
+				Shading: pdf.Shading{
+					ShadingType: 2,
+					ColorSpace:  "/DeviceGray",
+					Coords:      [4]float64{g.X1, g.Y1, g.X2, g.Y2},
+					Function:    buildShadingFunction(g.Stops, gray),
+					Extend:      [2]bool{true, true},
+				},
+				Matrix: [6]float64{m[0], m[1], m[2], m[3], m[4], m[5]},
+			})
+			if err != nil {
+				return err
+			}
+			content := doc.PDFWriter.NewObject()
+			content.SetCompression(doc.CompressLevel)
+			fmt.Fprintf(content.Data, "/Pattern cs /Sh scn %f %f %f %f re f",
+				item.bbox[0], item.bbox[1], item.bbox[2]-item.bbox[0], item.bbox[3]-item.bbox[1])
+			form := doc.PDFWriter.AddForm(content, item.bbox)
+			form.Group = &pdf.TransparencyGroup{ColorSpace: "/DeviceGray", Isolated: true}
+			form.Patterns = map[pdf.Name]*pdf.Object{"Sh": pattern}
+			if obj, err = doc.PDFWriter.WriteExtGState(pdf.ExtGState{SoftMask: &pdf.SoftMask{Group: form}}); err != nil {
+				return err
+			}
+			if doc.svgMasks == nil {
+				doc.svgMasks = make(map[*svgMask]*pdf.Object)
+			}
+			doc.svgMasks[item] = obj
+		}
+		res.ExtGStates[item.name] = obj
+	}
+	return nil
 }
 
 // buildShadingPattern converts an SVG LinearGradient plus the current CTM
@@ -60,7 +273,7 @@ func buildShadingPattern(req svgreader.ShadingRequest) pdf.ShadingPattern {
 			ShadingType: 2, // axial (linear)
 			ColorSpace:  "/DeviceRGB",
 			Coords:      [4]float64{g.X1, g.Y1, g.X2, g.Y2},
-			Function:    buildShadingFunction(g.Stops),
+			Function:    buildShadingFunction(g.Stops, rgbArray),
 			Extend:      [2]bool{true, true},
 		},
 		Matrix: [6]float64{
@@ -81,14 +294,14 @@ func buildShadingPattern(req svgreader.ShadingRequest) pdf.ShadingPattern {
 //     the last stop's offset < 1, so the gradient parameter t covers [0,1]
 //     without relying on the Shading dict's Extend behaviour to produce the
 //     pad regions inside the gradient line itself.
-func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
+func buildShadingFunction(stops []svgreader.GradientStop, color func(svgreader.GradientStop) []float64) pdf.Function {
 	if len(stops) == 0 {
 		// Defensive — caller should already have rejected this.
-		black := []float64{0, 0, 0}
-		return pdf.Function{FunctionType: 2, Domain: [2]float64{0, 1}, C0: black, C1: black, N: 1}
+		c := color(svgreader.GradientStop{})
+		return pdf.Function{FunctionType: 2, Domain: [2]float64{0, 1}, C0: c, C1: c, N: 1}
 	}
 	if len(stops) == 1 {
-		c := rgbArray(stops[0])
+		c := color(stops[0])
 		return pdf.Function{
 			FunctionType: 2, Domain: [2]float64{0, 1},
 			C0: c, C1: c, N: 1,
@@ -99,7 +312,7 @@ func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
 	if len(stops) == 2 && first.Offset == 0 && last.Offset == 1 {
 		return pdf.Function{
 			FunctionType: 2, Domain: [2]float64{0, 1},
-			C0: rgbArray(first), C1: rgbArray(last), N: 1,
+			C0: color(first), C1: color(last), N: 1,
 		}
 	}
 
@@ -108,7 +321,7 @@ func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
 	encode := make([][2]float64, 0, len(stops)+1)
 
 	if first.Offset > 0 {
-		c := rgbArray(first)
+		c := color(first)
 		subs = append(subs, pdf.Function{
 			FunctionType: 2, Domain: [2]float64{0, 1},
 			C0: c, C1: c, N: 1,
@@ -119,8 +332,8 @@ func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
 	for i := 0; i < len(stops)-1; i++ {
 		subs = append(subs, pdf.Function{
 			FunctionType: 2, Domain: [2]float64{0, 1},
-			C0: rgbArray(stops[i]),
-			C1: rgbArray(stops[i+1]),
+			C0: color(stops[i]),
+			C1: color(stops[i+1]),
 			N:  1,
 		})
 		encode = append(encode, [2]float64{0, 1})
@@ -129,7 +342,7 @@ func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
 		}
 	}
 	if last.Offset < 1 {
-		c := rgbArray(last)
+		c := color(last)
 		bounds = append(bounds, last.Offset)
 		subs = append(subs, pdf.Function{
 			FunctionType: 2, Domain: [2]float64{0, 1},
@@ -184,22 +397,27 @@ func composePatternOuter(items []pendingShading, posX, posY float64) []pendingSh
 	return out
 }
 
-// materializeShadingsOnPage writes each pending shading as PDF objects and
-// hooks them into the page's Pattern resource dict. Called from the page
+// materializeShadings writes each pending shading as PDF objects and hooks
+// them into the Pattern resource dict of a page or a form. Called from the page
 // output path when a rule carries a "shadings" attribute.
-func materializeShadingsOnPage(pdfPage *pdf.Page, doc *PDFDocument, items []pendingShading) error {
+func materializeShadings(res *pdf.Resources, doc *PDFDocument, items []pendingShading) error {
 	if len(items) == 0 {
 		return nil
 	}
-	if pdfPage.Patterns == nil {
-		pdfPage.Patterns = make(map[pdf.Name]*pdf.Object)
+	// A shading is written now and has to name its color space, which
+	// Finish writes much later. See there.
+	if doc.Format.NeedsColorProfile() && doc.PDFWriter.DefaultRGB == 0 {
+		doc.PDFWriter.DefaultRGB = doc.PDFWriter.NextObject()
+	}
+	if res.Patterns == nil {
+		res.Patterns = make(map[pdf.Name]*pdf.Object)
 	}
 	for _, ps := range items {
 		obj, err := doc.PDFWriter.WriteShadingPattern(ps.pattern)
 		if err != nil {
 			return err
 		}
-		pdfPage.Patterns[ps.name] = obj
+		res.Patterns[ps.name] = obj
 	}
 	return nil
 }

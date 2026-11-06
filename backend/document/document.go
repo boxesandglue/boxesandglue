@@ -308,6 +308,8 @@ type objectContext struct {
 	usedImages        map[*pdf.Imagefile]bool
 	pendingShadings   []pendingShading
 	pendingExtGStates []pdf.ExtGState
+	pendingSVGForms   []*svgForm
+	pendingSVGMasks   []*svgMask
 	colorBitmapCache  map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
 	tag               *StructureElement
 	artifactType      ArtifactType
@@ -1434,6 +1436,16 @@ func (oc *objectContext) ruleResources(v *node.Rule, posX, posY bag.ScaledPoint)
 			oc.pendingExtGStates = append(oc.pendingExtGStates, list...)
 		}
 	}
+	if forms, ok := v.Attributes["svgforms"]; ok {
+		if list, ok := forms.([]*svgForm); ok {
+			oc.pendingSVGForms = append(oc.pendingSVGForms, list...)
+		}
+	}
+	if masks, ok := v.Attributes["svgmasks"]; ok {
+		if list, ok := masks.([]*svgMask); ok {
+			oc.pendingSVGMasks = append(oc.pendingSVGMasks, list...)
+		}
+	}
 }
 
 // outputHRule outputs rule v of a horizontal list with its baseline at posY.
@@ -2166,6 +2178,8 @@ func (p *Page) Shipout() {
 	usedImages := make(map[*pdf.Imagefile]bool)
 	var allShadings []pendingShading
 	var allExtGStates []pdf.ExtGState
+	var allSVGForms []*svgForm
+	var allSVGMasks []*svgMask
 	if p.document.Overprint {
 		// A color carries its graphics state in the operators it writes, so
 		// nothing tells which pages use it. Spot colors work the same way.
@@ -2210,6 +2224,12 @@ func (p *Page) Shipout() {
 		}
 		if len(oc.pendingExtGStates) > 0 {
 			allExtGStates = append(allExtGStates, oc.pendingExtGStates...)
+		}
+		if len(oc.pendingSVGForms) > 0 {
+			allSVGForms = append(allSVGForms, oc.pendingSVGForms...)
+		}
+		if len(oc.pendingSVGMasks) > 0 {
+			allSVGMasks = append(allSVGMasks, oc.pendingSVGMasks...)
 		}
 	}
 
@@ -2312,11 +2332,17 @@ func (p *Page) Shipout() {
 		page.Images = append(page.Images, i)
 		p.document.placedImages[i] = true
 	}
-	if err := materializeShadingsOnPage(page, p.document, allShadings); err != nil {
+	if err := materializeShadings(&page.Resources, p.document, allShadings); err != nil {
 		bag.Logger.Error("write shading pattern", "err", err)
 	}
-	if err := materializeExtGStatesOnPage(page, p.document, allExtGStates); err != nil {
+	if err := materializeExtGStates(&page.Resources, p.document, allExtGStates); err != nil {
 		bag.Logger.Error("write extgstate", "err", err)
+	}
+	if err := materializeSVGForms(&page.Resources, p.document, allSVGForms); err != nil {
+		bag.Logger.Error("write form", "err", err)
+	}
+	if err := materializeSVGMasks(&page.Resources, p.document, allSVGMasks); err != nil {
+		bag.Logger.Error("write soft mask", "err", err)
 	}
 
 	// annotations are hyperlinks and structure elements
@@ -2825,6 +2851,14 @@ type PDFDocument struct {
 	// /Pattern resource dict can refer back to it. Names are document-wide
 	// so the same SVG re-rendered on multiple pages does not collide.
 	shadingCounter int
+	// svgFormCounter does the same for the forms of SVG groups, svgForms
+	// holds the ones that are written and warnedSVGTransparency tells that
+	// the format has been reported.
+	svgFormCounter        int
+	svgForms              map[*svgForm]*pdf.Form
+	svgMaskCounter        int // names of the soft masks of SVG gradients
+	svgMasks              map[*svgMask]*pdf.Object
+	warnedSVGTransparency bool
 	// readingSeq is a document-wide monotonic counter stamped on every
 	// marked-content reference and object reference as it is emitted during
 	// shipout. It records reading order across page boundaries (unlike MCID,
@@ -3073,6 +3107,7 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 		Width:            wPt,
 		Height:           hPt,
 		ShadingRegistrar: collector,
+		OpacityRegistrar: collector,
 	}
 	if len(textRenderer) > 0 && textRenderer[0] != nil {
 		opts.TextRenderer = textRenderer[0]
@@ -3101,6 +3136,7 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 		if fp, ok := opts.TextRenderer.(faceProvider); ok {
 			if faces := fp.UsedFaces(); len(faces) > 0 {
 				rule.Attributes = node.H{"usedFaces": faces}
+				setFaces(collector.root.forms, faces)
 			}
 		}
 	}
@@ -3108,11 +3144,30 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 	// Gradient fills from the SVG produced Pattern resource requests.
 	// Stash them on the rule so the page output path can materialise the
 	// PDF Pattern objects against the actual page they end up on.
-	if len(collector.collected) > 0 {
+	if len(collector.root.shadings) > 0 {
 		if rule.Attributes == nil {
 			rule.Attributes = node.H{}
 		}
-		rule.Attributes["shadings"] = collector.collected
+		rule.Attributes["shadings"] = collector.root.shadings
+	}
+	// The same goes for alpha values and groups.
+	if len(collector.root.gstates) > 0 {
+		if rule.Attributes == nil {
+			rule.Attributes = node.H{}
+		}
+		rule.Attributes["extgstates"] = collector.root.gstates
+	}
+	if len(collector.root.forms) > 0 {
+		if rule.Attributes == nil {
+			rule.Attributes = node.H{}
+		}
+		rule.Attributes["svgforms"] = collector.root.forms
+	}
+	if len(collector.root.masks) > 0 {
+		if rule.Attributes == nil {
+			rule.Attributes = node.H{}
+		}
+		rule.Attributes["svgmasks"] = collector.root.masks
 	}
 
 	return rule
@@ -3332,20 +3387,24 @@ func (d *PDFDocument) Finish() error {
 	}
 
 	// PDF/A and PDF/X: beside a CMYK output intent, DeviceRGB needs a device
-	// independent meaning, so CSS and image colors in RGB count as sRGB.
-	if d.Format.NeedsColorProfile() && d.ColorProfile.Colors != 3 {
+	// independent meaning, so CSS and image colors in RGB count as sRGB. A
+	// shading has reserved the object already, whatever the output intent
+	// is: the profile can still change after the page output.
+	if (d.Format.NeedsColorProfile() && d.ColorProfile.Colors != 3) || d.PDFWriter.DefaultRGB != 0 {
 		srgb := d.PDFWriter.NewObject()
 		srgb.Data.Write(srgbData)
 		srgb.Dictionary = pdf.Dict{"N": "3"}
 		if err = srgb.Save(); err != nil {
 			return err
 		}
-		defaultRGB := d.PDFWriter.NewObject()
+		if d.PDFWriter.DefaultRGB == 0 {
+			d.PDFWriter.DefaultRGB = d.PDFWriter.NextObject()
+		}
+		defaultRGB := d.PDFWriter.NewObjectWithNumber(d.PDFWriter.DefaultRGB)
 		defaultRGB.Array = []any{"/ICCBased", srgb.ObjectNumber}
 		if err = defaultRGB.Save(); err != nil {
 			return err
 		}
-		d.PDFWriter.DefaultRGB = defaultRGB.ObjectNumber
 	}
 
 	if d.cutmarksDrawn {
