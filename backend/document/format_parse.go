@@ -17,8 +17,9 @@ import (
 //	"PDF/UA-2"             → PDF/UA-2
 //
 // Multiple tokens compose: "PDF/A-3b, PDF/UA-1" declares both sub-
-// conformances on the resulting Format. Unknown tokens return an error
-// without partially populating the Format.
+// conformances on the resulting Format. Unknown tokens and combinations
+// that demand incompatible base PDF versions return an error without
+// partially populating the Format.
 func ParseFormat(s string) (Format, error) {
 	var f Format
 	if strings.TrimSpace(s) == "" {
@@ -42,6 +43,9 @@ func ParseFormat(s string) (Format, error) {
 		default:
 			return Format{}, fmt.Errorf("unknown PDF format %q (recognised: PDF, PDF/A-3b, PDF/X-3, PDF/X-4, PDF/UA-1, PDF/UA-2)", tok)
 		}
+	}
+	if err := f.checkBaseVersion(); err != nil {
+		return Format{}, err
 	}
 	return f, nil
 }
@@ -92,18 +96,27 @@ func ParseFormatAxes(pdfua, pdfa, pdfx string) (Format, error) {
 		return Format{}, fmt.Errorf("unknown pdfx value %q (recognised: none, X-3, X-4)", pdfx)
 	}
 
-	// Cross-axis base-version coupling: PDF/UA-2 mandates PDF 2.0, while
-	// PDF/A-1..3 and PDF/X-3/4 are PDF 1.x. Claiming both at once is
-	// self-contradictory; pair UA-2 with a PDF 2.0 conformance instead.
-	if f.PDFUA != nil && f.PDFUA.Part == 2 {
-		if f.PDFA != nil {
-			return Format{}, fmt.Errorf("PDF/UA-2 (PDF 2.0) cannot be combined with PDF/A-%d (PDF 1.7)", f.PDFA.Part)
-		}
-		if f.PDFX != nil {
-			return Format{}, fmt.Errorf("PDF/UA-2 (PDF 2.0) cannot be combined with PDF/%s (PDF 1.x)", f.PDFX.Variant)
-		}
+	if err := f.checkBaseVersion(); err != nil {
+		return Format{}, err
 	}
 	return f, nil
+}
+
+// checkBaseVersion rejects sub-conformances that demand different base PDF
+// versions: PDF/UA-2 mandates PDF 2.0, while PDF/A-1..3 and PDF/X-3/4 are
+// PDF 1.x. Claiming both at once is self-contradictory; pair UA-2 with a
+// PDF 2.0 conformance instead.
+func (f Format) checkBaseVersion() error {
+	if f.PDFUA == nil || f.PDFUA.Part != 2 {
+		return nil
+	}
+	if f.PDFA != nil {
+		return fmt.Errorf("PDF/UA-2 (PDF 2.0) cannot be combined with PDF/A-%d (PDF 1.7)", f.PDFA.Part)
+	}
+	if f.PDFX != nil {
+		return fmt.Errorf("PDF/UA-2 (PDF 2.0) cannot be combined with PDF/%s (PDF 1.x)", f.PDFX.Variant)
+	}
+	return nil
 }
 
 // String returns a canonical comma-separated representation of the

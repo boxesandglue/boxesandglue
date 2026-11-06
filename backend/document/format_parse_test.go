@@ -19,7 +19,7 @@ func TestParseFormat(t *testing.T) {
 		{"PDF/UA-1", FormatPDFUA, true},
 		{"PDF/UA-2", FormatPDFUA2, true},
 		{"PDF/A-3b, PDF/UA-1", Format{PDFA: &PDFAConf{3, PDFALevelB}, PDFUA: &PDFUAConf{1, "2014"}}, true},
-		{"PDF/UA-2,PDF/X-4", Format{PDFX: &PDFXConf{"X-4"}, PDFUA: &PDFUAConf{2, "2024"}}, true},
+		{"PDF/X-4, PDF/UA-1", Format{PDFX: &PDFXConf{"X-4"}, PDFUA: &PDFUAConf{1, "2014"}}, true},
 		{"PDF/Z-99", Format{}, false},
 		{"PDF/A-3b, gibberish", Format{}, false},
 	}
@@ -59,8 +59,7 @@ func TestFormatStringRoundTrip(t *testing.T) {
 		FormatPDFUA,
 		FormatPDFUA2,
 		{PDFA: &PDFAConf{3, PDFALevelB}, PDFUA: &PDFUAConf{1, "2014"}},
-		{PDFA: &PDFAConf{3, PDFALevelB}, PDFUA: &PDFUAConf{2, "2024"}},
-		{PDFX: &PDFXConf{"X-4"}, PDFUA: &PDFUAConf{2, "2024"}},
+		{PDFX: &PDFXConf{"X-4"}, PDFUA: &PDFUAConf{1, "2014"}},
 	}
 	for _, c := range cases {
 		s := c.String()
@@ -72,5 +71,21 @@ func TestFormatStringRoundTrip(t *testing.T) {
 		if got.String() != s {
 			t.Errorf("round-trip diverged: %q → %q", s, got.String())
 		}
+	}
+}
+
+func TestParseFormatRejectsUA2WithPDF1x(t *testing.T) {
+	for _, s := range []string{
+		"PDF/A-3b, PDF/UA-2",
+		"PDF/UA-2, PDF/A-3b",
+		"PDF/X-4, PDF/UA-2",
+		"PDF/UA-2, PDF/X-3",
+	} {
+		if f, err := ParseFormat(s); err == nil {
+			t.Errorf("ParseFormat(%q) = %v, want an error", s, f)
+		}
+	}
+	if _, err := ParseFormat("PDF/A-3b, PDF/UA-1"); err != nil {
+		t.Errorf("PDF/UA-1 stays combinable with PDF/A-3b: %v", err)
 	}
 }
