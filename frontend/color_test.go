@@ -1,10 +1,17 @@
 package frontend
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
+	"strings"
 	"testing"
 
+	pdf "github.com/boxesandglue/baseline-pdf"
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
+	"github.com/boxesandglue/boxesandglue/backend/document"
+	"github.com/boxesandglue/boxesandglue/backend/node"
 )
 
 func TestSimple(t *testing.T) {
@@ -125,5 +132,119 @@ func TestDefineSpotColor(t *testing.T) {
 	f.DefineColor("gold", plain)
 	if plain.Basecolor != "gold" {
 		t.Errorf("Basecolor = %q, want gold", plain.Basecolor)
+	}
+}
+
+// captureWarnings collects what the logger reports while f runs.
+func captureWarnings(t *testing.T, f func()) string {
+	t.Helper()
+	old := bag.Logger
+	defer bag.SetLogger(old)
+	var buf bytes.Buffer
+	bag.SetLogger(slog.New(slog.NewTextHandler(&buf, nil)))
+	f()
+	return buf.String()
+}
+
+// Overprint only has a meaning on the plates: white does nothing at all and
+// RGB and gray knock out as before. Both are mistakes worth a warning.
+func TestDefineColorOverprintWarnings(t *testing.T) {
+	testdata := []struct {
+		name string
+		col  color.Color
+		want string
+	}{
+		{"black", color.Color{Space: color.ColorCMYK, K: 1, Overprint: true}, ""},
+		{"spot", color.Color{Space: color.ColorSpotcolor, Basecolor: "x", Overprint: true}, ""},
+		{"knockout", color.Color{Space: color.ColorRGB}, ""},
+		{"white", color.Color{Space: color.ColorCMYK, Overprint: true}, "leaves no mark"},
+		{"rgb", color.Color{Space: color.ColorRGB, R: 1, Overprint: true}, "knocks out"},
+		{"gray", color.Color{Space: color.ColorGray, Overprint: true}, "knocks out"},
+	}
+	for _, tc := range testdata {
+		f, _ := initDocument(io.Discard)
+		got := captureWarnings(t, func() { f.DefineColor(tc.name, &tc.col) })
+		if tc.want == "" && got != "" {
+			t.Errorf("%s: unexpected warning %q", tc.name, got)
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%s: warning %q does not contain %q", tc.name, got, tc.want)
+		}
+		if f.Doc.Overprint != tc.col.Overprint {
+			t.Errorf("%s: Doc.Overprint = %v", tc.name, f.Doc.Overprint)
+		}
+	}
+}
+
+// The graphics state outlives the color operators, so a text run has to switch
+// overprint off at its end. A color without overprint must write what it
+// always wrote.
+func TestColorEndOfTextRun(t *testing.T) {
+	f, err := initDocument(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := f.NewFontFamily("test")
+	if err := ff.AddMember(
+		&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
+		FontWeight400, FontStyleNormal,
+	); err != nil {
+		t.Fatal(err)
+	}
+	f.DefineColor("ink", &color.Color{Space: color.ColorCMYK, K: 1, Overprint: true})
+	f.DefineColor("plain", &color.Color{Space: color.ColorCMYK, K: 1})
+	on := "/" + string(pdf.OverprintOn.ResourceName()) + " gs 0 0 0 1 k "
+	off := "/" + string(pdf.OverprintOff.ResourceName()) + " gs " + document.ColorReset
+	testdata := []struct{ name, first, last string }{
+		{"ink", on, off},
+		{"plain", "0 0 0 1 k ", document.ColorReset},
+	}
+	for _, tc := range testdata {
+		head, err := f.BuildNodelistFromString(TypesettingSettings{
+			SettingFontFamily: ff,
+			SettingSize:       bag.MustSP("10pt"),
+			SettingColor:      tc.name,
+		}, "text")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var code []string
+		for n := head; n != nil; n = n.Next() {
+			if s, ok := n.(*node.StartStop); ok && s.ShipoutCallback != nil {
+				code = append(code, s.ShipoutCallback(s))
+			}
+		}
+		if len(code) != 2 || code[0] != tc.first || code[1] != tc.last {
+			t.Errorf("%s: got %q, want %q and %q", tc.name, code, tc.first, tc.last)
+		}
+	}
+}
+
+// Every page gets the graphics states, the operators in the page stream
+// refer to them by name. Documents without overprint stay as they were.
+func TestOverprintResources(t *testing.T) {
+	for _, overprint := range []bool{false, true} {
+		var buf bytes.Buffer
+		f, err := initDocument(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Doc.CompressLevel = 0
+		f.DefineColor("ink", &color.Color{Space: color.ColorCMYK, K: 1, Overprint: overprint})
+		r := node.NewRule()
+		r.Pre = f.GetColor("ink").PDFStringNonStroking()
+		r.Width, r.Height = bag.MustSP("1pt"), bag.MustSP("1pt")
+		p := f.Doc.NewPage()
+		p.OutputAt(0, bag.MustSP("10pt"), node.Vpack(r))
+		p.Shipout()
+		if err := f.Doc.Finish(); err != nil {
+			t.Fatal(err)
+		}
+		if got := bytes.Contains(buf.Bytes(), []byte("/ExtGState")); got != overprint {
+			t.Errorf("overprint %v: /ExtGState in the PDF: %v", overprint, got)
+		}
+		if got := bytes.Contains(buf.Bytes(), []byte("/OPM 1")); got != overprint {
+			t.Errorf("overprint %v: /OPM 1 in the PDF: %v", overprint, got)
+		}
 	}
 }

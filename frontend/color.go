@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/boxesandglue/boxesandglue/backend/bag"
 	"github.com/boxesandglue/boxesandglue/backend/color"
 )
 
@@ -27,7 +28,24 @@ func (d *Document) DefineColor(name string, col *color.Color) {
 		d.usedSpotcolors[col] = true
 		col.SpotcolorID = len(d.usedSpotcolors)
 	}
+	if col.Overprint {
+		d.Doc.Overprint = true
+		warnOverprint(name, col)
+	}
 	d.usedcolors[name] = col
+}
+
+// warnOverprint reports overprinting colors that cannot do what they ask for.
+func warnOverprint(name string, col *color.Color) {
+	switch col.Space {
+	case color.ColorCMYK:
+		if col.C == 0 && col.M == 0 && col.Y == 0 && col.K == 0 {
+			bag.Logger.Warn("Color is white and overprints, it leaves no mark", "color", name)
+		}
+	case color.ColorSpotcolor:
+	default:
+		bag.Logger.Warn("Only CMYK and spot colors overprint, this color knocks out", "color", name)
+	}
 }
 
 var rgbmatcher = regexp.MustCompile(`rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,?\s*([0-9.-]*)?\s*\)`)

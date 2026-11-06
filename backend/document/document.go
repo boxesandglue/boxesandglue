@@ -36,6 +36,11 @@ const (
 // intent, which DeviceRGB is not.
 const ColorReset = "0 G 0 g "
 
+// ColorEnd is the content stream code that ends the color col.
+func ColorEnd(col *color.Color) string {
+	return col.PDFStringEnd() + ColorReset
+}
+
 var cutmarkLength bag.ScaledPoint = OneCM
 
 // cutmarkDistance is the least distance of a crop mark from the sheet. The
@@ -2149,6 +2154,11 @@ func (p *Page) Shipout() {
 	usedImages := make(map[*pdf.Imagefile]bool)
 	var allShadings []pendingShading
 	var allExtGStates []pdf.ExtGState
+	if p.document.Overprint {
+		// A color carries its graphics state in the operators it writes, so
+		// nothing tells which pages use it. Spot colors work the same way.
+		allExtGStates = append(allExtGStates, pdf.OverprintOn, pdf.OverprintOff)
+	}
 	if p.document.DumpOutput {
 		p.outputDebug = &outputDebug{
 			Name: "page",
@@ -2777,6 +2787,7 @@ type PDFDocument struct {
 	Faces                []*pdf.Face
 	Pages                []*Page
 	Spotcolors           []*color.Color
+	Overprint            bool // an overprinting color is defined, pages need its graphics states
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   []CallbackShipout
 	Bleed                bag.ScaledPoint

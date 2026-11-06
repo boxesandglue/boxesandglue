@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	pdf "github.com/boxesandglue/baseline-pdf"
 )
 
 // formatColorComponent renders a 0..1 color component for PDF content
@@ -34,6 +36,11 @@ type Color struct {
 	G           float64
 	B           float64
 	A           float64
+	// Overprint prints the color on top of what is below instead of knocking
+	// it out. It has an effect on CMYK and spot colors. Like a spot color, the
+	// color has to go through Document.DefineColor, which sets up the
+	// resources the page needs.
+	Overprint bool
 }
 
 func (col Color) String() string {
@@ -80,18 +87,38 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 	if col == nil {
 		return ""
 	}
+	var values string
 	switch col.Space {
 	case ColorRGB:
-		return fmt.Sprintf("%s %s %s %s", formatColorComponent(col.R), formatColorComponent(col.G), formatColorComponent(col.B), col.getPDFColorSuffix(stroking))
+		values = fmt.Sprintf("%s %s %s %s", formatColorComponent(col.R), formatColorComponent(col.G), formatColorComponent(col.B), col.getPDFColorSuffix(stroking))
 	case ColorCMYK:
-		return fmt.Sprintf("%s %s %s %s %s", formatColorComponent(col.C), formatColorComponent(col.M), formatColorComponent(col.Y), formatColorComponent(col.K), col.getPDFColorSuffix(stroking))
+		values = fmt.Sprintf("%s %s %s %s %s", formatColorComponent(col.C), formatColorComponent(col.M), formatColorComponent(col.Y), formatColorComponent(col.K), col.getPDFColorSuffix(stroking))
 	case ColorGray:
-		return fmt.Sprintf("%s %s", formatColorComponent(col.G), col.getPDFColorSuffix(stroking))
+		values = fmt.Sprintf("%s %s", formatColorComponent(col.G), col.getPDFColorSuffix(stroking))
 	case ColorSpotcolor:
-		return fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
+		values = fmt.Sprintf("/CS%d %s 1 scn ", col.SpotcolorID, col.getPDFColorSuffix(stroking))
 	default:
 		return ""
 	}
+	if col.Overprint {
+		return gsOperator(pdf.OverprintOn) + values
+	}
+	return values
+}
+
+// gsOperator returns the PDF instruction that activates gs.
+func gsOperator(gs pdf.ExtGState) string {
+	return "/" + string(gs.ResourceName()) + " gs "
+}
+
+// PDFStringEnd returns the PDF instructions a color needs at its end, beyond
+// switching to another color. The graphics state of an overprinting color
+// outlives the color operators unless it is reset.
+func (col *Color) PDFStringEnd() string {
+	if col != nil && col.Overprint {
+		return gsOperator(pdf.OverprintOff)
+	}
+	return ""
 }
 
 // PDFStringStroking returns the PDF instructions to switch to the color for
