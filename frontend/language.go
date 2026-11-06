@@ -216,8 +216,18 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 	}
 }
 
-// newHyphen is the hyphen that ends a line after the glyph before.
-func newHyphen(fnt *font.Font, before node.Node) *node.Glyph {
+// newHyphen is the list of glyphs that ends a line after the glyph before: the
+// Hyphen of its run, shaped as the run, or else the font's Hyphenchar. A Hyphen
+// the font has no glyph for gets Hyphenchar too, Font.Shape reports it.
+func newHyphen(fnt *font.Font, before node.Node) node.Node {
+	if g, ok := before.(*node.Glyph); ok && g.Font != nil && g.Shaping != nil && g.Shaping.Hyphen != nil {
+		if *g.Shaping.Hyphen == "" {
+			return nil
+		}
+		if shaped := shapeLike(g, *g.Shaping.Hyphen, false); allGlyphsKnown(shaped) {
+			return shaped
+		}
+	}
 	hyphen := node.NewGlyph()
 	if fnt != nil {
 		hyphen.Font = fnt
@@ -232,6 +242,16 @@ func newHyphen(fnt *font.Font, before node.Node) *node.Glyph {
 		hyphen.HorizontalScale = g.HorizontalScale
 	}
 	return hyphen
+}
+
+// allGlyphsKnown reports whether the list has glyphs and none is .notdef.
+func allGlyphsKnown(list node.Node) bool {
+	for n := list; n != nil; n = n.Next() {
+		if g, ok := n.(*node.Glyph); ok && g.Codepoint == 0 {
+			return false
+		}
+	}
+	return list != nil
 }
 
 // splitLigature puts a Disc before the ligature g that breaks the word after
@@ -254,7 +274,10 @@ func splitLigature(g *node.Glyph, k int, fnt *font.Font) {
 		return
 	}
 	tail := node.Tail(pre)
-	node.InsertAfter(pre, tail, newHyphen(fnt, tail))
+	if hyphen := newHyphen(fnt, tail); hyphen != nil {
+		tail.SetNext(hyphen)
+		hyphen.SetPrev(tail)
+	}
 	disc := node.NewDisc()
 	disc.Pre = pre
 	disc.Post = post

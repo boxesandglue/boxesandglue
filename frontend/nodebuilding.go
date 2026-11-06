@@ -368,6 +368,10 @@ const (
 	// SettingLanguage. "auto" / unset / "manual" insert a Disc at every
 	// U+00AD; "none" drops U+00AD silently.
 	SettingHyphens
+	// SettingHyphenCharacter is the string that ends a line at a hyphenation
+	// point, CSS hyphenate-character, at soft hyphens as well. "" sets none,
+	// nil the font's hyphen.
+	SettingHyphenCharacter
 	// SettingHyphenPenalty carries the Knuth-Plass hyphen penalty as int.
 	// Lower values encourage hyphenation, higher discourage. TeX default
 	// is 50; lower (5–25) helps long compound words in German typesetting,
@@ -679,6 +683,8 @@ func (st SettingType) String() string {
 		settingName = "SettingLanguage"
 	case SettingHyphens:
 		settingName = "SettingHyphens"
+	case SettingHyphenCharacter:
+		settingName = "SettingHyphenCharacter"
 	case SettingHyphenPenalty:
 		settingName = "SettingHyphenPenalty"
 	case SettingLinebreakTolerance:
@@ -2467,6 +2473,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	hscale := 1.0
 	direction := DirectionLTR
 	hyphensMode := "" // CSS hyphens: "" (auto), "auto", "manual", "none"
+	var hyphenCharacter *string
 	var settingFontFeatures []ot.Feature
 	for k, v := range ts {
 		switch k {
@@ -2584,6 +2591,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		case SettingHyphens:
 			if s, ok := v.(string); ok {
 				hyphensMode = s
+			}
+		case SettingHyphenCharacter:
+			if s, ok := v.(string); ok {
+				hyphenCharacter = &s
 			}
 		case SettingSynthesizeStyle:
 			// read with the font lookup below
@@ -2745,7 +2756,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 	// grapheme-cluster boundaries by coverage, each segment is shaped with
 	// its own face, and the per-atom font is recorded in atomFonts.
 	// Single-face inputs keep the original single-shape path.
-	shaping := &font.Shaping{Features: fontfeatures, Variations: variations, LetterSpacing: letterSpacing}
+	shaping := &font.Shaping{Features: fontfeatures, Variations: variations, LetterSpacing: letterSpacing, Hyphen: hyphenCharacter}
 	if len(fontfamilyStack) == 0 || fontfamilyStack[0] != fontfamily {
 		// A single family can still be a composite face of several
 		// sources, which coverage splits the text between. A stack that
@@ -2902,13 +2913,11 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// with the font's hyphenchar as the visible material.
 			if hyphensMode != "none" {
 				disc := node.NewDisc()
-				hyphen := node.NewGlyph()
-				hyphen.Font = fnt
-				hyphen.Width = scaled(fnt.Hyphenchar.Advance)
-				hyphen.HorizontalScale = glyphScale
-				hyphen.Components = fnt.Hyphenchar.Components
-				hyphen.Codepoint = fnt.Hyphenchar.Codepoint
-				disc.Pre = hyphen
+				run := node.NewGlyph()
+				run.Font = fnt
+				run.Shaping = shaping
+				run.HorizontalScale = glyphScale
+				disc.Pre = newHyphen(fnt, run)
 				head = node.InsertAfter(head, cur, disc)
 				cur = disc
 				lastglue = nil

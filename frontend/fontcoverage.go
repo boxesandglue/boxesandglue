@@ -419,7 +419,7 @@ func (fe *Document) shapeForBuild(
 			rf, _, rfeat, rvar, err := fe.shapeFontFor(run.Source, fontsize, baseFeatures, settingFeatures, settingVariations)
 			if err == nil && rf != nil {
 				runFnt = rf
-				runShaping = &font.Shaping{Features: rfeat, Variations: rvar, LetterSpacing: primary.LetterSpacing}
+				runShaping = &font.Shaping{Features: rfeat, Variations: rvar, LetterSpacing: primary.LetterSpacing, Hyphen: primary.Hyphen}
 			}
 		}
 		runAtoms, runLevels := shapeWithBidi(runFnt, run.Text, runShaping.Features, runShaping.Variations, direction)

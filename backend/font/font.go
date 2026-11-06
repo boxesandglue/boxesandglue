@@ -36,6 +36,9 @@ type Shaping struct {
 	Features      []ot.Feature
 	Variations    map[string]float64
 	LetterSpacing bag.ScaledPoint
+	// Hyphen is the text that ends a line at a hyphenation point of the run,
+	// "" for none. Nil is the font's Hyphenchar.
+	Hyphen *string
 }
 
 // MissingGlyphFunc is called when a character cannot be found in the font.
