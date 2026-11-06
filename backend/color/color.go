@@ -2,6 +2,7 @@ package color
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -35,7 +36,11 @@ type Color struct {
 	R           float64
 	G           float64
 	B           float64
-	A           float64
+	// Transparency is 0 for an opaque color, the zero value, and 1 for an
+	// invisible one. Like a spot color, a transparent color has to go through
+	// Document.DefineColor or Document.GetColor, which set up the resources
+	// the page needs and refuse transparency in formats that forbid it.
+	Transparency float64
 	// Overprint prints the color on top of what is below instead of knocking
 	// it out. It has an effect on CMYK and spot colors. Like a spot color, the
 	// color has to go through Document.DefineColor, which sets up the
@@ -48,12 +53,20 @@ func (col Color) String() string {
 	case ColorNone:
 		return "-"
 	case ColorRGB:
-		alphaStr := strconv.FormatFloat(col.A, 'f', -1, 64)
+		alphaStr := strconv.FormatFloat(col.Alpha(), 'f', -1, 64)
 		return fmt.Sprintf("rgba(%d,%d,%d,%s)", int(col.R*255), int(col.G*255), int(col.B*255), alphaStr)
 	case ColorSpotcolor:
 		return col.Basecolor
 	}
 	return ""
+}
+
+// Alpha returns the opacity of the color, 1 for an opaque one. It is rounded
+// to the precision of the color components, so that the alpha of a color does
+// not depend on the way it was computed and equal colors share one graphics
+// state.
+func (col Color) Alpha() float64 {
+	return math.Round((1-col.Transparency)*10000) / 10000
 }
 
 // Space represents the color space of a defined color.
@@ -101,9 +114,38 @@ func (col *Color) getPDFColorValues(stroking bool) string {
 		return ""
 	}
 	if col.Overprint {
-		return gsOperator(pdf.OverprintOn) + values
+		values = gsOperator(pdf.OverprintOn) + values
+	}
+	if col.Transparency != 0 {
+		values = gsOperator(alphaState(col.Alpha(), stroking)) + values
 	}
 	return values
+}
+
+// alphaEnd is the graphics state that ends a transparent color. It sets both
+// alphas, as a run does not know which of them its color has set.
+var alphaEnd = func() pdf.ExtGState {
+	opaque := 1.0
+	return pdf.ExtGState{FillAlpha: &opaque, StrokeAlpha: &opaque}
+}()
+
+// alphaState returns the graphics state for alpha. The alpha for filling and
+// the one for stroking are separate states, like the two colors: setting one
+// must not touch the other.
+func alphaState(alpha float64, stroking bool) pdf.ExtGState {
+	if stroking {
+		return pdf.ExtGState{StrokeAlpha: &alpha}
+	}
+	return pdf.ExtGState{FillAlpha: &alpha}
+}
+
+// ExtGStates returns the graphics states the operators of a transparent color
+// refer to. A page has to list them in its resources.
+func (col *Color) ExtGStates() []pdf.ExtGState {
+	if col == nil || col.Transparency == 0 {
+		return nil
+	}
+	return []pdf.ExtGState{alphaState(col.Alpha(), false), alphaState(col.Alpha(), true), alphaEnd}
 }
 
 // gsOperator returns the PDF instruction that activates gs.
@@ -112,13 +154,20 @@ func gsOperator(gs pdf.ExtGState) string {
 }
 
 // PDFStringEnd returns the PDF instructions a color needs at its end, beyond
-// switching to another color. The graphics state of an overprinting color
-// outlives the color operators unless it is reset.
+// switching to another color. The graphics state of an overprinting or a
+// transparent color outlives the color operators unless it is reset.
 func (col *Color) PDFStringEnd() string {
-	if col != nil && col.Overprint {
-		return gsOperator(pdf.OverprintOff)
+	if col == nil {
+		return ""
 	}
-	return ""
+	var end string
+	if col.Overprint {
+		end = gsOperator(pdf.OverprintOff)
+	}
+	if col.Transparency != 0 {
+		end += gsOperator(alphaEnd)
+	}
+	return end
 }
 
 // PDFStringStroking returns the PDF instructions to switch to the color for

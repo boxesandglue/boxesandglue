@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"reflect"
 	"slices"
@@ -35,6 +36,18 @@ const (
 // DeviceGray prints on the black plate only and is allowed beside any output
 // intent, which DeviceRGB is not.
 const ColorReset = "0 G 0 g "
+
+// AddColorStates makes the graphics states of the transparent color col
+// available on the pages. A color writes them in its operators, so nothing
+// tells which pages use it. Spot colors work the same way.
+func (pd *PDFDocument) AddColorStates(col *color.Color) {
+	for _, gs := range col.ExtGStates() {
+		if pd.colorStates == nil {
+			pd.colorStates = make(map[pdf.Name]pdf.ExtGState)
+		}
+		pd.colorStates[gs.ResourceName()] = gs
+	}
+}
 
 // ColorEnd is the content stream code that ends the color col.
 func ColorEnd(col *color.Color) string {
@@ -493,7 +506,6 @@ func (oc *objectContext) emitColorGlyph(g *node.Glyph, x, y bag.ScaledPoint, lay
 				R:     float64(c.Red) / 255,
 				G:     float64(c.Green) / 255,
 				B:     float64(c.Blue) / 255,
-				A:     float64(c.Alpha) / 255,
 			}
 			oc.writef("%s ", col.PDFStringNonStroking())
 		}
@@ -1170,7 +1182,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 
 				if oc.p.document.IsTrace(VTraceDest) {
 					oc.gotoTextMode(ScopePage)
-					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
+					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0}
 					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
 					oc.writef(" 1 0 0 1 %s %s cm ", posX, y)
 					oc.write(circ)
@@ -1812,7 +1824,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 
 				if oc.p.document.IsTrace(VTraceDest) {
 					oc.gotoTextMode(ScopePage)
-					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0, A: 1}
+					black := color.Color{Space: color.ColorGray, R: 0, G: 0, B: 0}
 					circ := pdfdraw.New().ColorStroking(black).Circle(0, 0, 2*bag.Factor, 2*bag.Factor).Fill().String()
 					oc.writef(" 1 0 0 1 %s %s cm ", posX, y)
 					oc.write(circ)
@@ -2158,6 +2170,9 @@ func (p *Page) Shipout() {
 		// A color carries its graphics state in the operators it writes, so
 		// nothing tells which pages use it. Spot colors work the same way.
 		allExtGStates = append(allExtGStates, pdf.OverprintOn, pdf.OverprintOff)
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.document.colorStates)) {
+		allExtGStates = append(allExtGStates, p.document.colorStates[name])
 	}
 	if p.document.DumpOutput {
 		p.outputDebug = &outputDebug{
@@ -2787,7 +2802,8 @@ type PDFDocument struct {
 	Faces                []*pdf.Face
 	Pages                []*Page
 	Spotcolors           []*color.Color
-	Overprint            bool // an overprinting color is defined, pages need its graphics states
+	Overprint            bool                       // an overprinting color is defined, pages need its graphics states
+	colorStates          map[pdf.Name]pdf.ExtGState // graphics states of the transparent colors, see AddColorStates
 	pdfStructureObjects  []*pdfStructureObject
 	preShipoutCallback   []CallbackShipout
 	Bleed                bag.ScaledPoint

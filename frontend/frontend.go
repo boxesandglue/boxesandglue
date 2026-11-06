@@ -24,6 +24,7 @@ type Document struct {
 	fontlocal             map[string]*FontSource
 	usedcolors            map[string]*color.Color
 	usedSpotcolors        map[*color.Color]bool
+	warnedTransparency    bool
 	usedFonts             map[fontKey]*font.Font
 	variationFaces        map[string]*pdf.Face // cache for faces with specific variations
 	DefaultFeatures       []ot.Feature

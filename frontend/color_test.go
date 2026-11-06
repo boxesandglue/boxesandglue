@@ -39,6 +39,97 @@ func TestSimple(t *testing.T) {
 	}
 }
 
+func TestInvalidColorArguments(t *testing.T) {
+	f := Document{}
+	for _, s := range []string{"rgb(0,255)", "rgb(0,255,0,0.5,1)", "rgb(a,b,c)", "rgb(0,0,0,x)", "rgb(0,0,0", "cmyk(0,0,0)"} {
+		if col := f.GetColor(s); col != nil {
+			t.Errorf("GetColor(%q) = %v, want nil", s, col)
+		}
+	}
+}
+
+func TestColorOperatorsWithAlpha(t *testing.T) {
+	f, _ := initDocument(io.Discard)
+	col := f.GetColor("rgba(255,0,0,0.5)")
+	if got, want := col.PDFStringNonStroking(), "/GSca0_5 gs 1 0 0 rg"; got != want {
+		t.Errorf("PDFStringNonStroking() = %q, want %q", got, want)
+	}
+	if got, want := col.PDFStringStroking(), "/GSCA0_5 gs 1 0 0 RG"; got != want {
+		t.Errorf("PDFStringStroking() = %q, want %q", got, want)
+	}
+	if got, want := document.ColorEnd(col), "/GSca1CA1 gs 0 G 0 g "; got != want {
+		t.Errorf("ColorEnd() = %q, want %q", got, want)
+	}
+	cmyk := f.GetColor("device-cmyk(0 1 1 0 / 40%)")
+	if got, want := cmyk.PDFStringNonStroking(), "/GSca0_4 gs 0 1 1 0 k"; got != want {
+		t.Errorf("PDFStringNonStroking() = %q, want %q", got, want)
+	}
+	opaque := f.GetColor("rgba(255,0,0,1)")
+	if got, want := opaque.PDFStringNonStroking(), "1 0 0 rg"; got != want {
+		t.Errorf("PDFStringNonStroking() = %q, want %q", got, want)
+	}
+	if got := document.ColorEnd(opaque); got != document.ColorReset {
+		t.Errorf("ColorEnd() of an opaque color = %q, want %q", got, document.ColorReset)
+	}
+}
+
+// A color with alpha that reaches the page must find its graphics states in
+// the page resources, even as a literal that never went through GetColor.
+func TestTransparentColorResources(t *testing.T) {
+	var buf bytes.Buffer
+	f, err := initDocument(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Doc.CompressLevel = 0
+	ff := f.NewFontFamily("test")
+	if err := ff.AddMember(
+		&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"},
+		FontWeight400, FontStyleNormal,
+	); err != nil {
+		t.Fatal(err)
+	}
+	head, err := f.BuildNodelistFromString(TypesettingSettings{
+		SettingFontFamily: ff,
+		SettingSize:       bag.MustSP("10pt"),
+		SettingColor:      &color.Color{Space: color.ColorRGB, R: 1, Transparency: 0.75},
+	}, "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := f.Doc.NewPage()
+	page.OutputAt(bag.MustSP("1cm"), bag.MustSP("1cm"), node.Vpack(node.Hpack(head)))
+	page.Shipout()
+	if err := f.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"/GSca0_25", "/GSCA0_25", "/GSca1CA1"} {
+		if !bytes.Contains(buf.Bytes(), []byte(name)) {
+			t.Errorf("the PDF has no resource %s", name)
+		}
+	}
+}
+
+// PDF/X-3 forbids transparency, so the color must be opaque in the operators,
+// whichever way it was defined.
+func TestTransparencyForbiddenByFormat(t *testing.T) {
+	f, _ := initDocument(io.Discard)
+	f.Doc.Format = document.FormatPDFX3
+	var col *color.Color
+	warning := captureWarnings(t, func() { col = f.GetColor("rgba(255,0,0,0.5)") })
+	if !strings.Contains(warning, "does not allow transparency") {
+		t.Errorf("warning %q does not mention transparency", warning)
+	}
+	if got, want := col.PDFStringNonStroking(), "1 0 0 rg"; got != want {
+		t.Errorf("PDFStringNonStroking() = %q, want %q", got, want)
+	}
+	defined := &color.Color{Space: color.ColorCMYK, K: 1, Transparency: 0.5}
+	f.DefineColor("c", defined)
+	if got, want := f.GetColor("c").PDFStringNonStroking(), "0 0 0 1 k"; got != want {
+		t.Errorf("PDFStringNonStroking() = %q, want %q", got, want)
+	}
+}
+
 func TestParseColors(t *testing.T) {
 	f := Document{}
 
@@ -46,10 +137,21 @@ func TestParseColors(t *testing.T) {
 		colorvalue string
 		expected   string
 	}{
-		{"rgba(0,255,0)", "rgba(0,255,0,0)"},
-		{"rgb(0,255,0)", "rgba(0,255,0,0)"},
+		{"rgba(0,255,0)", "rgba(0,255,0,1)"},
+		{"rgb(0,255,0)", "rgba(0,255,0,1)"},
 		{"rgb(0,255,0,1.0)", "rgba(0,255,0,1)"},
 		{"rgb(0,255,0,1)", "rgba(0,255,0,1)"},
+		{"rgba(0,255,0,0.5)", "rgba(0,255,0,0.5)"},
+		{"rgba(0,255,0,0)", "rgba(0,255,0,0)"},
+		{"rgba(0,255,0,50%)", "rgba(0,255,0,0.5)"},
+		{"rgb(0 255 0)", "rgba(0,255,0,1)"},
+		{"rgb(0 255 0 / 50%)", "rgba(0,255,0,0.5)"},
+		{"rgb(0 255 0/0.25)", "rgba(0,255,0,0.25)"},
+		{"rgb(0% 100% 0% / 2)", "rgba(0,255,0,1)"},
+		{"#00ff0080", "rgba(0,255,0,0.5)"},
+		{"#0f08", "rgba(0,255,0,0.53)"},
+		{"#00ff00", "rgba(0,255,0,1)"},
+		{"#0f0", "rgba(0,255,0,1)"},
 	}
 	for _, tc := range testdata {
 		col := f.GetColor(tc.colorvalue)
