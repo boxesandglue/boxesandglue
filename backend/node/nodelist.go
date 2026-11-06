@@ -54,6 +54,15 @@ type LinebreakSettings struct {
 	// added to its width. It must not be nil; the default is a glue of zero
 	// width.
 	LineStartGlue *Glue
+	// LastLineStartGlue and LastLineEndGlue, when both are set, replace
+	// LineStartGlue and LineEndGlue on the line that ends the paragraph and
+	// on every line that ends in a forced break, CSS text-align-last. The
+	// stretch of the glue AppendLineEndAfter puts at the paragraph's end
+	// goes away there. Without stretch of order fil or higher the two
+	// justify such a line, unless it has no glue to stretch, which leaves it
+	// as it is without them. The breaks stay the same either way.
+	LastLineStartGlue *Glue
+	LastLineEndGlue   *Glue
 	// DemeritsFitness is added to the demerits of a line whose fitness
 	// class (tight, decent, loose or very loose) is more than one class
 	// away from the line before, TeX's \adjdemerits. Default 10000.

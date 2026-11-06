@@ -985,7 +985,13 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			// The slack goes to the line end, which in a right to left line
 			// is the left edge: the leftskip takes the fill there.
 			leftskip := settings.LineStartGlue.Copy().(*Glue)
-			if _, endsAtHB := endNode.(*HardBreak); endsAtHB {
+			if settings.setsLastLine(startPos, endNode) {
+				leftskip = settings.LastLineStartGlue.Copy().(*Glue)
+				lineEnd = settings.LastLineEndGlue.Copy().(*Glue)
+				if g, ok := endNode.Prev().(*Glue); ok && g.Attributes["origin"] == "lineend" {
+					g.Stretch = 0
+				}
+			} else if _, endsAtHB := endNode.(*HardBreak); endsAtHB {
 				if settings.LineEndGlue.StretchOrder < StretchFil &&
 					settings.LineStartGlue.StretchOrder < StretchFil {
 					fill := NewGlue()
@@ -1097,6 +1103,23 @@ func lineskipOrigin(g *Glue, origin string) *Glue {
 		g.Attributes = H{"origin": origin}
 	}
 	return g
+}
+
+// setsLastLine reports whether the line from start to end takes
+// LastLineStartGlue and LastLineEndGlue.
+func (ls *LinebreakSettings) setsLastLine(start, end Node) bool {
+	if ls.LastLineStartGlue == nil || ls.LastLineEndGlue == nil || !isForcedBreak(end) {
+		return false
+	}
+	if ls.LastLineStartGlue.StretchOrder >= StretchFil || ls.LastLineEndGlue.StretchOrder >= StretchFil {
+		return true
+	}
+	for n := start; n != nil && n != end; n = n.Next() {
+		if g, ok := n.(*Glue); ok && g.Stretch > 0 && g.StretchOrder == StretchNormal {
+			return true
+		}
+	}
+	return false
 }
 
 // AppendLineEndAfter adds a penalty 10000, glue 0pt plus 1fil, penalty -10000

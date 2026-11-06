@@ -268,6 +268,11 @@ const (
 	SettingFontVariationSettings
 	// SettingHAlign sets the horizontal alignment of the paragraph.
 	SettingHAlign
+	// SettingHAlignLast sets the horizontal alignment of the last line of the
+	// paragraph and of a line before a forced break, CSS text-align-last.
+	// HAlignDefault leaves them to SettingHAlign, a justified paragraph sets
+	// them at the start.
+	SettingHAlignLast
 	// SettingHangingPunctuation sets the margin protrusion.
 	SettingHangingPunctuation
 	// SettingHeight sets the height of a box if it should be vertically aligned.
@@ -580,6 +585,8 @@ func (st SettingType) String() string {
 		settingName = "SettingFontVariationSettings"
 	case SettingHAlign:
 		settingName = "SettingHAlign"
+	case SettingHAlignLast:
+		settingName = "SettingHAlignLast"
 	case SettingHangingPunctuation:
 		settingName = "SettingHangingPunctuation"
 	case SettingHeight:
@@ -903,6 +910,7 @@ type Options struct {
 	Fontfamily       *FontFamily
 	Language         *lang.Lang
 	Alignment        HorizontalAlignment
+	LastAlignment    HorizontalAlignment
 	Fontsize         bag.ScaledPoint
 	hsize            bag.ScaledPoint
 	HyphenPenalty    int
@@ -1564,6 +1572,9 @@ func (fe *Document) paragraphOptions(te *Text, hsize bag.ScaledPoint, opts ...Ty
 			p.Alignment = HAlignDefault
 		}
 	}
+	if la, ok := te.Settings[SettingHAlignLast].(HorizontalAlignment); ok {
+		p.LastAlignment = la
+	}
 	// Resolve paragraph direction. An explicit SettingDirection wins; otherwise
 	// auto-detect from the paragraph text using UAX#9. The resolved direction
 	// is propagated to all child Text nodes via Mknodes.
@@ -1585,6 +1596,9 @@ func (fe *Document) paragraphOptions(te *Text, hsize bag.ScaledPoint, opts ...Ty
 		}
 	}
 	p.Alignment = resolveLogicalAlignment(p.Alignment, paraDir)
+	if p.LastAlignment != HAlignDefault {
+		p.LastAlignment = resolveLogicalAlignment(p.LastAlignment, paraDir)
+	}
 	// Apply indent/margin settings from Text settings
 	if il, ok := te.Settings[SettingIndentLeft]; ok {
 		p.IndentLeft = il.(bag.ScaledPoint)
@@ -1769,23 +1783,30 @@ func (fe *Document) linebreakSettings(te *Text, p *Options) *node.LinebreakSetti
 	if stops, ok := te.Settings[SettingTabStops].([]TabStop); ok {
 		ls.TabStops = fe.nodeTabStops(te, stops, p.hsize)
 	}
-	if p.Alignment == HAlignLeft || p.Alignment == HAlignCenter {
-		lg := node.NewGlue()
-		lg.Attributes = node.H{"origin": "glue line end"}
-		lg.Stretch = bag.Factor
-		lg.StretchOrder = node.StretchFill
-		lg.Subtype = node.GlueLineEnd
-		ls.LineEndGlue = lg
-	}
-	if p.Alignment == HAlignRight || p.Alignment == HAlignCenter {
-		lg := node.NewGlue()
-		lg.Attributes = node.H{"origin": "glue line start"}
-		lg.Stretch = bag.Factor
-		lg.StretchOrder = node.StretchFill
-		lg.Subtype = node.GlueLineStart
-		ls.LineStartGlue = lg
+	ls.LineStartGlue, ls.LineEndGlue = alignmentGlues(p.Alignment)
+	if p.LastAlignment != HAlignDefault {
+		ls.LastLineStartGlue, ls.LastLineEndGlue = alignmentGlues(p.LastAlignment)
 	}
 	return ls
+}
+
+// alignmentGlues returns the glue at the start and at the end of a line of the
+// physical alignment a.
+func alignmentGlues(a HorizontalAlignment) (start, end *node.Glue) {
+	start, end = node.NewGlue(), node.NewGlue()
+	if a == HAlignLeft || a == HAlignCenter {
+		end.Attributes = node.H{"origin": "glue line end"}
+		end.Stretch = bag.Factor
+		end.StretchOrder = node.StretchFill
+		end.Subtype = node.GlueLineEnd
+	}
+	if a == HAlignRight || a == HAlignCenter {
+		start.Attributes = node.H{"origin": "glue line start"}
+		start.Stretch = bag.Factor
+		start.StretchOrder = node.StretchFill
+		start.Subtype = node.GlueLineStart
+	}
+	return start, end
 }
 
 // TabStop is a position tabs advance to, see SettingTabStops.
@@ -2518,7 +2539,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
-		case SettingHAlign, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingIndentLeftSteps, SettingIndentRightSteps, SettingTabSize, SettingTabSizeSpaces, SettingTabStops:
+		case SettingHAlign, SettingHAlignLast, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingIndentLeftSteps, SettingIndentRightSteps, SettingTabSize, SettingTabSizeSpaces, SettingTabStops:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
 			// ignore
