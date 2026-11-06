@@ -1,11 +1,11 @@
 github.com/andybalholm/brotli v1.2.7 h1:UgafRPGMam5ySHfRkhthMqOFA6IFoeF3D7mWIDLjG5A=
 github.com/andybalholm/brotli v1.2.7/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
-github.com/boxesandglue/baseline-pdf v1.1.32 h1:DKOpswT/BwdiUHAg6IHav556JRpaTzZ2F5SXNqQ6Eko=
-github.com/boxesandglue/baseline-pdf v1.1.32/go.mod h1:uc23P3JzkPtDKLQ8CJFuv0cjYCqEIirJ5bpszREl6WA=
+github.com/boxesandglue/baseline-pdf v1.1.33 h1:BgDRte0uamV+qCv3eMQtkFaXxcwp7Iohm5hp89HZ/Jk=
+github.com/boxesandglue/baseline-pdf v1.1.33/go.mod h1:uc23P3JzkPtDKLQ8CJFuv0cjYCqEIirJ5bpszREl6WA=
 github.com/boxesandglue/gofpdi v1.0.26 h1:OGmo9+8bt7pvROmBapIU3CySAKIzOkMWxjsCeMm+bb4=
 github.com/boxesandglue/gofpdi v1.0.26/go.mod h1:UW30y0gG63duS5HQwI0HbKZcYVf1YUU5J4ceiVF0JAc=
-github.com/boxesandglue/svgreader v0.0.6 h1:n7UaYsMlBzsW74BNUJ+vn9vc0ITJM4iZ1z4pYNYINrg=
-github.com/boxesandglue/svgreader v0.0.6/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
+github.com/boxesandglue/svgreader v0.0.7 h1:OUU4FZnfbTIUjnTz/YT++dEzL9vG5gVUqUbCuz8BROM=
+github.com/boxesandglue/svgreader v0.0.7/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
 github.com/boxesandglue/textshape v0.0.19 h1:KgqwgiRkiRlSzgv4nD12lc/ntCsQilER6B2+VNVL0nk=
 github.com/boxesandglue/textshape v0.0.19/go.mod h1:GFrtrbTDuWyIXn0g2p0skIsa/ZPmroRhibmh1SKxPuE=
 github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=

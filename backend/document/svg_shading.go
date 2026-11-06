@@ -84,7 +84,8 @@ func buildShadingPattern(req svgreader.ShadingRequest) pdf.ShadingPattern {
 func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
 	if len(stops) == 0 {
 		// Defensive — caller should already have rejected this.
-		return pdf.Function{FunctionType: 2, Domain: [2]float64{0, 1}, N: 1}
+		black := []float64{0, 0, 0}
+		return pdf.Function{FunctionType: 2, Domain: [2]float64{0, 1}, C0: black, C1: black, N: 1}
 	}
 	if len(stops) == 1 {
 		c := rgbArray(stops[0])
@@ -148,8 +149,8 @@ func buildShadingFunction(stops []svgreader.GradientStop) pdf.Function {
 	}
 }
 
-func rgbArray(s svgreader.GradientStop) [3]float64 {
-	return [3]float64{s.Color.R, s.Color.G, s.Color.B}
+func rgbArray(s svgreader.GradientStop) []float64 {
+	return []float64{s.Color.R, s.Color.G, s.Color.B}
 }
 
 // composePatternOuter left-multiplies an additional translation onto each
