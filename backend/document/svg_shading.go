@@ -6,6 +6,7 @@ import (
 
 	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/color"
 	"github.com/boxesandglue/svgreader"
 )
 
@@ -81,14 +82,19 @@ func (c *svgShadingCollector) resolveColor(value string) (svgreader.HostColor, b
 	if col == nil {
 		return svgreader.HostColor{}, false
 	}
-	alpha := col.Alpha()
+	return svgHostColor(col), true
+}
+
+// svgHostColor returns the operators that select col, without its alpha value,
+// which goes with them.
+func svgHostColor(col *color.Color) svgreader.HostColor {
 	opaque := *col
 	opaque.Transparency = 0
 	return svgreader.HostColor{
 		Fill:   strings.TrimSpace(opaque.PDFStringNonStroking()),
 		Stroke: strings.TrimSpace(opaque.PDFStringStroking()),
-		Alpha:  alpha,
-	}, true
+		Alpha:  col.Alpha(),
+	}
 }
 
 // allowsTransparency reports whether the format allows transparency and warns

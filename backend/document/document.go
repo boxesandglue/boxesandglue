@@ -3096,10 +3096,19 @@ func (d *PDFDocument) CreateImageNodeFromImagefile(imgfile *pdf.Imagefile, pagen
 	return img
 }
 
-// CreateSVGNodeFromDocument renders a parsed SVG document into a Rule node
-// containing PDF drawing operators. If width or height is 0, it is derived from
-// the SVG's viewBox to preserve the aspect ratio. If both are 0, the SVG's
-// natural size is used (1 SVG user unit = 1 DTP point).
+// SVGOptions are the optional settings of CreateSVGNodeWithOptions.
+type SVGOptions struct {
+	// Crop is the region of the SVG to show, in the units of its natural size,
+	// measured from its top left corner. A crop without area shows all of it.
+	Crop node.ImageCrop
+	// TextRenderer draws the <text> elements. Without one they are skipped.
+	TextRenderer svgreader.TextRenderer
+	// CurrentColor is the color that currentColor stands for where the drawing
+	// sets no color of its own: for an inline svg in HTML the CSS color of
+	// the element. Nil means black.
+	CurrentColor *color.Color
+}
+
 // CreateSVGNodeFromDocument creates a Rule node from a parsed SVG document.
 // The width and height specify the desired output size. If one is 0, it is
 // calculated from the aspect ratio. If both are 0, the SVG's natural size is
@@ -3107,6 +3116,19 @@ func (d *PDFDocument) CreateImageNodeFromImagefile(imgfile *pdf.Imagefile, pagen
 // elements are skipped. Nothing outside the viewport is drawn: the drawing is
 // clipped to the rule, unless the rule has no area.
 func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, width bag.ScaledPoint, height bag.ScaledPoint, textRenderer ...svgreader.TextRenderer) *node.Rule {
+	var opts SVGOptions
+	if len(textRenderer) > 0 {
+		opts.TextRenderer = textRenderer[0]
+	}
+	return d.CreateSVGNodeWithOptions(svgDoc, width, height, opts)
+}
+
+// CreateSVGNodeWithOptions is CreateSVGNodeFromDocument with the settings of
+// opts.
+func (d *PDFDocument) CreateSVGNodeWithOptions(svgDoc *svgreader.Document, width bag.ScaledPoint, height bag.ScaledPoint, opts SVGOptions) *node.Rule {
+	if opts.Crop.Width > 0 && opts.Crop.Height > 0 {
+		svgDoc = cropSVG(svgDoc, opts.Crop)
+	}
 	naturalW := svgDoc.Width
 	naturalH := svgDoc.Height
 
@@ -3134,19 +3156,21 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 	height = bag.ScaledPointFromFloat(hPt)
 
 	collector := &svgShadingCollector{doc: d}
-	opts := svgreader.RenderOptions{
+	ropts := svgreader.RenderOptions{
 		Width:            wPt,
 		Height:           hPt,
+		TextRenderer:     opts.TextRenderer,
 		ShadingRegistrar: collector,
 		OpacityRegistrar: collector,
 		ResolveColor:     collector.resolveColor,
 		Warn:             func(message string) { bag.Logger.Warn(message) },
 	}
-	if len(textRenderer) > 0 && textRenderer[0] != nil {
-		opts.TextRenderer = textRenderer[0]
+	if opts.CurrentColor != nil {
+		host := svgHostColor(opts.CurrentColor)
+		ropts.CurrentColor = &host
 	}
 
-	stream := svgDoc.RenderPDF(opts)
+	stream := svgDoc.RenderPDF(ropts)
 
 	rule := node.NewRule()
 	rule.Width = width
@@ -3211,9 +3235,15 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 // top left corner. The region becomes the SVG's viewport: its natural size
 // and aspect ratio, and the area the drawing is clipped to.
 func (d *PDFDocument) CreateSVGNodeFromDocumentCrop(svgDoc *svgreader.Document, crop node.ImageCrop, width bag.ScaledPoint, height bag.ScaledPoint, textRenderer ...svgreader.TextRenderer) *node.Rule {
-	if crop.Width <= 0 || crop.Height <= 0 {
-		return d.CreateSVGNodeFromDocument(svgDoc, width, height, textRenderer...)
+	opts := SVGOptions{Crop: crop}
+	if len(textRenderer) > 0 {
+		opts.TextRenderer = textRenderer[0]
 	}
+	return d.CreateSVGNodeWithOptions(svgDoc, width, height, opts)
+}
+
+// cropSVG returns a copy of svgDoc whose viewport is the region crop.
+func cropSVG(svgDoc *svgreader.Document, crop node.ImageCrop) *svgreader.Document {
 	cropped := *svgDoc
 	vb := svgDoc.ViewBox
 	if vb.Width > 0 && vb.Height > 0 && svgDoc.Width > 0 && svgDoc.Height > 0 {
@@ -3233,7 +3263,7 @@ func (d *PDFDocument) CreateSVGNodeFromDocumentCrop(svgDoc *svgreader.Document, 
 	}
 	cropped.Width = crop.Width
 	cropped.Height = crop.Height
-	return d.CreateSVGNodeFromDocument(&cropped, width, height, textRenderer...)
+	return &cropped
 }
 
 // drawImage returns the instructions that draw img with the lower left corner
