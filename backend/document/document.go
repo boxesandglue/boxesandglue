@@ -343,6 +343,51 @@ func (oc *objectContext) emitBDC(se *StructureElement, mcid int) {
 	oc.writef("/%s <</MCID %d>> BDC\n", se.Role, mcid)
 }
 
+// beginActualText opens a marked-content sequence whose text is the source
+// characters of g, for a glyph drawn in color. The layers of a COLR glyph
+// have no Unicode mapping, and a bitmap or SVG glyph shows no text at all, so
+// without it the glyph extracts as U+FFFD or as nothing (issue #104). Color
+// glyphs are drawn outside a text object, so the sequence opens at page level,
+// inside the sequence of the structure element around it. It reports whether
+// it opened one.
+func (oc *objectContext) beginActualText(g *node.Glyph) bool {
+	if g.Components == "" {
+		return false
+	}
+	oc.gotoTextMode(ScopePage)
+	oc.newline()
+	oc.writef("/Span <</ActualText %s>> BDC", pdf.Serialize(pdf.String(g.Components)))
+	oc.newline()
+	return true
+}
+
+// showInvisibleGlyph shows the base glyph g at x, y in invisible text
+// rendering mode. A bitmap or SVG glyph paints no text, and some extractors,
+// poppler among them, take ActualText only from a sequence that shows text.
+// The base glyph maps to the source characters in ToUnicode, so an extractor
+// without ActualText reads them too.
+func (oc *objectContext) showInvisibleGlyph(g *node.Glyph, x, y bag.ScaledPoint) {
+	oc.gotoTextMode(ScopeText)
+	oc.writef("3 Tr ")
+	oc.moveto(x, y)
+	oc.gotoTextMode(ScopeGlyph)
+	oc.writef("%04x", g.Codepoint)
+	oc.gotoTextMode(ScopeText)
+	oc.writef("0 Tr ")
+	oc.gotoTextMode(ScopePage)
+}
+
+// endActualText closes the sequence of beginActualText if it opened one.
+func (oc *objectContext) endActualText(opened bool) {
+	if !opened {
+		return
+	}
+	oc.gotoTextMode(ScopePage)
+	oc.newline()
+	oc.writef("EMC")
+	oc.newline()
+}
+
 // writef writes a formatted string to the object stream
 func (oc *objectContext) writef(format string, args ...any) {
 	fmt.Fprintf(oc.s, format, args...)
@@ -855,7 +900,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						if hlist.VAlign == node.VAlignTop {
 							yPos -= v.Height
 						}
+						span := oc.beginActualText(v)
+						if span {
+							oc.showInvisibleGlyph(v, x+oc.shiftX+sumX, yPos)
+						}
 						oc.emitColorBitmapGlyph(v, x+oc.shiftX+sumX, yPos, pngGlyph)
+						oc.endActualText(span)
 						oc.shiftX = 0
 						oc.usedFaces[v.Font.Face] = true
 						sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
@@ -881,7 +931,12 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					if hlist.VAlign == node.VAlignTop {
 						yPos -= v.Height
 					}
+					span := oc.beginActualText(v)
+					if span {
+						oc.showInvisibleGlyph(v, x+oc.shiftX+sumX, yPos)
+					}
 					oc.emitColorSVGGlyph(v, x+oc.shiftX+sumX, yPos, svgBytes)
+					oc.endActualText(span)
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
 					sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
@@ -900,7 +955,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						yPos -= v.Height
 					}
 					palette := otFace.Font.ColorPaletteColors(0)
+					span := oc.beginActualText(v)
 					oc.emitColorGlyph(v, x+oc.shiftX+sumX, yPos, layers, palette)
+					oc.endActualText(span)
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
 					sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
