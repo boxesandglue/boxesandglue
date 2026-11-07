@@ -3108,6 +3108,7 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 		Height:           hPt,
 		ShadingRegistrar: collector,
 		OpacityRegistrar: collector,
+		Warn:             func(message string) { bag.Logger.Warn(message) },
 	}
 	if len(textRenderer) > 0 && textRenderer[0] != nil {
 		opts.TextRenderer = textRenderer[0]

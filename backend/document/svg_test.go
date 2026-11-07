@@ -74,7 +74,7 @@ func TestSVGWithoutSizeUnclipped(t *testing.T) {
 }
 
 const svgGroupWithGradient = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
-<defs><linearGradient id="g"><stop offset="0" stop-color="#f00"/><stop offset="1" stop-color="#00f"/></linearGradient></defs>
+<defs><linearGradient id="g" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f00"/><stop offset="1" stop-color="#00f"/></linearGradient></defs>
 <g opacity="0.5"><rect width="50" height="50" fill="url(#g)"/><rect x="25" width="50" height="50" fill="#0f0" fill-opacity="0.5"/></g>
 </svg>`
 

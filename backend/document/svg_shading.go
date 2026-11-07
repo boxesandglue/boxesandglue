@@ -33,7 +33,8 @@ type svgResources struct {
 // while the SVG is rendered.
 type svgMask struct {
 	name     pdf.Name
-	gradient *svgreader.LinearGradient
+	gradient *svgreader.Gradient
+	matrix   svgreader.Matrix
 	opacity  float64
 	bbox     [4]float64
 }
@@ -128,6 +129,7 @@ func (c *svgShadingCollector) RegisterGradientMask(mask svgreader.GradientMask) 
 	item := &svgMask{
 		name:     pdf.Name(fmt.Sprintf("GSMask%d", c.doc.svgMaskCounter)),
 		gradient: mask.Gradient,
+		matrix:   mask.Matrix,
 		opacity:  mask.Opacity,
 		bbox:     mask.BBox,
 	}
@@ -213,15 +215,16 @@ func materializeSVGMasks(res *pdf.Resources, doc *PDFDocument, items []*svgMask)
 		obj, ok := doc.svgMasks[item]
 		if !ok {
 			g := item.gradient
-			m := g.GradientTransform
+			m := item.matrix.Multiply(g.GradientTransform)
+			shadingType, coords := g.Shading()
 			gray := func(s svgreader.GradientStop) []float64 {
 				return []float64{s.StopOpacity * item.opacity}
 			}
 			pattern, err := doc.PDFWriter.WriteShadingPattern(pdf.ShadingPattern{
 				Shading: pdf.Shading{
-					ShadingType: 2,
+					ShadingType: shadingType,
 					ColorSpace:  "/DeviceGray",
-					Coords:      [4]float64{g.X1, g.Y1, g.X2, g.Y2},
+					Coords:      coords,
 					Function:    buildShadingFunction(g.Stops, gray),
 					Extend:      [2]bool{true, true},
 				},
@@ -250,7 +253,7 @@ func materializeSVGMasks(res *pdf.Resources, doc *PDFDocument, items []*svgMask)
 	return nil
 }
 
-// buildShadingPattern converts an SVG LinearGradient plus the current CTM
+// buildShadingPattern converts an SVG gradient plus the current CTM
 // into the pdf.ShadingPattern data type.
 //
 // PDF Shading Patterns map pattern space to *default* page coordinates;
@@ -267,12 +270,13 @@ func materializeSVGMasks(res *pdf.Resources, doc *PDFDocument, items []*svgMask)
 func buildShadingPattern(req svgreader.ShadingRequest) pdf.ShadingPattern {
 	g := req.Gradient
 	patternMatrix := req.CTM.Multiply(g.GradientTransform)
+	shadingType, coords := g.Shading()
 
 	return pdf.ShadingPattern{
 		Shading: pdf.Shading{
-			ShadingType: 2, // axial (linear)
+			ShadingType: shadingType,
 			ColorSpace:  "/DeviceRGB",
-			Coords:      [4]float64{g.X1, g.Y1, g.X2, g.Y2},
+			Coords:      coords,
 			Function:    buildShadingFunction(g.Stops, rgbArray),
 			Extend:      [2]bool{true, true},
 		},
