@@ -181,8 +181,8 @@ func TestImageCropEmpty(t *testing.T) {
 // drawing is clipped to it.
 func TestSVGCrop(t *testing.T) {
 	d := NewDocument(&bytes.Buffer{})
-	// 200 × 100 user units at a natural size of 100 × 50.
-	src := `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 200 100"><rect width="200" height="100"/></svg>`
+	// 200 × 100 user units at a natural size of 100 × 50 pt.
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="100pt" height="50pt" viewBox="0 0 200 100"><rect width="200" height="100"/></svg>`
 	crop := node.ImageCrop{X: 25, Y: 10, Width: 50, Height: 25}
 
 	rule := d.CreateSVGNodeFromDocumentCrop(parseSVG(t, src), crop, 0, 0)
@@ -204,12 +204,13 @@ func TestSVGCrop(t *testing.T) {
 	}
 }
 
-// Without a viewBox, the region is in user units.
+// Without a viewBox the region is in points of the natural size too. The
+// drawing is in user units, pixels, 0.75pt each.
 func TestSVGCropWithoutViewBox(t *testing.T) {
 	d := NewDocument(&bytes.Buffer{})
 	src := `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect width="100" height="50"/></svg>`
 	rule := d.CreateSVGNodeFromDocumentCrop(parseSVG(t, src), node.ImageCrop{X: 10, Y: 5, Width: 40, Height: 20}, 0, 0)
-	if want := "q 0 -20 40 20 re W n\nq\n1 0 0 -1 -10 5 cm\n"; !strings.HasPrefix(rule.Pre, want) {
+	if want := "q 0 -20 40 20 re W n\nq\n0.75 0 0 -0.75 -10 5 cm\n"; !strings.HasPrefix(rule.Pre, want) {
 		t.Errorf("rule.Pre starts\n%q, want\n%q", rule.Pre[:min(len(rule.Pre), len(want))], want)
 	}
 }

@@ -53,8 +53,9 @@ func TestSVGClipFollowsDerivedSize(t *testing.T) {
 	if want := "q 0 -50 50 50 re W n\n"; !strings.HasPrefix(rule.Pre, want) {
 		t.Errorf("rule.Pre starts %q, want %q", rule.Pre[:min(len(rule.Pre), len(want))], want)
 	}
+	// The natural size: 100 user units, pixels, are 75pt.
 	rule = d.CreateSVGNodeFromDocument(parseSVG(t, overflowingSVG), 0, 0)
-	if want := "q 0 -100 100 100 re W n\n"; !strings.HasPrefix(rule.Pre, want) {
+	if want := "q 0 -75 75 75 re W n\n"; !strings.HasPrefix(rule.Pre, want) {
 		t.Errorf("rule.Pre starts %q, want %q", rule.Pre[:min(len(rule.Pre), len(want))], want)
 	}
 }

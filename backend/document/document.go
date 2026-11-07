@@ -582,7 +582,9 @@ func (oc *objectContext) emitColorSVGGlyph(g *node.Glyph, x, y bag.ScaledPoint, 
 	if upem == 0 {
 		upem = 1000
 	}
-	scale := g.Font.Size.ToPT() / upem
+	// The glyph document is in font units. The renderer draws a user unit
+	// as PointsPerUserUnit points, which the scale takes back out.
+	scale := g.Font.Size.ToPT() / upem / svgreader.PointsPerUserUnit
 
 	stream := svgDoc.RenderPDF(svgreader.RenderOptions{})
 
@@ -590,7 +592,7 @@ func (oc *objectContext) emitColorSVGGlyph(g *node.Glyph, x, y bag.ScaledPoint, 
 	// Outer transform: scale font-design units → pt, position at glyph
 	// origin. No Y-flip: svgreader already inverts Y once internally,
 	// which is exactly what SVG-OT requires (SVG y-down → design y-up).
-	oc.writef("q %f 0 0 %f %f %f cm\n", scale, scale, x.ToPT(), y.ToPT())
+	oc.writef("q %.9f 0 0 %.9f %f %f cm\n", scale, scale, x.ToPT(), y.ToPT())
 	oc.write(stream)
 	oc.write("\nQ\n")
 }
@@ -3224,8 +3226,10 @@ func (d *PDFDocument) CreateSVGNodeFromDocumentCrop(svgDoc *svgreader.Document, 
 			Height: crop.Height * sy,
 		}
 	} else {
-		// Without a viewBox, a user unit is a unit of the natural size.
-		cropped.ViewBox = svgreader.ViewBox{MinX: crop.X, MinY: crop.Y, Width: crop.Width, Height: crop.Height}
+		// An SVG without a size has no viewBox either. The region is in
+		// points, the viewBox in user units.
+		u := svgreader.PointsPerUserUnit
+		cropped.ViewBox = svgreader.ViewBox{MinX: crop.X / u, MinY: crop.Y / u, Width: crop.Width / u, Height: crop.Height / u}
 	}
 	cropped.Width = crop.Width
 	cropped.Height = crop.Height
