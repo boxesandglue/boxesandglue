@@ -106,7 +106,7 @@ func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontF
 			xCur += atom.Advance.ToPT()
 			continue
 		}
-		face.RegisterCodepoint(atom.Codepoint)
+		face.RegisterGlyph(atom.Codepoint, atom.Components)
 		gx := xCur + atom.XOffset.ToPT()
 		gy := y - atom.YOffset.ToPT()
 		// Tm with Y-flip to compensate the SVG coordinate transform.
