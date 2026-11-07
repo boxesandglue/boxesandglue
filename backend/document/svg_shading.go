@@ -2,6 +2,7 @@ package document
 
 import (
 	"fmt"
+	"strings"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -66,6 +67,28 @@ func (c *svgShadingCollector) current() *svgResources {
 		return &c.open[n-1].svgResources
 	}
 	return &c.root
+}
+
+// resolveColor hands a color defined in the document to the renderer of the
+// SVG. The renderer takes care of the alpha value of the color like of any other
+// one. Spot colors are in every resource dictionary, see materializeSVGForms for
+// overprinting.
+func (c *svgShadingCollector) resolveColor(value string) (svgreader.HostColor, bool) {
+	if c.doc.DefinedColor == nil {
+		return svgreader.HostColor{}, false
+	}
+	col := c.doc.DefinedColor(value)
+	if col == nil {
+		return svgreader.HostColor{}, false
+	}
+	alpha := col.Alpha()
+	opaque := *col
+	opaque.Transparency = 0
+	return svgreader.HostColor{
+		Fill:   strings.TrimSpace(opaque.PDFStringNonStroking()),
+		Stroke: strings.TrimSpace(opaque.PDFStringStroking()),
+		Alpha:  alpha,
+	}, true
 }
 
 // allowsTransparency reports whether the format allows transparency and warns
@@ -170,6 +193,13 @@ func materializeSVGForms(res *pdf.Resources, doc *PDFDocument, items []*svgForm)
 			}
 			if err := materializeExtGStates(&form.Resources, doc, item.gstates); err != nil {
 				return err
+			}
+			// A page has the graphics state of overprinting by itself, a
+			// form has no access to it.
+			if doc.Overprint {
+				if err := materializeExtGStates(&form.Resources, doc, []pdf.ExtGState{pdf.OverprintOn}); err != nil {
+					return err
+				}
 			}
 			if err := materializeSVGForms(&form.Resources, doc, item.forms); err != nil {
 				return err

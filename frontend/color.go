@@ -34,6 +34,18 @@ func (d *Document) DefineColor(name string, col *color.Color) {
 	d.usedcolors[name] = col
 }
 
+// DefinedColor returns the color that DefineColor knows under name, nil for
+// anything else. The colors that GetColor keeps under their CSS name do not
+// count: whether a name is defined must not depend on what was used before.
+func (d *Document) DefinedColor(name string) *color.Color {
+	for _, n := range []string{name, strings.ToLower(strings.TrimSpace(name))} {
+		if col, ok := d.usedcolors[n]; ok && col != csscolors[n] {
+			return col
+		}
+	}
+	return nil
+}
+
 // useTransparency prepares the pages for the transparent color col. In a format
 // that forbids transparency the color turns opaque: the format is what the
 // reader of the file relies on.

@@ -2828,24 +2828,27 @@ type PDFDocument struct {
 	Faces                []*pdf.Face
 	Pages                []*Page
 	Spotcolors           []*color.Color
-	Overprint            bool                       // an overprinting color is defined, pages need its graphics states
-	colorStates          map[pdf.Name]pdf.ExtGState // graphics states of the transparent colors, see AddColorStates
-	pdfStructureObjects  []*pdfStructureObject
-	preShipoutCallback   []CallbackShipout
-	Bleed                bag.ScaledPoint
-	CompressLevel        uint
-	DefaultPageHeight    bag.ScaledPoint
-	DefaultPageWidth     bag.ScaledPoint
-	Format               Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
-	tracing              VTrace
-	DumpOutput           bool
-	ShowCutmarks         bool
-	cutmarksDrawn        bool // a page has crop marks, so the PDF needs registrationColor
-	linksDropped         bool // the warning of dropsLinks went out
-	ShowHyperlinks       bool
-	SuppressInfo         bool
-	xmpExtensions        []XMPExtension
-	namespaceObjs        map[string]*pdf.Object // namespace URI → lazily-allocated /Namespace object
+	Overprint            bool // an overprinting color is defined, pages need its graphics states
+	// DefinedColor returns the color that the document defines under a name
+	// and nil for any other value. It brings these colors into SVG images.
+	DefinedColor        func(name string) *color.Color
+	colorStates         map[pdf.Name]pdf.ExtGState // graphics states of the transparent colors, see AddColorStates
+	pdfStructureObjects []*pdfStructureObject
+	preShipoutCallback  []CallbackShipout
+	Bleed               bag.ScaledPoint
+	CompressLevel       uint
+	DefaultPageHeight   bag.ScaledPoint
+	DefaultPageWidth    bag.ScaledPoint
+	Format              Format // The PDF format (PDF/X-1, PDF/X-3, PDF/A, etc.)
+	tracing             VTrace
+	DumpOutput          bool
+	ShowCutmarks        bool
+	cutmarksDrawn       bool // a page has crop marks, so the PDF needs registrationColor
+	linksDropped        bool // the warning of dropsLinks went out
+	ShowHyperlinks      bool
+	SuppressInfo        bool
+	xmpExtensions       []XMPExtension
+	namespaceObjs       map[string]*pdf.Object // namespace URI → lazily-allocated /Namespace object
 	// shadingCounter feeds unique SVG shading-pattern resource names; the
 	// SVG renderer needs a name at fill emission time so the page-level
 	// /Pattern resource dict can refer back to it. Names are document-wide
@@ -3108,6 +3111,7 @@ func (d *PDFDocument) CreateSVGNodeFromDocument(svgDoc *svgreader.Document, widt
 		Height:           hPt,
 		ShadingRegistrar: collector,
 		OpacityRegistrar: collector,
+		ResolveColor:     collector.resolveColor,
 		Warn:             func(message string) { bag.Logger.Warn(message) },
 	}
 	if len(textRenderer) > 0 && textRenderer[0] != nil {

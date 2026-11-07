@@ -53,6 +53,7 @@ func initDocument(w io.Writer) (*Document, error) {
 		fontlocal:      make(map[string]*FontSource),
 		Doc:            document.NewDocument(w),
 	}
+	d.Doc.DefinedColor = d.DefinedColor
 	// A character without a glyph is rendered as .notdef (the tofu box) and
 	// makes the PDF fail PDF/UA (Matterhorn 10-004), so it should never stay
 	// silent. Warn once per face and rune: a code block full of box-drawing

@@ -413,3 +413,25 @@ func TestOverprintResources(t *testing.T) {
 		}
 	}
 }
+
+// A color counts as defined by DefineColor only, whatever was asked for before.
+func TestDefinedColor(t *testing.T) {
+	f, _ := initDocument(io.Discard)
+	f.GetColor("red")
+	if col := f.DefinedColor("red"); col != nil {
+		t.Errorf("a CSS color counts as defined: %v", col)
+	}
+	ink := &color.Color{Space: color.ColorCMYK, K: 1}
+	f.DefineColor("Ink", ink)
+	f.DefineColor("red", ink)
+	for _, name := range []string{"Ink", "red", " RED "} {
+		if f.DefinedColor(name) != ink {
+			t.Errorf("%q is not defined", name)
+		}
+	}
+	for _, name := range []string{"ink", "#000", "blue", ""} {
+		if col := f.DefinedColor(name); col != nil {
+			t.Errorf("%q is defined: %v", name, col)
+		}
+	}
+}
