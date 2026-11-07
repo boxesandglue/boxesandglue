@@ -435,3 +435,46 @@ func TestDefinedColor(t *testing.T) {
 		}
 	}
 }
+
+// A color that was not defined reaches the document through a setting. Its
+// operators name the graphics states, so the pages need them all the same.
+func TestUseColorOverprint(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col := &color.Color{Space: color.ColorCMYK, K: 1, Overprint: true}
+	te := NewText()
+	te.Settings[SettingColor] = col
+	te.Items = append(te.Items, "a")
+	ff := fe.NewFontFamily("test")
+	if err := ff.AddMember(
+		&FontSource{Location: "../qa/fonts/upem/fonts/CrimsonPro-Regular.ttf"},
+		FontWeight400, FontStyleNormal,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fe.FormatParagraph(te, bag.MustSP("100pt"), Leading(bag.MustSP("14pt")), FontSize(bag.MustSP("12pt")), Family(ff)); err != nil {
+		t.Fatal(err)
+	}
+	if !fe.Doc.Overprint {
+		t.Error("the document does not know about the overprinting color")
+	}
+}
+
+// useColor warns once per color and not at all if DefineColor did.
+func TestUseColorWarnsOnce(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	col := &color.Color{Space: color.ColorRGB, Overprint: true}
+	out := captureWarnings(t, func() {
+		fe.useColor(col)
+		fe.useColor(col)
+		fe.DefineColor("defined", col)
+	})
+	if got := strings.Count(out, "knocks out"); got != 1 {
+		t.Errorf("%d warnings, want 1:\n%s", got, out)
+	}
+}

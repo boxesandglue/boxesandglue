@@ -27,8 +27,7 @@ func (d *Document) DefineColor(name string, col *color.Color) {
 		col.SpotcolorID = len(d.usedSpotcolors)
 	}
 	if col.Overprint {
-		d.Doc.Overprint = true
-		warnOverprint(name, col)
+		d.useOverprint(name, col)
 	}
 	d.useTransparency(col)
 	d.usedcolors[name] = col
@@ -62,6 +61,29 @@ func (d *Document) useTransparency(col *color.Color) {
 		bag.Logger.Warn("The PDF format does not allow transparency, painting transparent colors opaque")
 	}
 	col.Transparency = 0
+}
+
+// useColor prepares the pages for a color that comes from outside of the
+// document and was neither defined nor parsed here.
+func (d *Document) useColor(col *color.Color) {
+	if col != nil && col.Overprint {
+		d.useOverprint(col.String(), col)
+	}
+	d.useTransparency(col)
+}
+
+// useOverprint prepares the pages for the overprinting color col and warns once
+// if it cannot do what it asks for.
+func (d *Document) useOverprint(name string, col *color.Color) {
+	d.Doc.Overprint = true
+	if d.warnedOverprint[col] {
+		return
+	}
+	if d.warnedOverprint == nil {
+		d.warnedOverprint = make(map[*color.Color]bool)
+	}
+	d.warnedOverprint[col] = true
+	warnOverprint(name, col)
 }
 
 // warnOverprint reports overprinting colors that cannot do what they ask for.

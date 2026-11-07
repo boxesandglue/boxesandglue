@@ -24,6 +24,7 @@ type Document struct {
 	fontlocal             map[string]*FontSource
 	usedcolors            map[string]*color.Color
 	warnedColors          map[string]bool
+	warnedOverprint       map[*color.Color]bool
 	usedSpotcolors        map[*color.Color]bool
 	warnedTransparency    bool
 	usedFonts             map[fontKey]*font.Font

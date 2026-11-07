@@ -57,7 +57,7 @@ type inlineBackground struct {
 func (fe *Document) backgroundColorOf(v any) *color.Color {
 	switch t := v.(type) {
 	case *color.Color:
-		fe.useTransparency(t)
+		fe.useColor(t)
 		return t
 	case string:
 		return fe.GetColor(t)

@@ -2509,7 +2509,7 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 					col = c
 				}
 			case *color.Color:
-				fe.useTransparency(t)
+				fe.useColor(t)
 				col = t
 			}
 		case SettingHyperlink:
