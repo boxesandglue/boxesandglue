@@ -51,6 +51,46 @@ type inlineBackground struct {
 	start node.Node
 }
 
+// inlineBackgroundStart returns the marker that opens a background box of col
+// behind the runs of t. The pair of markers is resolved after line breaking,
+// once it is known which lines the Text spans (see postLinebreakBackground).
+func (fe *Document) inlineBackgroundStart(t *Text, col *color.Color) *node.StartStop {
+	bgStart := node.NewStartStop()
+	bgStart.Action = node.ActionUserSetting
+	bgStart.SetAttribute(attrInlineBackground, col)
+	if area, ok := t.Settings[SettingBackgroundArea].(BackgroundArea); ok && area != BackgroundAreaEmBox {
+		bgStart.SetAttribute(attrInlineBackgroundArea, area)
+	}
+	// The box comes from the font of the Text that carries the background,
+	// not from the glyphs under it (CSS content area): a nested family, size
+	// or fallback font does not change it. Without it, each glyph's font
+	// gives the box.
+	fnt, err := fe.textFont(t)
+	if err != nil {
+		bag.Logger.Error("Cannot load the face for an inline background", "error", err)
+	}
+	if fnt != nil {
+		yoffset, _ := t.Settings[SettingYOffset].(bag.ScaledPoint)
+		lineShift, _ := t.Settings[SettingLineShift].(bag.ScaledPoint)
+		sb := &spaceBox{font: fnt, yoffset: yoffset + lineShift}
+		if m, ok := t.Settings[SettingLineModel].(node.BackgroundAreaModel); ok {
+			sb.ht, sb.dp = m.BackgroundArea(fnt)
+			sb.banded = true
+		}
+		bgStart.SetAttribute(attrInlineBackgroundBox, sb)
+	}
+	return bgStart
+}
+
+// inlineBackgroundStop returns the marker that closes the box of bgStart.
+func inlineBackgroundStop(bgStart *node.StartStop) *node.StartStop {
+	bgStop := node.NewStartStop()
+	bgStop.Action = node.ActionUserSetting
+	bgStop.StartNode = bgStart
+	bgStop.SetAttribute(attrInlineBackground, nil)
+	return bgStop
+}
+
 // backgroundColorOf resolves a SettingBackgroundColor value, which is either
 // a colour name (CSS keyword or a colour defined on the document) or a
 // *color.Color. Anything else, including an unknown name, yields nil.

@@ -114,24 +114,41 @@ func TestInlineBackground(t *testing.T) {
 		}
 	})
 
-	t.Run("the paragraph's own colour is not painted inline", func(t *testing.T) {
+	// Issue #105: the paragraph's own colour paints its runs like the colour
+	// of a child Text, one box per line.
+	t.Run("the paragraph's own colour is painted per line", func(t *testing.T) {
 		te := NewText()
 		te.Settings[SettingBackgroundColor] = yellow
-		te.Items = append(te.Items, "block level text")
-		if got := countRules(backgroundRules(format(t, te, "200pt"))); got != 0 {
-			t.Errorf("got %d background rules, want none for a block colour", got)
+		te.Items = append(te.Items, "one two three four five six seven eight nine ten")
+		lines := backgroundRules(format(t, te, "60pt"))
+		if len(lines) < 2 {
+			t.Fatalf("expected the paragraph to wrap, got %d line(s)", len(lines))
+		}
+		for i, l := range lines {
+			if len(l) != 1 {
+				t.Errorf("line %d: got %d background rules, want 1", i, len(l))
+			}
 		}
 	})
 
-	t.Run("a child repeating the parent's colour paints nothing", func(t *testing.T) {
+	t.Run("the paragraph's own colour as a name", func(t *testing.T) {
+		te := NewText()
+		te.Settings[SettingBackgroundColor] = "yellow"
+		te.Items = append(te.Items, "text")
+		if got := countRules(backgroundRules(format(t, te, "200pt"))); got != 1 {
+			t.Errorf("got %d background rules, want 1", got)
+		}
+	})
+
+	t.Run("a child repeating the parent's colour paints no second box", func(t *testing.T) {
 		span := NewText()
 		span.Settings[SettingBackgroundColor] = "yellow"
 		span.Items = append(span.Items, "same")
 		te := NewText()
 		te.Settings[SettingBackgroundColor] = yellow
 		te.Items = append(te.Items, "block ", span)
-		if got := countRules(backgroundRules(format(t, te, "200pt"))); got != 0 {
-			t.Errorf("got %d background rules, want none", got)
+		if got := countRules(backgroundRules(format(t, te, "200pt"))); got != 1 {
+			t.Errorf("got %d background rules, want the paragraph's one", got)
 		}
 	})
 

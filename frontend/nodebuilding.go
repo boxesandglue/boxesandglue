@@ -194,7 +194,10 @@ const (
 	SettingDummy SettingType = iota
 	// SettingBox signals that this text element contains items that should be arranged vertically.
 	SettingBox
-	// SettingBackgroundColor sets the background color.
+	// SettingBackgroundColor sets the background color, a *color.Color or a
+	// color name. It paints a box behind the runs of the Text on each of its
+	// lines, on a child Text as on the paragraph's own Text. A host that paints
+	// the background of the block itself leaves it off the paragraph's Text.
 	SettingBackgroundColor
 	// SettingBorderBottomWidth sets the bottom border width.
 	SettingBorderBottomWidth
@@ -457,7 +460,7 @@ const (
 	// page. Font expansion applies on top of it.
 	SettingHorizontalScale
 	// SettingBackgroundArea chooses the box an inline background
-	// (SettingBackgroundColor on a child Text) is painted over, a
+	// (SettingBackgroundColor) is painted over, a
 	// BackgroundArea. The default is BackgroundAreaEmBox. The box is that
 	// of the child Text's own font, as CSS takes an inline box's content
 	// area from its own font: text nested in another family or size, or a
@@ -1516,6 +1519,17 @@ func (fe *Document) prepareParagraph(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	hlist, tail = stripLeadingTrailingGlue(hlist, tail, hasTabStops)
 	if hlist == nil {
 		return &paragraphPrep{done: true, early: node.NewVList()}, nil
+	}
+
+	// A background on the paragraph's own Text paints the runs of all its
+	// lines, as on a child Text (issue #105). A host that paints the block
+	// behind the paragraph, as htmlbag does for CSS, does not set it there.
+	if col := fe.backgroundColorOf(te.Settings[SettingBackgroundColor]); col != nil {
+		bgStart := fe.inlineBackgroundStart(te, col)
+		bgStop := inlineBackgroundStop(bgStart)
+		hlist = node.InsertBefore(hlist, hlist, bgStart)
+		node.InsertAfter(hlist, tail, bgStop)
+		tail = bgStop
 	}
 
 	if ic, ok := te.Settings[SettingItalicCorrection].(bool); ok && ic {
@@ -3261,11 +3275,10 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 				tail = opener
 			}
 
-			// Inline background. A background colour on the paragraph
-			// itself is a block property and is painted by whoever builds
-			// the block; only a child Text whose colour differs from the
-			// surrounding one gets a box behind its glyphs. The pair of
-			// markers is resolved after line breaking, once it is known
+			// Inline background. Only a child Text whose colour differs from
+			// the surrounding one gets a box behind its glyphs; the
+			// paragraph's own colour is painted by prepareParagraph. The pair
+			// of markers is resolved after line breaking, once it is known
 			// which lines the child spans (see postLinebreakBackground).
 			// Inheritance above copied the parent's colour into a child
 			// without one, so such a child compares equal here.
@@ -3273,30 +3286,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			childBG := fe.backgroundColorOf(t.Settings[SettingBackgroundColor])
 			var bgStart *node.StartStop
 			if childBG != nil && !sameColor(childBG, parentBG) {
-				bgStart = node.NewStartStop()
-				bgStart.Action = node.ActionUserSetting
-				bgStart.SetAttribute(attrInlineBackground, childBG)
-				if area, ok := t.Settings[SettingBackgroundArea].(BackgroundArea); ok && area != BackgroundAreaEmBox {
-					bgStart.SetAttribute(attrInlineBackgroundArea, area)
-				}
-				// The box comes from the font of the Text that carries the
-				// background, not from the glyphs under it (CSS content
-				// area): a nested family, size or fallback font does not
-				// change it. Without it, each glyph's font gives the box.
-				fnt, err := fe.textFont(t)
-				if err != nil {
-					bag.Logger.Error("Cannot load the face for an inline background", "error", err)
-				}
-				if fnt != nil {
-					yoffset, _ := t.Settings[SettingYOffset].(bag.ScaledPoint)
-					lineShift, _ := t.Settings[SettingLineShift].(bag.ScaledPoint)
-					sb := &spaceBox{font: fnt, yoffset: yoffset + lineShift}
-					if m, ok := t.Settings[SettingLineModel].(node.BackgroundAreaModel); ok {
-						sb.ht, sb.dp = m.BackgroundArea(fnt)
-						sb.banded = true
-					}
-					bgStart.SetAttribute(attrInlineBackgroundBox, sb)
-				}
+				bgStart = fe.inlineBackgroundStart(t, childBG)
 				head = node.InsertAfter(head, tail, bgStart)
 				tail = bgStart
 			}
@@ -3323,10 +3313,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			}
 
 			if bgStart != nil {
-				bgStop := node.NewStartStop()
-				bgStop.Action = node.ActionUserSetting
-				bgStop.StartNode = bgStart
-				bgStop.SetAttribute(attrInlineBackground, nil)
+				bgStop := inlineBackgroundStop(bgStart)
 				head = node.InsertAfter(head, tail, bgStop)
 				tail = bgStop
 			}
