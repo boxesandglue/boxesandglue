@@ -319,6 +319,7 @@ type objectContext struct {
 	currentTmY        bag.ScaledPoint // last y written via Tm; used to detect Y changes inside an open TJ
 	currentTmYValid   bool            // false until the first Tm in a content stream
 	currentSlant      float64         // the shear the last Tm applied (font.Font.Slant)
+	textTransparency  float64         // Color.Transparency of the text color in effect
 	shiftX            bag.ScaledPoint
 	textmode          TextScope
 	hasNewline        bool
@@ -460,17 +461,21 @@ func (oc *objectContext) moveto(x, y bag.ScaledPoint) {
 
 // emitColorGlyph writes one COLRv0 base glyph as a sequence of layer
 // glyphs, each rendered at the same origin (x, y) with its own CPAL fill
-// color. The caller must already have selected the right font (Tf) and
-// must update sumX itself afterwards — emitColorGlyph does not touch
-// sumX, only PDF state. After it returns the context is in ScopeText with
-// the non-stroking color reset to black.
+// color and alpha. The caller must already have selected the right font
+// (Tf) and must update sumX itself afterwards. emitColorGlyph does not
+// touch sumX, only PDF state. After it returns the context is in ScopePage.
 //
 // HarfBuzz equivalent: this is the PDF analogue of the per-layer drawing
 // loop used by HarfBuzz's paint backends. Compare with hb-cairo-paint at
 // hb-cairo.cc (the Cairo backend renders each layer via cairo_set_source
 // + cairo_show_glyphs at the same origin). The CPAL ForegroundColorIndex
 // sentinel (0xFFFF) follows hb_paint_context_t::foreground at
-// OT/Color/COLR/COLR.hh:80 — see textshape/ot/colr.go for the constant.
+// OT/Color/COLR/COLR.hh:80, see textshape/ot/colr.go for the constant.
+//
+// Each layer sits in its own q/Q, and as q and Q are illegal in a text
+// object the layer leaves it first. The color of the surrounding text is
+// not known here, so q/Q is what keeps it for the text after the glyph and
+// what gives a foreground layer the color of the text.
 //
 // The choice to re-set the text matrix per layer (Tm) instead of using
 // TJ-array kerning is deliberate: layer glyphs in fonts like
@@ -485,32 +490,25 @@ func (oc *objectContext) emitColorGlyph(g *node.Glyph, x, y bag.ScaledPoint, lay
 	g.Font.Face.RegisterGlyph(g.Codepoint, g.Components)
 
 	for _, layer := range layers {
+		// ColorIndex == 0xFFFF means "use foreground color", which is the
+		// color already in effect. HarfBuzz equivalent:
+		// hb_paint_context_t::foreground (OT/Color/COLR/COLR.hh:80).
+		var fill string
+		if layer.ColorIndex != ot.ForegroundColorIndex && int(layer.ColorIndex) < len(palette) {
+			c := palette[layer.ColorIndex]
+			if c.Alpha == 0 {
+				continue
+			}
+			fill = oc.paletteColor(c)
+		}
+
 		// Layer glyphs share the subsetter's keep-set with their base
-		// glyph — without this, the subsetter would drop their outlines
+		// glyph. Without this, the subsetter would drop their outlines
 		// and ship an emoji font with empty layers.
 		g.Font.Face.RegisterGlyph(int(layer.GlyphID), "")
 
-		// Close any open Tj scope before setting color: color operators
-		// are illegal inside a <…> hex string.
-		oc.gotoTextMode(ScopeText)
-
-		// Resolve color. ColorIndex == 0xFFFF means "use foreground
-		// color". boxesandglue does not yet track per-glyph text fill
-		// color, so we fall back to PDF's text-mode default (black).
-		// HarfBuzz equivalent: hb_paint_context_t::foreground
-		// (OT/Color/COLR/COLR.hh:80).
-		if layer.ColorIndex == ot.ForegroundColorIndex || int(layer.ColorIndex) >= len(palette) {
-			oc.writef("0 g ")
-		} else {
-			c := palette[layer.ColorIndex]
-			col := color.Color{
-				Space: color.ColorRGB,
-				R:     float64(c.Red) / 255,
-				G:     float64(c.Green) / 255,
-				B:     float64(c.Blue) / 255,
-			}
-			oc.writef("%s ", col.PDFStringNonStroking())
-		}
+		oc.gotoTextMode(ScopePage)
+		oc.writef("q %s ", fill)
 
 		// Absolute positioning brings the text cursor back to the base
 		// glyph's origin so this layer overlaps the previous one.
@@ -520,12 +518,30 @@ func (oc *objectContext) emitColorGlyph(g *node.Glyph, x, y bag.ScaledPoint, lay
 		// the next iteration (or the next outer glyph) will re-set Tm.
 		oc.gotoTextMode(ScopeGlyph)
 		oc.writef("%04x", layer.GlyphID)
+		oc.gotoTextMode(ScopePage)
+		oc.write("Q\n")
 	}
+}
 
-	// Reset fill color to black so the next normal text run is not
-	// rendered in the last layer's color.
-	oc.gotoTextMode(ScopeText)
-	oc.writef("0 g ")
+// paletteColor returns the PDF instructions for a CPAL entry. The alpha of the
+// entry multiplies with the one of the text color: a layer writes its own ca,
+// which replaces the value of the text.
+func (oc *objectContext) paletteColor(c ot.BGRAColor) string {
+	col := color.Color{
+		Space: color.ColorRGB,
+		R:     float64(c.Red) / 255,
+		G:     float64(c.Green) / 255,
+		B:     float64(c.Blue) / 255,
+	}
+	doc := oc.p.document
+	if doc.Format.AllowsTransparency() {
+		col.Transparency = 1 - float64(c.Alpha)/255*(1-oc.textTransparency)
+		oc.pendingExtGStates = append(oc.pendingExtGStates, col.ExtGStates()...)
+	} else if c.Alpha != 255 && !doc.warnedGlyphTransparency {
+		doc.warnedGlyphTransparency = true
+		bag.Logger.Warn("The PDF format does not allow transparency, painting color glyphs opaque")
+	}
+	return col.PDFStringNonStroking()
 }
 
 // emitColorSVGGlyph paints one SVG-in-OpenType glyph by parsing the
@@ -1088,6 +1104,13 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				action = startNode.Action
 			} else {
 				startNode = v
+			}
+			if t, ok := startNode.Attributes["transparency"].(float64); ok {
+				if isStartNode {
+					oc.textTransparency = t
+				} else {
+					oc.textTransparency = 0
+				}
 			}
 			switch action {
 			case node.ActionHyperlink:
@@ -2862,6 +2885,9 @@ type PDFDocument struct {
 	svgMaskCounter        int // names of the soft masks of SVG gradients
 	svgMasks              map[*svgMask]*pdf.Object
 	warnedSVGTransparency bool
+	// warnedGlyphTransparency tells that the warning about a palette with
+	// alpha in a format without transparency went out.
+	warnedGlyphTransparency bool
 	// readingSeq is a document-wide monotonic counter stamped on every
 	// marked-content reference and object reference as it is emitted during
 	// shipout. It records reading order across page boundaries (unlike MCID,

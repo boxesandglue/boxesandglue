@@ -2715,6 +2715,10 @@ func (fe *Document) BuildNodelistFromString(ts TypesettingSettings, str string) 
 		colStart.ShipoutCallback = func(n node.Node) string {
 			return col.PDFStringNonStroking() + " "
 		}
+		if col.Transparency != 0 {
+			// The layers of a color glyph set their own alpha.
+			colStart.SetAttribute("transparency", col.Transparency)
+		}
 		if markers != nil {
 			head = node.InsertAfter(head, markers, colStart)
 		} else {
