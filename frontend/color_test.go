@@ -39,6 +39,69 @@ func TestSimple(t *testing.T) {
 	}
 }
 
+func TestHSL(t *testing.T) {
+	f, _ := initDocument(io.Discard)
+	testdata := []struct {
+		value   string
+		r, g, b float64
+		alpha   float64
+	}{
+		{"hsl(120 100% 25%)", 0, 0.5, 0, 1},
+		{"hsl(120, 100%, 25%)", 0, 0.5, 0, 1},
+		{"hsla(120, 100%, 25%, .5)", 0, 0.5, 0, 0.5},
+		{"hsl(120 100% 25% / 50%)", 0, 0.5, 0, 0.5},
+		{"HSL(0 100% 50%)", 1, 0, 0, 1},
+		{"hsl(240deg 100% 50%)", 0, 0, 1, 1},
+		{"hsl(.5turn 100% 50%)", 0, 1, 1, 1},
+		{"hsl(-120 100% 50%)", 0, 0, 1, 1},
+		{"hsl(0 0% 50%)", 0.5, 0.5, 0.5, 1},
+		{"hsl(200 50% 100%)", 1, 1, 1, 1},
+		{"hsl(0 200% 50%)", 1, 0, 0, 1},
+	}
+	for _, tc := range testdata {
+		col := f.GetColor(tc.value)
+		if col == nil {
+			t.Errorf("GetColor(%q) = nil", tc.value)
+			continue
+		}
+		if col.R != tc.r || col.G != tc.g || col.B != tc.b || col.Alpha() != tc.alpha {
+			t.Errorf("GetColor(%q) = %g %g %g alpha %g, want %g %g %g alpha %g", tc.value, col.R, col.G, col.B, col.Alpha(), tc.r, tc.g, tc.b, tc.alpha)
+		}
+	}
+}
+
+// The names and the functions of CSS ignore the case.
+func TestColorCase(t *testing.T) {
+	f, _ := initDocument(io.Discard)
+	for _, s := range []string{"Red", "RED", " red ", "RGB(255,0,0)", "#F00"} {
+		if col := f.GetColor(s); col == nil || col.PDFStringNonStroking() != "1 0 0 rg" {
+			t.Errorf("GetColor(%q) = %v", s, col)
+		}
+	}
+}
+
+// A value that cannot be used is reported, once.
+func TestInvalidColorWarns(t *testing.T) {
+	for _, s := range []string{"notacolor", "#12", "#12345", "#zzz", "#12345g", "rgb(1,2)", "hsl(1,2)", "hsl(x 1% 1%)"} {
+		f, _ := initDocument(io.Discard)
+		warning := captureWarnings(t, func() {
+			if col := f.GetColor(s); col != nil {
+				t.Errorf("GetColor(%q) = %v, want nil", s, col)
+			}
+			f.GetColor(s)
+		})
+		if got := strings.Count(warning, "Cannot parse color"); got != 1 {
+			t.Errorf("%q: %d warnings, want 1: %s", s, got, warning)
+		}
+	}
+	f, _ := initDocument(io.Discard)
+	for _, s := range []string{"", "none", "inherit", "initial", "unset", "revert", "revert-layer", "currentcolor", "currentColor"} {
+		if warning := captureWarnings(t, func() { f.GetColor(s) }); warning != "" {
+			t.Errorf("the value %q warns: %s", s, warning)
+		}
+	}
+}
+
 func TestInvalidColorArguments(t *testing.T) {
 	f := Document{}
 	for _, s := range []string{"rgb(0,255)", "rgb(0,255,0,0.5,1)", "rgb(a,b,c)", "rgb(0,0,0,x)", "rgb(0,0,0", "cmyk(0,0,0)"} {

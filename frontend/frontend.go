@@ -23,6 +23,7 @@ type Document struct {
 	Doc                   *document.PDFDocument
 	fontlocal             map[string]*FontSource
 	usedcolors            map[string]*color.Color
+	warnedColors          map[string]bool
 	usedSpotcolors        map[*color.Color]bool
 	warnedTransparency    bool
 	usedFonts             map[fontKey]*font.Font

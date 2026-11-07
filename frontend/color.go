@@ -1,7 +1,6 @@
 package frontend
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -131,11 +130,123 @@ func parseCMYKComponent(s string) (float64, bool) {
 	return f, true
 }
 
-// GetColor returns a color. The string can be a predefined color name or an
-// HTML / CSS color definition such as #FAF, rgb(128,128,128), cmyk(0%,0%,0%,100%)
-// or device-cmyk(0 0 0 1). All of them take an alpha value: #FAF8, #FFAAFF80,
-// rgba(128,128,128,0.5), rgb(128 128 128 / 50%), device-cmyk(0 0 0 1 / 50%).
+// parseHue accepts an angle with the units of CSS, a number means degrees, and
+// returns the degrees from 0 up to 360.
+func parseHue(s string) (float64, bool) {
+	scale := 1.0
+	for _, unit := range []struct {
+		suffix string
+		scale  float64
+	}{{"deg", 1}, {"grad", 0.9}, {"rad", 180 / math.Pi}, {"turn", 360}} {
+		if bare, ok := strings.CutSuffix(s, unit.suffix); ok {
+			s, scale = bare, unit.scale
+			break
+		}
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	f = math.Mod(f*scale, 360)
+	if f < 0 {
+		f += 360
+	}
+	return f, true
+}
+
+// parseHSLPercentage accepts the saturation or the lightness of hsl(), with or
+// without a percent sign, and returns the value clamped to 0..1.
+func parseHSLPercentage(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(strings.TrimSuffix(s, "%"), 64)
+	if err != nil {
+		return 0, false
+	}
+	return max(0, min(f/100, 1)), true
+}
+
+// hslToRGB converts a hue in degrees and a saturation and a lightness in 0..1,
+// see CSS Color 4 section 7.1.
+func hslToRGB(hue, saturation, lightness float64) (r, g, b float64) {
+	channel := func(n float64) float64 {
+		k := math.Mod(n+hue/30, 12)
+		a := saturation * min(lightness, 1-lightness)
+		return lightness - a*max(-1, min(k-3, 9-k, 1))
+	}
+	return channel(0), channel(8), channel(4)
+}
+
+// parseHexColor returns the components of a CSS hex color after the #.
+func parseHexColor(digits string) (r, g, b, a int, ok bool) {
+	if len(digits) == 3 || len(digits) == 4 {
+		// CSS Color 3 §4.2.1: 3-digit hex (#RGB) expands by duplicating
+		// each digit (#abc → #aabbcc), not by zero-padding. CSS Color 4
+		// §5.2 adds the alpha digit of #RGBA.
+		var long strings.Builder
+		for _, digit := range []byte(digits) {
+			long.WriteByte(digit)
+			long.WriteByte(digit)
+		}
+		digits = long.String()
+	}
+	if len(digits) == 6 {
+		digits += "ff"
+	}
+	if len(digits) != 8 {
+		return 0, 0, 0, 0, false
+	}
+	value, err := strconv.ParseUint(digits, 16, 32)
+	if err != nil {
+		return 0, 0, 0, 0, false
+	}
+	return int(value >> 24), int(value >> 16 & 0xff), int(value >> 8 & 0xff), int(value & 0xff), true
+}
+
+// colorKeywords are valid values of the color properties of CSS that name no
+// color by themselves. The cascade deals with them, or the callers do.
+var colorKeywords = map[string]bool{
+	"":             true,
+	"currentcolor": true,
+	"inherit":      true,
+	"initial":      true,
+	"none":         true,
+	"revert":       true,
+	"revert-layer": true,
+	"unset":        true,
+}
+
+// warnColor reports a color that cannot be used, once per value.
+func (d *Document) warnColor(s string) {
+	if colorKeywords[strings.ToLower(strings.TrimSpace(s))] || d.warnedColors[s] {
+		return
+	}
+	if d.warnedColors == nil {
+		d.warnedColors = make(map[string]bool)
+	}
+	d.warnedColors[s] = true
+	bag.Logger.Warn("Cannot parse color, ignoring it", "color", s)
+}
+
+// GetColor returns a color, or nil with a warning if it cannot use s. The
+// string can be a predefined color name or an HTML / CSS color definition such
+// as #FAF, rgb(128,128,128), hsl(120 100% 25%), cmyk(0%,0%,0%,100%) or
+// device-cmyk(0 0 0 1). All of them take an alpha value: #FAF8, #FFAAFF80,
+// rgba(128,128,128,0.5), rgb(128 128 128 / 50%), hsl(120 100% 25% / 50%),
+// device-cmyk(0 0 0 1 / 50%). Names and functions ignore the case, as in CSS,
+// but a name given to DefineColor counts as it is.
 func (d *Document) GetColor(s string) *color.Color {
+	col := d.parseColor(s)
+	if col == nil {
+		d.warnColor(s)
+	}
+	return col
+}
+
+// parseColor is GetColor without the warning.
+func (d *Document) parseColor(s string) *color.Color {
+	if col, ok := d.usedcolors[s]; ok {
+		return col
+	}
+	s = strings.ToLower(strings.TrimSpace(s))
 	if col, ok := d.usedcolors[s]; ok {
 		return col
 	}
@@ -147,33 +258,13 @@ func (d *Document) GetColor(s string) *color.Color {
 		d.usedcolors[s] = col
 		return col
 	}
-	s = strings.TrimSpace(s)
-	var r, g, b, a int
 	col := &color.Color{}
-	if strings.HasPrefix(s, "#") {
-		col.Space = color.ColorRGB
-		a = 255
-		switch len(s) {
-		case 7:
-			fmt.Sscanf(s, "#%2x%2x%2x", &r, &g, &b)
-		case 9:
-			fmt.Sscanf(s, "#%2x%2x%2x%2x", &r, &g, &b, &a)
-		case 4, 5:
-			// CSS Color 3 §4.2.1: 3-digit hex (#RGB) expands by
-			// duplicating each digit (#abc → #aabbcc), not by zero-
-			// padding. Equivalent: shift the nibble into the high
-			// half so 0xd becomes 0xdd. CSS Color 4 §5.2 adds the
-			// alpha digit of #RGBA.
-			a = 15
-			fmt.Sscanf(s, "#%1x%1x%1x%1x", &r, &g, &b, &a)
-			r = r<<4 | r
-			g = g<<4 | g
-			b = b<<4 | b
-			a = a<<4 | a
-		default:
-			// FIXME: proper error handling
-			// logger.Error("GetColor HTML not implemented", "size", len(s))
+	if digits, ok := strings.CutPrefix(s, "#"); ok {
+		r, g, b, a, ok := parseHexColor(digits)
+		if !ok {
+			return nil
 		}
+		col.Space = color.ColorRGB
 		col.R = math.Round(100.0*float64(r)/float64(255)) / 100.0
 		col.G = math.Round(100.0*float64(g)/float64(255)) / 100.0
 		col.B = math.Round(100.0*float64(b)/float64(255)) / 100.0
@@ -227,6 +318,31 @@ func (d *Document) GetColor(s string) *color.Color {
 		col.R = math.Round(100.0*rv/255) / 100.0
 		col.G = math.Round(100.0*gv/255) / 100.0
 		col.B = math.Round(100.0*bv/255) / 100.0
+		col.Transparency = 1 - alpha
+		d.useTransparency(col)
+		return col
+	} else if strings.HasPrefix(s, "hsl") {
+		parts, alpha, ok := colorArguments(s, 3)
+		if !ok {
+			return nil
+		}
+		hue, ok := parseHue(parts[0])
+		if !ok {
+			return nil
+		}
+		saturation, ok := parseHSLPercentage(parts[1])
+		if !ok {
+			return nil
+		}
+		lightness, ok := parseHSLPercentage(parts[2])
+		if !ok {
+			return nil
+		}
+		rv, gv, bv := hslToRGB(hue, saturation, lightness)
+		col.Space = color.ColorRGB
+		col.R = math.Round(100.0*rv) / 100.0
+		col.G = math.Round(100.0*gv) / 100.0
+		col.B = math.Round(100.0*bv) / 100.0
 		col.Transparency = 1 - alpha
 		d.useTransparency(col)
 		return col
