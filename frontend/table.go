@@ -101,7 +101,11 @@ type TableRow struct {
 
 // TableCell represents a table cell
 type TableCell struct {
-	BackgroundColor   *color.Color
+	BackgroundColor *color.Color
+	// BackgroundBelow holds colors painted below BackgroundColor, the lowest
+	// first. They show through a transparent BackgroundColor, the way a cell
+	// sits on top of its row.
+	BackgroundBelow   []*color.Color
 	BorderTopColor    *color.Color
 	BorderBottomColor *color.Color
 	BorderLeftColor   *color.Color
@@ -619,10 +623,17 @@ func (cell *TableCell) build() (*node.VList, error) {
 	}
 
 	// Draw background color if set
-	if cell.BackgroundColor != nil {
+	var background []string
+	for _, col := range append(slices.Clip(cell.BackgroundBelow), cell.BackgroundColor) {
+		// A rectangle without a color would be filled in black.
+		if col != nil && col.Space != color.ColorNone {
+			background = append(background, pdfdraw.New().Save().ColorNonstroking(*col).Rect(0, -vl.Height, vl.Width, vl.Height+vl.Depth).Fill().Restore().String())
+		}
+	}
+	if len(background) > 0 {
 		bgRule := node.NewRule()
 		bgRule.Hide = true
-		bgRule.Pre = pdfdraw.New().Save().ColorNonstroking(*cell.BackgroundColor).Rect(0, -vl.Height, vl.Width, vl.Height+vl.Depth).Fill().Restore().String()
+		bgRule.Pre = strings.Join(background, " ")
 		bgRule.Attributes = node.H{"origin": "cell background"}
 		vl.List = node.InsertBefore(vl.List, vl.List, bgRule)
 	}
