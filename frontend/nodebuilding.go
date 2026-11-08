@@ -3345,6 +3345,9 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 			// build fresh nodes every pass. Copy() clones the node's
 			// Attributes, so origin markers / structure tags survive.
 			c := t.Copy()
+			if vl, ok := c.(*node.VList); ok {
+				c = baselineBox(vl)
+			}
 			head = node.InsertAfter(head, tail, c)
 			tail = c
 		case *Table:
@@ -3412,4 +3415,18 @@ func (fe *Document) textFont(te *Text) (*font.Font, error) {
 		return nil, err
 	}
 	return fnt, nil
+}
+
+// baselineBox puts vl, a box in running text, on the baseline of its line:
+// its bottom at the depth below it, as TeX sets a vbox in a paragraph. A
+// VList in an HList hangs from the top of the HList, which is what the cells
+// of a table row want; in a line it would hang from the top of the tallest
+// item. The HList carries vl's size, so the line sees the same box.
+func baselineBox(vl *node.VList) *node.HList {
+	hl := node.NewHList()
+	hl.List = vl
+	hl.Width = vl.Width
+	hl.Height = vl.Height
+	hl.Depth = vl.Depth
+	return hl
 }
