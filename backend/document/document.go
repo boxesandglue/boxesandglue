@@ -155,6 +155,7 @@ type Page struct {
 	nextMCID          int
 	pageIndex         int             // index of this page in PDFDocument.Pages
 	deferred          []deferredPaint // nodes marked PaintLast, painted at Shipout's end
+	formBBox          [4]float64      // the sheet, the bounding box of an opacity group's form
 	Finished          bool
 }
 
@@ -310,6 +311,8 @@ type objectContext struct {
 	pendingExtGStates []pdf.ExtGState
 	pendingSVGForms   []*svgForm
 	pendingSVGMasks   []*svgMask
+	pendingForms      map[pdf.Name]*pdf.Form            // the opacity groups painted, see paintGroup
+	form              *groupForm                        // the opacity group being painted, nil on the page
 	colorBitmapCache  map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
 	tag               *StructureElement
 	run               *StructureElement // the element whose marked-content sequence is open, see beginRun
@@ -345,14 +348,24 @@ func (oc *objectContext) emitBDC(se *StructureElement, mcid int) {
 }
 
 // beginRun opens a marked-content sequence for se with the next MCID of the
-// page and returns the MCID. Its index in the page's StructureElements is the
-// MCID, as the page's ParentTree expects. Until the sequence closes, oc.run is
+// page, or of the opacity group being painted, and returns the MCID. Its index
+// in the page's StructureElements (or the group's elements) is the MCID, as
+// the ParentTree expects. Until the sequence closes, oc.run is
 // se.
 func (oc *objectContext) beginRun(se *StructureElement) int {
-	mcid := oc.p.nextMCID
-	oc.p.nextMCID++
-	se.mcids = append(se.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
-	oc.p.StructureElements = append(oc.p.StructureElements, se)
+	entry := mcidEntry{pageIndex: oc.p.pageIndex, seq: oc.p.document.nextReadingSeq()}
+	if g := oc.form; g != nil {
+		entry.mcid = g.nextMCID
+		entry.stm = g.content.ObjectNumber
+		g.nextMCID++
+		g.elements = append(g.elements, se)
+	} else {
+		entry.mcid = oc.p.nextMCID
+		oc.p.nextMCID++
+		oc.p.StructureElements = append(oc.p.StructureElements, se)
+	}
+	mcid := entry.mcid
+	se.mcids = append(se.mcids, entry)
 	oc.emitBDC(se, mcid)
 	oc.run = se
 	return mcid
@@ -1644,6 +1657,11 @@ func (oc *objectContext) outputVRule(v *node.Rule, posX, posY bag.ScaledPoint, u
 // tag or artifact asks for.
 func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList) {
 	oc.gotoTextMode(ScopePage)
+	oc.paintGroup(v, func() { oc.outputHListChildList(x, top, v) })
+}
+
+// outputHListChildList outputs v, a VList in a line, see outputHListChild.
+func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VList) {
 	scope := oc.startScope(v)
 	savedRun := oc.run
 	var interrupted *StructureElement
@@ -2003,6 +2021,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 // with its top at top. It opens the marked-content sequence v's tag or
 // artifact asks for.
 func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList) {
+	oc.paintGroup(v, func() { oc.outputVListChildList(x, top, v) })
+}
+
+// outputVListChildList outputs v, a VList in a VList, see outputVListChild.
+func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VList) {
 	scope := oc.startScope(v)
 	savedRun := oc.run
 	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
@@ -2270,14 +2293,9 @@ func (p *Page) Shipout() {
 	var allExtGStates []pdf.ExtGState
 	var allSVGForms []*svgForm
 	var allSVGMasks []*svgMask
-	if p.document.Overprint {
-		// A color carries its graphics state in the operators it writes, so
-		// nothing tells which pages use it. Spot colors work the same way.
-		allExtGStates = append(allExtGStates, pdf.OverprintOn, pdf.OverprintOff)
-	}
-	for _, name := range slices.Sorted(maps.Keys(p.document.colorStates)) {
-		allExtGStates = append(allExtGStates, p.document.colorStates[name])
-	}
+	allExtGStates = append(allExtGStates, p.document.pageExtGStates()...)
+	allForms := make(map[pdf.Name]*pdf.Form)
+	p.formBBox = [4]float64{0, 0, (p.Width + 2*offsetX).ToPT(), (p.Height + 2*offsetY).ToPT()}
 	if p.document.DumpOutput {
 		p.outputDebug = &outputDebug{
 			Name: "page",
@@ -2321,6 +2339,7 @@ func (p *Page) Shipout() {
 		if len(oc.pendingSVGMasks) > 0 {
 			allSVGMasks = append(allSVGMasks, oc.pendingSVGMasks...)
 		}
+		maps.Copy(allForms, oc.pendingForms)
 	}
 
 	for _, obj := range objs {
@@ -2352,28 +2371,31 @@ func (p *Page) Shipout() {
 		// the entire output in a single BDC/EMC.
 		// For container VLists without a tag (e.g. from htmlbag),
 		// let outputVerticalItems handle per-child tagging.
-		if oc.inArtifact {
-			if oc.artifactType != "" {
-				oc.writef("/Artifact <</Type /%s>> BDC\n", oc.artifactType)
-			} else {
-				oc.writef("/Artifact BMC\n")
+		oc.paintGroup(vlist, func() {
+			if oc.inArtifact {
+				if oc.artifactType != "" {
+					oc.writef("/Artifact <</Type /%s>> BDC\n", oc.artifactType)
+				} else {
+					oc.writef("/Artifact BMC\n")
+				}
+			} else if oc.tag != nil {
+				oc.tag.ID = oc.beginRun(oc.tag)
+				setFigureBBox(oc.tag, x, y, vlist.Width, vlist.Height+vlist.Depth)
 			}
-		} else if oc.tag != nil {
-			oc.tag.ID = oc.beginRun(oc.tag)
-			setFigureBBox(oc.tag, x, y, vlist.Width, vlist.Height+vlist.Depth)
-		}
 
-		scope := oc.startScope(vlist)
-		oc.outputVerticalItems(x, y, vlist)
-		oc.gotoTextMode(ScopePage)
+			scope := oc.startScope(vlist)
+			oc.outputVerticalItems(x, y, vlist)
+			oc.gotoTextMode(ScopePage)
 
-		// Close the object-level BDC
-		if oc.tag != nil || oc.inArtifact {
-			oc.newline()
-			oc.writef("EMC\n")
-		}
-		oc.tag, oc.inArtifact = nil, false
-		oc.endScope(scope)
+			// Close the object-level BDC
+			if oc.tag != nil || oc.inArtifact {
+				oc.newline()
+				oc.writef("EMC\n")
+			}
+			oc.tag, oc.inArtifact = nil, false
+			oc.run = nil
+			oc.endScope(scope)
+		})
 		collect(oc)
 		if oc.p.document.DumpOutput {
 			p.outputDebug.Items = append(p.outputDebug.Items, oc.outputDebug)
@@ -2420,6 +2442,7 @@ func (p *Page) Shipout() {
 	if err := materializeSVGMasks(&page.Resources, p.document, allSVGMasks); err != nil {
 		bag.Logger.Error("write soft mask", "err", err)
 	}
+	addForms(&page.Resources, allForms)
 
 	// annotations are hyperlinks and structure elements
 	page.Annotations = p.Annotations
@@ -2552,6 +2575,7 @@ type mcidEntry struct {
 	pageIndex int
 	mcid      int
 	seq       int
+	stm       pdf.Objectnumber // the form whose content stream has the sequence, 0 for the page
 }
 
 // objRefEntry records an object reference (OBJR) emitted as a /K child of
@@ -2649,8 +2673,11 @@ type pdfStructureObject struct {
 	pageObjnum pdf.Objectnumber
 	annotSE    *StructureElement // non-nil for annotation StructParent entries
 	xobjectSE  *StructureElement // non-nil for Form XObject StructParent entries
-	id         int
-	pageIndex  int
+	// formElements are the elements of the marked content in an opacity
+	// group, indexed by MCID, for its /StructParents.
+	formElements []*StructureElement
+	id           int
+	pageIndex    int
 }
 
 // AllocateXObjectStructParent reserves a /StructParents number for a Form
@@ -2829,6 +2856,10 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 
 	for _, m := range se.mcids {
 		pgRef := pageObjnums[m.pageIndex].Ref()
+		if m.stm != 0 {
+			kentries = append(kentries, kEntry{m.seq, fmt.Sprintf("<< /Type /MCR /Pg %s /Stm %s /MCID %d >>", pgRef, m.stm.Ref(), m.mcid)})
+			continue
+		}
 		kentries = append(kentries, kEntry{m.seq, fmt.Sprintf("<< /Type /MCR /Pg %s /MCID %d >>", pgRef, m.mcid)})
 	}
 
@@ -2943,6 +2974,10 @@ type PDFDocument struct {
 	svgMaskCounter        int // names of the soft masks of SVG gradients
 	svgMasks              map[*svgMask]*pdf.Object
 	warnedSVGTransparency bool
+	// groupFormCounter names the forms of opacity groups, warnedOpacity tells
+	// that the format without transparency has been reported for them.
+	groupFormCounter int
+	warnedOpacity    bool
 	// warnedGlyphTransparency tells that the warning about a palette with
 	// alpha in a format without transparency went out.
 	warnedGlyphTransparency bool
@@ -3589,10 +3624,14 @@ func (d *PDFDocument) Finish() error {
 					fmt.Fprintf(&poStr, "%d %s ", po.id, po.xobjectSE.Obj.ObjectNumber.Ref())
 				}
 			default:
-				// Page StructParent: maps MCID array to leaf SE objects
-				pg := d.Pages[po.pageIndex]
+				// Page StructParent: maps MCID array to leaf SE objects. A
+				// form of an opacity group has an array of its own.
+				elements := po.formElements
+				if elements == nil {
+					elements = d.Pages[po.pageIndex].StructureElements
+				}
 				var refs []string
-				for _, pse := range pg.StructureElements {
+				for _, pse := range elements {
 					if pse.Obj != nil {
 						refs = append(refs, pse.Obj.ObjectNumber.Ref())
 					}
