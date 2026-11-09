@@ -343,6 +343,20 @@ func (oc *objectContext) emitBDC(se *StructureElement, mcid int) {
 	oc.writef("/%s <</MCID %d>> BDC\n", se.Role, mcid)
 }
 
+// setFigureBBox gives se, if it is a Figure, the bounding box of its box: the
+// left edge at x, the top at top, wd wide and ht high, height and depth
+// together. PDF/UA wants the BBox of a Figure (ISO 32000-1 §14.8.5.4.3); in
+// the PDF 2.0 namespace of PDF/UA-2 the role is figure. The coordinates are
+// those the box is drawn in, with y growing upward, so the bottom lies ht
+// below the top.
+func setFigureBBox(se *StructureElement, x, top, wd, ht bag.ScaledPoint) {
+	if !strings.EqualFold(se.Role, "Figure") {
+		return
+	}
+	se.BBox = [4]float64{x.ToPT(), (top - ht).ToPT(), (x + wd).ToPT(), top.ToPT()}
+	se.HasBBox = true
+}
+
 // beginActualText opens a marked-content sequence whose text is the source
 // characters of g, for a glyph drawn in color. The layers of a COLR glyph
 // have no Unicode mapping, and a bitmap or SVG glyph shows no text at all, so
@@ -1636,13 +1650,7 @@ func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList)
 			}
 			// Figure BBox is still required by PDF/UA even when
 			// the structure attachment goes via OBJR.
-			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-			llx := (x + v.ShiftX).ToPT()
-			lly := pageHeightPT - top.ToPT()
-			urx := llx + v.Width.ToPT()
-			ury := lly + (v.Height + v.Depth).ToPT()
-			childTag.BBox = [4]float64{llx, lly, urx, ury}
-			childTag.HasBBox = true
+			setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 		}
 	case childArtifact:
 		if childArtifactType != "" {
@@ -1657,16 +1665,7 @@ func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList)
 		childTag.ID = mcid
 		oc.p.StructureElements = append(oc.p.StructureElements, childTag)
 		oc.emitBDC(childTag, mcid)
-		// Set BBox for Figure elements (PDF/UA requirement)
-		if childTag.Role == "Figure" {
-			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-			llx := (x + v.ShiftX).ToPT()
-			lly := pageHeightPT - top.ToPT()
-			urx := llx + v.Width.ToPT()
-			ury := lly + (v.Height + v.Depth).ToPT()
-			childTag.BBox = [4]float64{llx, lly, urx, ury}
-			childTag.HasBBox = true
-		}
+		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	}
 
 	savedTag := oc.tag
@@ -2008,16 +2007,7 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 			if obj := img.ImageFile.ImageObject(); obj != nil {
 				childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
 			}
-			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-			posX := (x + v.ShiftX).ToPT()
-			posY := top.ToPT()
-			childTag.BBox = [4]float64{
-				posX,
-				pageHeightPT - posY,
-				posX + v.Width.ToPT(),
-				pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
-			}
-			childTag.HasBBox = true
+			setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 		}
 	case childArtifact:
 		oc.gotoTextMode(ScopePage)
@@ -2035,19 +2025,7 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 		childTag.ID = mcid
 		oc.p.StructureElements = append(oc.p.StructureElements, childTag)
 		oc.emitBDC(childTag, mcid)
-		// Set BBox for Figure elements (PDF/UA requirement)
-		if childTag.Role == "Figure" {
-			pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-			posX := (x + v.ShiftX).ToPT()
-			posY := top.ToPT()
-			childTag.BBox = [4]float64{
-				posX,
-				pageHeightPT - posY,
-				posX + v.Width.ToPT(),
-				pageHeightPT - posY + (v.Height + v.Depth).ToPT(),
-			}
-			childTag.HasBBox = true
-		}
+		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	}
 
 	savedTag := oc.tag
@@ -2357,16 +2335,7 @@ func (p *Page) Shipout() {
 			oc.tag.ID = mcid
 			oc.p.StructureElements = append(oc.p.StructureElements, oc.tag)
 			oc.emitBDC(oc.tag, mcid)
-			// Set BBox for Figure elements (PDF/UA requirement)
-			if oc.tag.Role == "Figure" {
-				pageHeightPT := (oc.p.Height + 2*oc.p.ExtraOffset).ToPT()
-				llx := x.ToPT()
-				lly := pageHeightPT - y.ToPT()
-				urx := llx + vlist.Width.ToPT()
-				ury := lly + (vlist.Height + vlist.Depth).ToPT()
-				oc.tag.BBox = [4]float64{llx, lly, urx, ury}
-				oc.tag.HasBBox = true
-			}
+			setFigureBBox(oc.tag, x, y, vlist.Width, vlist.Height+vlist.Depth)
 		}
 
 		scope := oc.startScope(vlist)
