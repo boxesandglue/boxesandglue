@@ -298,7 +298,9 @@ func imageOpacity(img *node.Image) (float64, bool) {
 
 // paintImage paints img with drawImage, which draws it, and with its Opacity, if
 // it has one. With a tag the image gets a marked-content sequence of its own
-// for that element, see outputInline. A bitmap is one object, so the alpha
+// for that element, see outputInline, unless it is an imported PDF page whose
+// XObject becomes the content of the element, see claimXObjectFigure; then
+// the /Do interrupts the open sequence unmarked. A bitmap is one object, so the alpha
 // constant of a graphics state inside the sequence is enough. A PDF page is a
 // form whose objects can overlap, so it gets a group, with the sequence in the
 // form, as a VList does.
@@ -310,11 +312,25 @@ func (oc *objectContext) paintImage(img *node.Image, tag *StructureElement, draw
 		drawImage()
 	}
 	paint := draw
+	opacity, ok := imageOpacity(img)
+	ok = ok && oc.allowsOpacity()
+	if tag != nil && oc.claimXObjectFigure(img, tag) {
+		// The XObject is the content of tag, and the /Do stays outside
+		// the sequence of the text around it. A group interrupts that
+		// sequence itself.
+		if ok {
+			oc.paintGroupWith(opacity, true, draw)
+			return
+		}
+		parent := oc.interruptRun()
+		draw()
+		oc.resumeRun(parent)
+		return
+	}
 	if tag != nil {
 		paint = func() { oc.outputInline(tag, draw) }
 	}
-	opacity, ok := imageOpacity(img)
-	if !ok || !oc.allowsOpacity() {
+	if !ok {
 		paint()
 		return
 	}

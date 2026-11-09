@@ -1688,22 +1688,18 @@ func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VL
 		}
 	}
 
+	// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject import.
+	// The /Do on the page stays unmarked, see claimXObjectFigure. If the
+	// XObject belongs to another element already, the Figure gets a
+	// marked-content sequence.
+	if childXObjectFigure {
+		childXObjectFigure = childTag != nil && oc.claimXObjectFigure(findImageForXObjectFigure(v.List), childTag)
+	}
 	switch {
-	case childXObjectFigure && childTag != nil:
-		// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
-		// import. The /Do on the page stays unmarked; structure
-		// attachment runs via the XObject's /StructParent → ParentTree
-		// → SE.Obj, plus an OBJR /K entry on the SE.
-		if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
-			sp := oc.p.document.AllocateXObjectStructParent(childTag)
-			img.ImageFile.SetStructParent(sp)
-			if obj := img.ImageFile.ImageObject(); obj != nil {
-				childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
-			}
-			// Figure BBox is still required by PDF/UA even when
-			// the structure attachment goes via OBJR.
-			setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
-		}
+	case childXObjectFigure:
+		// Figure BBox is still required by PDF/UA even when the
+		// structure attachment goes via OBJR.
+		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	case childArtifact:
 		if childArtifactType != "" {
 			oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
@@ -2055,19 +2051,13 @@ func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VL
 		}
 	}
 
+	// PDF/UA-1 §7.1 Note 1, see outputHListChildList.
+	if childXObjectFigure {
+		childXObjectFigure = childTag != nil && oc.claimXObjectFigure(findImageForXObjectFigure(v.List), childTag)
+	}
 	switch {
-	case childXObjectFigure && childTag != nil:
-		// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject
-		// import. The /Do on the page stays unmarked; structure
-		// attachment runs via /StructParent + ParentTree + OBJR.
-		if img := findImageForXObjectFigure(v.List); img != nil && img.ImageFile != nil {
-			sp := oc.p.document.AllocateXObjectStructParent(childTag)
-			img.ImageFile.SetStructParent(sp)
-			if obj := img.ImageFile.ImageObject(); obj != nil {
-				childTag.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, oc.p.document.nextReadingSeq())
-			}
-			setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
-		}
+	case childXObjectFigure:
+		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	case childArtifact:
 		oc.gotoTextMode(ScopePage)
 		if childArtifactType != "" {
@@ -2552,6 +2542,36 @@ func findImageForXObjectFigure(head node.Node) *node.Image {
 	return found
 }
 
+// claimXObjectFigure makes the Form XObject of img, an imported PDF page, the
+// content of the Figure se: the XObject gets a /StructParent that the
+// ParentTree maps to se, and se an OBJR to the XObject (PDF/UA-1 §7.1 Note
+// 1). The /Do then stays outside any marked-content sequence. An XObject has
+// one /StructParent, so it can belong to one element only. Images are loaded
+// once per file, and the claim fails for the second use of the same page,
+// which then takes a marked-content sequence. It reports whether img now
+// belongs to se.
+func (oc *objectContext) claimXObjectFigure(img *node.Image, se *StructureElement) bool {
+	if img == nil || img.ImageFile == nil || img.ImageFile.Format != "pdf" {
+		return false
+	}
+	d := oc.p.document
+	if d.xobjectFigures[img.ImageFile] {
+		return false
+	}
+	obj := img.ImageFile.ImageObject()
+	if obj == nil {
+		return false
+	}
+	if d.xobjectFigures == nil {
+		d.xobjectFigures = make(map[*pdf.Imagefile]bool)
+	}
+	d.xobjectFigures[img.ImageFile] = true
+	sp := d.AllocateXObjectStructParent(se)
+	img.ImageFile.SetStructParent(sp)
+	se.AddXObjectRef(obj.ObjectNumber, oc.p.pageIndex, sp, d.nextReadingSeq())
+	return true
+}
+
 // ArtifactType represents the type of a PDF artifact.
 type ArtifactType string
 
@@ -2926,6 +2946,7 @@ type PDFDocument struct {
 	curOutputDebug       *outputDebug
 	usedPDFImages        map[string]*pdf.Imagefile
 	placedImages         map[*pdf.Imagefile]bool // images on shipped out pages, checked in Finish
+	xobjectFigures       map[*pdf.Imagefile]bool // imported PDFs with a /StructParent, see claimXObjectFigure
 	numDestinations      map[int]NumDest
 	DefaultLanguageTag   string // BCP 47 language tag for the document catalog (e.g. "de", "en-US")
 	Author               string
