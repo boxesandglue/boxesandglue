@@ -2,6 +2,7 @@ package document
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -76,4 +77,37 @@ func TestFigureBBox(t *testing.T) {
 			wantBBox(t, fig, "3cm", "19cm", "4cm", "20cm")
 		})
 	}
+}
+
+// A box with a Figure of its own in a line of a paragraph interrupts the
+// paragraph's marked-content sequence: a sequence with an MCID must not hold
+// another. The paragraph continues in a new sequence after the box.
+func TestInlineFigureInterruptsRun(t *testing.T) {
+	var buf bytes.Buffer
+	para := &StructureElement{Role: "P"}
+	fig := &StructureElement{Role: "Figure", Alt: "a square"}
+	para.AddChild(fig)
+	d := taggedDoc(&buf, FormatPDFUA, para)
+	box := ruleOfWidth("1cm")
+	box.Attributes = node.H{"tag": fig}
+	p := hbox(bareRule("2cm"), box, bareRule("3cm"))
+	p.Attributes = node.H{"tag": para}
+	stream := pageStream(t, d, &buf, p)
+
+	open := strings.Index(stream, "/P <</MCID 0>> BDC")
+	figAt := strings.Index(stream, "/Figure <</MCID 1>> BDC")
+	resume := strings.Index(stream, "/P <</MCID 2>> BDC")
+	if open < 0 || figAt < 0 || resume < 0 || !(open < figAt && figAt < resume) {
+		t.Fatalf("want P, Figure, P sequences in order, got\n%s", stream)
+	}
+	if strings.Count(stream[open:figAt], "EMC") != 1 || strings.Count(stream[figAt:resume], "EMC") != 1 {
+		t.Errorf("want the P sequence closed before the Figure and the Figure closed before the P resumes, got\n%s", stream)
+	}
+	if _, at := fillPos(t, stream, "1cm"); at == "" || !strings.Contains(stream[figAt:resume], at) {
+		t.Errorf("want the box drawn in the Figure sequence, got\n%s", stream)
+	}
+	if len(para.mcids) != 2 || len(fig.mcids) != 1 {
+		t.Errorf("P has %d sequences, Figure %d; want 2 and 1", len(para.mcids), len(fig.mcids))
+	}
+	wantBBox(t, fig, "4cm", "19cm", "5cm", "20cm")
 }

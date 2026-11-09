@@ -312,6 +312,7 @@ type objectContext struct {
 	pendingSVGMasks   []*svgMask
 	colorBitmapCache  map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
 	tag               *StructureElement
+	run               *StructureElement // the element whose marked-content sequence is open, see beginRun
 	artifactType      ArtifactType
 	outputDebug       *outputDebug
 	curOutputDebug    *outputDebug
@@ -341,6 +342,72 @@ type colorBitmapKey struct {
 // dictionary (see pdf-association/pdf-issues#60).
 func (oc *objectContext) emitBDC(se *StructureElement, mcid int) {
 	oc.writef("/%s <</MCID %d>> BDC\n", se.Role, mcid)
+}
+
+// beginRun opens a marked-content sequence for se with the next MCID of the
+// page and returns the MCID. Its index in the page's StructureElements is the
+// MCID, as the page's ParentTree expects. Until the sequence closes, oc.run is
+// se.
+func (oc *objectContext) beginRun(se *StructureElement) int {
+	mcid := oc.p.nextMCID
+	oc.p.nextMCID++
+	se.mcids = append(se.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
+	oc.p.StructureElements = append(oc.p.StructureElements, se)
+	oc.emitBDC(se, mcid)
+	oc.run = se
+	return mcid
+}
+
+// interruptRun closes the open marked-content sequence of a structure
+// element, if there is one, so that an element inside it, such as a formula
+// or an image in a line of text, can open its own: the sequence of one element
+// must not contain the sequence of another (ISO 32000-2, "Marked-content
+// sequences as content items"). It returns the element whose sequence it
+// closed, for resumeRun, or nil. In an artifact it closes nothing.
+func (oc *objectContext) interruptRun() *StructureElement {
+	parent := oc.run
+	if parent == nil || oc.inArtifact {
+		return nil
+	}
+	oc.gotoTextMode(ScopePage)
+	oc.writef("EMC\n")
+	oc.run = nil
+	return parent
+}
+
+// resumeRun continues the content of parent, whose sequence interruptRun
+// closed, in a new sequence. One element may own several; the structure tree
+// puts the inner element between them in reading order.
+func (oc *objectContext) resumeRun(parent *StructureElement) {
+	if parent != nil {
+		oc.beginRun(parent)
+	}
+}
+
+// outputInline outputs the content output draws as the content of tag, an
+// element inside the sequence that is open, in a sequence of its own.
+func (oc *objectContext) outputInline(tag *StructureElement, output func()) {
+	parent := oc.interruptRun()
+	savedTag := oc.tag
+	tag.ID = oc.beginRun(tag)
+	oc.tag = tag
+	output()
+	oc.gotoTextMode(ScopePage)
+	oc.writef("EMC\n")
+	oc.tag = savedTag
+	oc.run = nil
+	oc.resumeRun(parent)
+}
+
+// inlineTag returns the structure element in the "tag" attribute of a node in
+// a line, such as an inline formula or image, if it gets a marked-content
+// sequence of its own: under PDF/UA, outside an artifact.
+func (oc *objectContext) inlineTag(attrs node.H) *StructureElement {
+	if attrs == nil || !oc.p.document.Format.IsPDFUA() || oc.inArtifact {
+		return nil
+	}
+	tag, _ := attrs["tag"].(*StructureElement)
+	return tag
 }
 
 // setFigureBBox gives se, if it is a Figure, the bounding box of its box: the
@@ -1159,8 +1226,15 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			oc.usedImages[v.ImageFile] = true
 			// Image visual extent = Height (above baseline) + Depth (below).
 			// Bottom-left corner sits at (x+sumX, y-Depth); image top is then
-			// at y+Height. Depth=0 is the baseline-anchored default.
-			oc.write(drawImage(v, x+sumX, y-v.Depth))
+			// at y+Height. Depth=0 is the baseline-anchored default. An image
+			// with a Figure of its own in a line of text gets a sequence of
+			// its own, as an inline formula does.
+			if tag := oc.inlineTag(v.Attributes); tag != nil {
+				setFigureBBox(tag, x+sumX, y+v.Height, v.Width, v.Height+v.Depth)
+				oc.outputInline(tag, func() { oc.write(drawImage(v, x+sumX, y-v.Depth)) })
+			} else {
+				oc.write(drawImage(v, x+sumX, y-v.Depth))
+			}
 			sumX += v.Width
 		case *node.StartStop:
 			posX := x + sumX
@@ -1402,64 +1476,22 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				}
 			}
 			// PDF/UA: an inline <math> formula carries its own Formula
-			// structure element on the HList's "tag" attribute. Split the
-			// surrounding paragraph's marked content so the formula glyphs
-			// sit in their own marked-content sequence tagged to the Formula
-			// element, then resume the paragraph text under a fresh MCID. The
-			// reading-order /K sort then places the Formula element between
-			// the two text runs (see serializeStructureElement). A formula
-			// only splits when it has a parent tag to interrupt; in non-tagged
-			// output it renders inline like any other box.
-			if v.Attributes != nil && oc.p.document.Format.IsPDFUA() && !oc.inArtifact {
-				if formulaTag, ok := v.Attributes["tag"].(*StructureElement); ok {
-					// parentTag is the surrounding paragraph's run, if any. For
-					// an inline formula it is non-nil and we split its marked
-					// content around the formula glyphs (closing it, emitting
-					// the Formula run, then reopening the parent under a fresh
-					// MCID). For a block-level formula (a display <math> that is
-					// its own block) there is no parent run: parentTag is nil and
-					// the Formula run stands alone as a child of the current
-					// structure element.
-					parentTag := oc.tag
-					if parentTag != nil {
-						// Close the parent's open marked-content run.
-						oc.gotoTextMode(ScopePage)
-						oc.writef("EMC\n")
-					}
-					// Open the Formula run. The StructureElements append puts
-					// formulaTag at page-index == fmcid, which is exactly what
-					// the page ParentTree expects (index == MCID).
-					fmcid := oc.p.nextMCID
-					oc.p.nextMCID++
-					formulaTag.mcids = append(formulaTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: fmcid, seq: oc.p.document.nextReadingSeq()})
-					formulaTag.ID = fmcid
-					oc.p.StructureElements = append(oc.p.StructureElements, formulaTag)
-					oc.emitBDC(formulaTag, fmcid)
-					// Render the formula glyphs inside the Formula run.
-					oc.tag = formulaTag
-					oc.outputHorizontalItems(x+sumX, moveY, v)
-					oc.tag = parentTag
-					// Close the Formula run.
+			// structure element on the HList's "tag" attribute, an image in
+			// a line a Figure. Its content gets a marked-content sequence of
+			// its own, which interrupts the one of the paragraph around it;
+			// the reading-order /K sort then places the element between the
+			// two text runs (see serializeStructureElement). A block-level
+			// formula, a display <math> that is its own block, has no
+			// sequence around it and stands alone. In non-tagged output the
+			// box renders inline like any other.
+			if tag := oc.inlineTag(v.Attributes); tag != nil {
+				setFigureBBox(tag, x+sumX, moveY+v.Height, v.Width, v.Height+v.Depth)
+				oc.outputInline(tag, func() { oc.outputHorizontalItems(x+sumX, moveY, v) })
+				if needReset && oc.textmode < ScopePage {
 					oc.gotoTextMode(ScopePage)
-					oc.writef("EMC\n")
-					if parentTag != nil {
-						// Reopen the parent's marked content with a fresh MCID so
-						// the remaining paragraph text reads under the parent. The
-						// parent appears at a second ParentTree index — both map to
-						// the same structure element (PDF 1.7 §14.7.5.1 lets one
-						// element own several marked-content sequences).
-						pmcid := oc.p.nextMCID
-						oc.p.nextMCID++
-						parentTag.mcids = append(parentTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: pmcid, seq: oc.p.document.nextReadingSeq()})
-						oc.p.StructureElements = append(oc.p.StructureElements, parentTag)
-						oc.emitBDC(parentTag, pmcid)
-					}
-					if needReset && oc.textmode < ScopePage {
-						oc.gotoTextMode(ScopePage)
-					}
-					sumX += v.Width
-					break
 				}
+				sumX += v.Width
+				break
 			}
 			oc.outputHorizontalItems(x+sumX, moveY, v)
 			if needReset && oc.textmode < ScopePage {
@@ -1613,6 +1645,8 @@ func (oc *objectContext) outputVRule(v *node.Rule, posX, posY bag.ScaledPoint, u
 func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList) {
 	oc.gotoTextMode(ScopePage)
 	scope := oc.startScope(v)
+	savedRun := oc.run
+	var interrupted *StructureElement
 	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 	var childTag *StructureElement
 	var childArtifact bool
@@ -1659,12 +1693,10 @@ func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList)
 			oc.writef("/Artifact BMC\n")
 		}
 	case childTag != nil:
-		mcid := oc.p.nextMCID
-		oc.p.nextMCID++
-		childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
-		childTag.ID = mcid
-		oc.p.StructureElements = append(oc.p.StructureElements, childTag)
-		oc.emitBDC(childTag, mcid)
+		// A box with an element of its own inside the sequence of
+		// another, an image in a line of text, interrupts it.
+		interrupted = oc.interruptRun()
+		childTag.ID = oc.beginRun(childTag)
 		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	}
 
@@ -1688,6 +1720,10 @@ func (oc *objectContext) outputHListChild(x, top bag.ScaledPoint, v *node.VList)
 	}
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
+	oc.run = savedRun
+	if interrupted != nil {
+		oc.resumeRun(interrupted)
+	}
 	oc.endScope(scope)
 }
 
@@ -1968,6 +2004,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 // artifact asks for.
 func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList) {
 	scope := oc.startScope(v)
+	savedRun := oc.run
 	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 	var childTag *StructureElement
 	var childArtifact bool
@@ -2018,13 +2055,7 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 		}
 	case childTag != nil:
 		oc.gotoTextMode(ScopePage)
-		// Save and swap the current tag
-		mcid := oc.p.nextMCID
-		oc.p.nextMCID++
-		childTag.mcids = append(childTag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
-		childTag.ID = mcid
-		oc.p.StructureElements = append(oc.p.StructureElements, childTag)
-		oc.emitBDC(childTag, mcid)
+		childTag.ID = oc.beginRun(childTag)
 		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	}
 
@@ -2046,6 +2077,7 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 	}
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
+	oc.run = savedRun
 	oc.endScope(scope)
 }
 
@@ -2087,14 +2119,14 @@ func (oc *objectContext) endScope(start int) {
 		return
 	}
 	d := oc.p.document
-	savedTag, savedInArtifact, savedPrefix := oc.tag, oc.inArtifact, d.readingPrefix
+	savedTag, savedRun, savedInArtifact, savedPrefix := oc.tag, oc.run, oc.inArtifact, d.readingPrefix
 	for len(oc.p.deferred) > start {
 		oc.gotoTextMode(ScopePage)
 		df := oc.p.deferred[start]
 		oc.p.deferred = slices.Delete(oc.p.deferred, start, start+1)
 		oc.paintDeferred(df)
 	}
-	oc.tag, oc.inArtifact, d.readingPrefix = savedTag, savedInArtifact, savedPrefix
+	oc.tag, oc.run, oc.inArtifact, d.readingPrefix = savedTag, savedRun, savedInArtifact, savedPrefix
 }
 
 // paintDeferred paints a node marked PaintLast at the position it had in its
@@ -2108,6 +2140,7 @@ func (oc *objectContext) paintDeferred(df deferredPaint) {
 	defer func() { d.readingPrefix = nil }()
 	oc.tag = df.tag
 	oc.inArtifact = df.inArtifact
+	oc.run = nil
 
 	wrap := false
 	if !df.ownMarking {
@@ -2124,11 +2157,7 @@ func (oc *objectContext) paintDeferred(df deferredPaint) {
 			oc.inArtifact = true
 			wrap = true
 		case oc.tag != nil:
-			mcid := oc.p.nextMCID
-			oc.p.nextMCID++
-			oc.tag.mcids = append(oc.tag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: d.nextReadingSeq()})
-			oc.p.StructureElements = append(oc.p.StructureElements, oc.tag)
-			oc.emitBDC(oc.tag, mcid)
+			oc.beginRun(oc.tag)
 			wrap = true
 		}
 	}
@@ -2138,6 +2167,7 @@ func (oc *objectContext) paintDeferred(df deferredPaint) {
 		oc.newline()
 		oc.writef("EMC\n")
 	}
+	oc.run = nil
 }
 
 func (oc objectContext) debugAt(x, y bag.ScaledPoint, text string) {
@@ -2329,12 +2359,7 @@ func (p *Page) Shipout() {
 				oc.writef("/Artifact BMC\n")
 			}
 		} else if oc.tag != nil {
-			mcid := oc.p.nextMCID
-			oc.p.nextMCID++
-			oc.tag.mcids = append(oc.tag.mcids, mcidEntry{pageIndex: oc.p.pageIndex, mcid: mcid, seq: oc.p.document.nextReadingSeq()})
-			oc.tag.ID = mcid
-			oc.p.StructureElements = append(oc.p.StructureElements, oc.tag)
-			oc.emitBDC(oc.tag, mcid)
+			oc.tag.ID = oc.beginRun(oc.tag)
 			setFigureBBox(oc.tag, x, y, vlist.Width, vlist.Height+vlist.Depth)
 		}
 
@@ -2476,6 +2501,11 @@ func hlistHasTaggedDescendant(hl *node.HList) bool {
 				}
 			}
 			if hlistHasTaggedDescendant(n) {
+				return true
+			}
+		case *node.Image:
+			// An image in a line with a Figure of its own.
+			if _, ok := n.Attributes["tag"]; ok {
 				return true
 			}
 		}
