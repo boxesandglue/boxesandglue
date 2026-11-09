@@ -1236,17 +1236,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			} else {
 				v.Used = true
 			}
-			oc.usedImages[v.ImageFile] = true
 			// Image visual extent = Height (above baseline) + Depth (below).
 			// Bottom-left corner sits at (x+sumX, y-Depth); image top is then
 			// at y+Height. Depth=0 is the baseline-anchored default. An image
 			// with a Figure of its own in a line of text gets a sequence of
 			// its own, as an inline formula does.
+			imgX := x + sumX
 			if tag := oc.inlineTag(v.Attributes); tag != nil {
-				setFigureBBox(tag, x+sumX, y+v.Height, v.Width, v.Height+v.Depth)
-				oc.outputInline(tag, func() { oc.write(drawImage(v, x+sumX, y-v.Depth)) })
+				setFigureBBox(tag, imgX, y+v.Height, v.Width, v.Height+v.Depth)
+				oc.paintImage(v, tag, func() { oc.write(drawImage(v, imgX, y-v.Depth)) })
 			} else {
-				oc.write(drawImage(v, x+sumX, y-v.Depth))
+				oc.paintImage(v, nil, func() { oc.write(drawImage(v, imgX, y-v.Depth)) })
 			}
 			sumX += v.Width
 		case *node.StartStop:
@@ -1815,7 +1815,6 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			} else {
 				v.Used = true
 			}
-			oc.usedImages[v.ImageFile] = true
 			oc.gotoTextMode(ScopePage)
 
 			// Vertical mode: y is the top of the image's slot. The image's
@@ -1824,7 +1823,7 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if oc.p.document.IsTrace(VTraceImages) {
 				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, visualHt)
 			}
-			oc.write(drawImage(v, x, y-visualHt))
+			oc.paintImage(v, nil, func() { oc.write(drawImage(v, x, y-visualHt)) })
 		case *node.Glue:
 			if oc.p.document.DumpOutput {
 				if oc.p.document.DumpOutput {

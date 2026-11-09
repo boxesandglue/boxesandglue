@@ -24,6 +24,13 @@ func withOpacity(vl *node.VList, opacity float64) *node.VList {
 // returns the uncompressed PDF.
 func opacityPDF(t *testing.T, format Format, vl *node.VList) string {
 	t.Helper()
+	return opacityPDFWith(t, format, func(*PDFDocument) *node.VList { return vl })
+}
+
+// opacityPDFWith is opacityPDF with the VList that build returns for the
+// document.
+func opacityPDFWith(t *testing.T, format Format, build func(d *PDFDocument) *node.VList) string {
+	t.Helper()
 	var buf bytes.Buffer
 	d := NewDocument(&buf)
 	d.Format = format
@@ -34,6 +41,7 @@ func opacityPDF(t *testing.T, format Format, vl *node.VList) string {
 		d.Title = "Opacity"
 		d.RootStructureElement = &StructureElement{Role: "Document"}
 	}
+	vl := build(d)
 	collectTags(d.RootStructureElement, vl)
 	p := d.NewPage()
 	p.OutputAt(bag.MustSP("2cm"), bag.MustSP("20cm"), vl)
@@ -233,5 +241,66 @@ func TestOpacityWithoutTransparency(t *testing.T) {
 	fillPos(t, page, "2cm")
 	if strings.Contains(out, "/Subtype /Form") {
 		t.Errorf("PDF/X-3 with a form")
+	}
+}
+
+// imageWithOpacity gives img the Opacity opacity.
+func imageWithOpacity(img *node.Image, opacity float64) *node.Image {
+	if img.Attributes == nil {
+		img.Attributes = node.H{}
+	}
+	img.Attributes[Opacity] = opacity
+	return img
+}
+
+// A bitmap is one object: the alpha constant of a graphics state around its
+// Do is enough, in a line and in a VList.
+func TestOpacityBitmap(t *testing.T) {
+	for _, inLine := range []bool{true, false} {
+		out := opacityPDFWith(t, FormatPDF, func(d *PDFDocument) *node.VList {
+			img := imageWithOpacity(pngImage(t, d, 4, 4, 20, 20), 0.5)
+			if inLine {
+				return node.Vpack(node.Hpack(img))
+			}
+			return node.Vpack(img)
+		})
+		page := pageContent(t, out)
+		if !regexp.MustCompile(`q /GSca0_5CA0_5 gs\nq \S+ 0 0 \S+ \S+ \S+ cm /ImgBag1 Do Q\nQ`).MatchString(page) {
+			t.Errorf("in line %t: the bitmap is not drawn with alpha 0.5:\n%s", inLine, page)
+		}
+		if strings.Contains(out, "/Subtype /Form") {
+			t.Errorf("in line %t: a form for a bitmap", inLine)
+		}
+	}
+}
+
+// The alpha constant of a bitmap with a Figure goes inside its sequence.
+func TestOpacityBitmapTagged(t *testing.T) {
+	out := opacityPDFWith(t, FormatPDFUA, func(d *PDFDocument) *node.VList {
+		fig := &StructureElement{Role: "Figure", Alt: "gray"}
+		d.RootStructureElement.AddChild(fig)
+		img := imageWithOpacity(pngImage(t, d, 4, 4, 20, 20), 0.5)
+		img.Attributes["tag"] = fig
+		return node.Vpack(node.Hpack(img))
+	})
+	page := pageContent(t, out)
+	if !regexp.MustCompile(`(?s)/Figure <</MCID 0>> BDC\s*q /GSca0_5CA0_5 gs.*Do Q\s*Q\s*EMC`).MatchString(page) {
+		t.Errorf("the alpha is not inside the sequence of the Figure:\n%s", page)
+	}
+}
+
+// A PDF page can have overlapping objects, so it is painted as a group, and
+// the form of the group has the page in its resources.
+func TestOpacityPDFImage(t *testing.T) {
+	out := opacityPDFWith(t, FormatPDF, func(d *PDFDocument) *node.VList {
+		return node.Vpack(node.Hpack(imageWithOpacity(pdfImage(t, d, 20, 20), 0.5)))
+	})
+	page := pageContent(t, out)
+	if !strings.Contains(page, "q /GSca0_5CA0_5 gs /FmOp1 Do Q") {
+		t.Errorf("the PDF image is not painted as a group:\n%s", page)
+	}
+	form := pdfObject(t, out, "/S /Transparency")
+	if !regexp.MustCompile(`/ImgBag1 \d+ 0 R`).MatchString(form) {
+		t.Errorf("the image is not in the resources of the form:\n%s", form)
 	}
 }

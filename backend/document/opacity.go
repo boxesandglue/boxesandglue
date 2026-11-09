@@ -116,19 +116,33 @@ func groupOpacity(v *node.VList) (float64, bool) {
 // painted at the end of the form, so they get the opacity too.
 func (oc *objectContext) paintGroup(v *node.VList, paint func()) {
 	opacity, ok := groupOpacity(v)
-	if !ok {
+	if !ok || !oc.allowsOpacity() {
 		paint()
 		return
 	}
+	oc.paintGroupWith(opacity, hasOwnMarking(v), paint)
+}
+
+// allowsOpacity reports whether the format allows transparency and warns once
+// if not. The content is painted opaque then.
+func (oc *objectContext) allowsOpacity() bool {
 	d := oc.p.document
-	if !d.Format.AllowsTransparency() {
-		if !d.warnedOpacity {
-			d.warnedOpacity = true
-			bag.Logger.Warn("The PDF format does not allow transparency, painting opacity opaque")
-		}
-		paint()
-		return
+	if d.Format.AllowsTransparency() {
+		return true
 	}
+	if !d.warnedOpacity {
+		d.warnedOpacity = true
+		bag.Logger.Warn("The PDF format does not allow transparency, painting opacity opaque")
+	}
+	return false
+}
+
+// paintGroupWith calls paint into a form with a transparency group and paints
+// the form with opacity, see paintGroup. ownMarking tells that paint opens a
+// marked-content sequence of its own, so that the content does not belong to
+// the sequence open around it.
+func (oc *objectContext) paintGroupWith(opacity float64, ownMarking bool, paint func()) {
+	d := oc.p.document
 
 	oc.gotoTextMode(ScopePage)
 	parent := oc.interruptRun()
@@ -152,7 +166,7 @@ func (oc *objectContext) paintGroup(v *node.VList, paint func()) {
 	// The content of v belongs to the open element, unless v has a marking
 	// of its own.
 	inner := parent
-	if hasOwnMarking(v) {
+	if ownMarking {
 		inner = nil
 	}
 	oc.resumeRun(inner)
@@ -268,4 +282,58 @@ func addForms(res *pdf.Resources, forms map[pdf.Name]*pdf.Form) {
 		res.Forms = make(map[pdf.Name]*pdf.Form)
 	}
 	maps.Copy(res.Forms, forms)
+}
+
+// imageOpacity returns the Opacity of img, if it has one below 1.
+func imageOpacity(img *node.Image) (float64, bool) {
+	if img.Attributes == nil {
+		return 0, false
+	}
+	opacity, ok := img.Attributes[Opacity].(float64)
+	if !ok || opacity >= 1 {
+		return 0, false
+	}
+	return max(opacity, 0), true
+}
+
+// paintImage paints img with drawImage, which draws it, and with its Opacity, if
+// it has one. With a tag the image gets a marked-content sequence of its own
+// for that element, see outputInline. A bitmap is one object, so the alpha
+// constant of a graphics state inside the sequence is enough. A PDF page is a
+// form whose objects can overlap, so it gets a group, with the sequence in the
+// form, as a VList does.
+func (oc *objectContext) paintImage(img *node.Image, tag *StructureElement, drawImage func()) {
+	// The image belongs to the resources of the stream it is drawn in,
+	// which is the form of a group.
+	draw := func() {
+		oc.usedImages[img.ImageFile] = true
+		drawImage()
+	}
+	paint := draw
+	if tag != nil {
+		paint = func() { oc.outputInline(tag, draw) }
+	}
+	opacity, ok := imageOpacity(img)
+	if !ok || !oc.allowsOpacity() {
+		paint()
+		return
+	}
+	if img.ImageFile != nil && img.ImageFile.Format == "pdf" {
+		oc.paintGroupWith(opacity, tag != nil, paint)
+		return
+	}
+	withAlpha := func() {
+		gs := pdf.ExtGState{FillAlpha: &opacity, StrokeAlpha: &opacity}
+		oc.pendingExtGStates = append(oc.pendingExtGStates, gs)
+		oc.newline()
+		oc.writef("q %s gs\n", gs.ResourceName())
+		draw()
+		oc.gotoTextMode(ScopePage)
+		oc.writef("Q\n") // drawImage ends its line
+	}
+	if tag != nil {
+		oc.outputInline(tag, withAlpha)
+		return
+	}
+	withAlpha()
 }
