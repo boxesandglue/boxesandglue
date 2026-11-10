@@ -1,6 +1,7 @@
 package document
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -108,5 +109,71 @@ func checkObjRef(t *testing.T, out string) {
 	}
 	if second := pdfObject(t, out, "/Alt (second)"); strings.Contains(second, "/OBJR") {
 		t.Errorf("the second use refers to the XObject too:\n%s", second)
+	}
+}
+
+// blockPDFFigures ships out two boxes whose body is an imported PDF page, the
+// same page twice, as the Figures "first" and "second", under PDF/UA. The
+// first box has a line with a rule below the image. It returns the
+// uncompressed PDF.
+func blockPDFFigures(t *testing.T) string {
+	t.Helper()
+	return opacityPDFWith(t, FormatPDFUA, func(d *PDFDocument) *node.VList {
+		img1 := pdfImage(t, d, 20, 20)
+		img2 := d.CreateImageNodeFromImagefile(img1.ImageFile, 1, "/MediaBox")
+		figure := func(alt string, lines ...node.Node) *node.VList {
+			var head node.Node
+			for _, n := range lines {
+				head = node.InsertAfter(head, node.Tail(head), node.Hpack(n))
+			}
+			vl := node.Vpack(head)
+			vl.Attributes = node.H{"tag": &StructureElement{Role: "Figure", Alt: alt}, "xobject-figure": true}
+			return vl
+		}
+		return vbox(figure("first", img1, inlineRule()), figure("second", img2))
+	})
+}
+
+// figureBBoxWidth returns the width of the BBox of the Figure with the Alt
+// alt.
+func figureBBoxWidth(t *testing.T, out, alt string) string {
+	t.Helper()
+	fig := pdfObject(t, out, "/Alt ("+alt+")")
+	m := regexp.MustCompile(`/BBox \[ (\S+) \S+ (\S+) \S+ \]`).FindStringSubmatch(fig)
+	if m == nil {
+		t.Fatalf("the Figure %q has no BBox:\n%s", alt, fig)
+	}
+	var x1, x2 float64
+	if _, err := fmt.Sscan(m[1], &x1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Sscan(m[2], &x2); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%.2f", x2-x1)
+}
+
+// A box whose body is an imported PDF page gives its Figure to the image: the
+// /Do is drawn unmarked, not in the artifact the other lines of the box are,
+// and the BBox is that of the image, not of the box. The second box with the
+// same page gets a sequence for its Figure, with the BBox of its image too.
+func TestBlockPDFImageObjRef(t *testing.T) {
+	out := blockPDFFigures(t)
+	page := pageContent(t, out)
+	first := strings.Index(page, "/ImgBag1 Do")
+	if first < 0 || strings.Contains(page[:first], "BMC") || strings.Contains(page[:first], "BDC") {
+		t.Errorf("the image of the first box is marked:\n%s", page)
+	}
+	if !strings.Contains(page[first:], "/Artifact BMC") {
+		t.Errorf("the line with the rule is no artifact:\n%s", page)
+	}
+	if !regexp.MustCompile(`/Figure <</MCID 0>> BDC\nq \S+ 0 0 \S+ \S+ \S+ cm /ImgBag1 Do Q\nEMC`).MatchString(page) {
+		t.Errorf("the second box has no sequence around its image:\n%s", page)
+	}
+	checkObjRef(t, out)
+	for _, alt := range []string{"first", "second"} {
+		if wd := figureBBoxWidth(t, out, alt); wd != "20.00" {
+			t.Errorf("the BBox of %q is %s wide, want the 20 of the image", alt, wd)
+		}
 	}
 }

@@ -1689,17 +1689,14 @@ func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VL
 	}
 
 	// PDF/UA-1 §7.1 Note 1: Figure whose body is a Form XObject import.
-	// The /Do on the page stays unmarked, see claimXObjectFigure. If the
-	// XObject belongs to another element already, the Figure gets a
-	// marked-content sequence.
+	// The image takes the Figure, see passFigureToImage, and v opens
+	// nothing.
 	if childXObjectFigure {
-		childXObjectFigure = childTag != nil && oc.claimXObjectFigure(findImageForXObjectFigure(v.List), childTag)
+		childXObjectFigure = childTag != nil && oc.passFigureToImage(v, childTag)
 	}
 	switch {
 	case childXObjectFigure:
-		// Figure BBox is still required by PDF/UA even when the
-		// structure attachment goes via OBJR.
-		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
+		// The image opens what it needs.
 	case childArtifact:
 		if childArtifactType != "" {
 			oc.writef("/Artifact <</Type /%s>> BDC\n", childArtifactType)
@@ -1716,9 +1713,7 @@ func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VL
 
 	savedTag := oc.tag
 	savedInArtifact := oc.inArtifact
-	// xobject-figure does not push oc.tag because the inner /Do is
-	// not part of any marked-content sequence; childTag's K is the
-	// OBJR we already populated.
+	// xobject-figure does not push oc.tag: the image has the Figure.
 	if childTag != nil && !childXObjectFigure {
 		oc.tag = childTag
 	}
@@ -1819,7 +1814,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 			if oc.p.document.IsTrace(VTraceImages) {
 				oc.writef("q 0.2 w %s %s %s %s re S Q\n", x, y, v.Width, visualHt)
 			}
-			oc.paintImage(v, nil, func() { oc.write(drawImage(v, x, y-visualHt)) })
+			tag := oc.inlineTag(v.Attributes)
+			if tag != nil {
+				setFigureBBox(tag, x, y, v.Width, visualHt)
+			}
+			oc.paintImage(v, tag, func() { oc.write(drawImage(v, x, y-visualHt)) })
 		case *node.Glue:
 			if oc.p.document.DumpOutput {
 				if oc.p.document.DumpOutput {
@@ -2053,11 +2052,11 @@ func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VL
 
 	// PDF/UA-1 §7.1 Note 1, see outputHListChildList.
 	if childXObjectFigure {
-		childXObjectFigure = childTag != nil && oc.claimXObjectFigure(findImageForXObjectFigure(v.List), childTag)
+		childXObjectFigure = childTag != nil && oc.passFigureToImage(v, childTag)
 	}
 	switch {
 	case childXObjectFigure:
-		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
+		// The image opens what it needs.
 	case childArtifact:
 		oc.gotoTextMode(ScopePage)
 		if childArtifactType != "" {
@@ -2073,7 +2072,7 @@ func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VL
 
 	savedTag := oc.tag
 	savedInArtifact := oc.inArtifact
-	// xobject-figure does not push oc.tag — the inner /Do is unmarked.
+	// xobject-figure does not push oc.tag: the image has the Figure.
 	if childTag != nil && !childXObjectFigure {
 		oc.tag = childTag
 	}
@@ -2540,6 +2539,28 @@ func findImageForXObjectFigure(head node.Node) *node.Image {
 		return true
 	})
 	return found
+}
+
+// passFigureToImage gives the Figure se of v, a box whose body is an imported
+// PDF page, to the image of the page, which then is drawn as an image with a
+// Figure in a line: with the BBox of the image, not of the box, and with the
+// XObject as the content of se, see claimXObjectFigure. v opens no sequence
+// of its own, so the lines without the image become artifacts. It reports
+// false, for a sequence of v, if v has no such image, or the image belongs to
+// another element.
+func (oc *objectContext) passFigureToImage(v *node.VList, se *StructureElement) bool {
+	img := findImageForXObjectFigure(v.List)
+	if img == nil || oc.inArtifact {
+		return false
+	}
+	if img.Attributes == nil {
+		img.Attributes = node.H{}
+	}
+	if tag, ok := img.Attributes["tag"]; ok {
+		return tag == se
+	}
+	img.Attributes["tag"] = se
+	return true
 }
 
 // claimXObjectFigure makes the Form XObject of img, an imported PDF page, the
