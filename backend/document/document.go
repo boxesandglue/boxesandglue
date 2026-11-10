@@ -316,6 +316,7 @@ type objectContext struct {
 	colorBitmapCache  map[colorBitmapKey]*pdf.Imagefile // sbix/CBDT PNG glyphs
 	tag               *StructureElement
 	run               *StructureElement // the element whose marked-content sequence is open, see beginRun
+	pending           *StructureElement // the element whose sequence opens with the next content, see openRun
 	artifactType      ArtifactType
 	outputDebug       *outputDebug
 	curOutputDebug    *outputDebug
@@ -344,7 +345,7 @@ type colorBitmapKey struct {
 // structure element object only (Table 355), not in the BDC properties
 // dictionary (see pdf-association/pdf-issues#60).
 func (oc *objectContext) emitBDC(se *StructureElement, mcid int) {
-	oc.writef("/%s <</MCID %d>> BDC\n", se.Role, mcid)
+	oc.rawf("/%s <</MCID %d>> BDC\n", se.Role, mcid)
 }
 
 // beginRun opens a marked-content sequence for se with the next MCID of the
@@ -371,29 +372,73 @@ func (oc *objectContext) beginRun(se *StructureElement) int {
 	return mcid
 }
 
+// openRun lets the next content written open a marked-content sequence for
+// se, see flushRun. A sequence that would hold nothing, such as the one of a
+// paragraph before an image that starts its line, is not written at all
+// (issue #106): no BDC and EMC, no MCID and no ParentTree entry.
+func (oc *objectContext) openRun(se *StructureElement) {
+	oc.pending = se
+}
+
+// flushRun opens the sequence that openRun left pending, before the content
+// writef or write is about to write.
+func (oc *objectContext) flushRun() {
+	if se := oc.pending; se != nil {
+		oc.pending = nil
+		se.ID = oc.beginRun(se)
+	}
+}
+
+// endRun closes the sequence of se, if it has been opened, on a line of its
+// own with nl; a pending one is dropped.
+func (oc *objectContext) endRun(se *StructureElement, nl bool) {
+	if oc.pending == se {
+		oc.pending = nil
+		return
+	}
+	if oc.run == nil {
+		return
+	}
+	oc.gotoTextMode(ScopePage)
+	if nl {
+		oc.newline()
+	}
+	oc.rawf("EMC\n")
+	oc.run = nil
+}
+
 // interruptRun closes the open marked-content sequence of a structure
 // element, if there is one, so that an element inside it, such as a formula
 // or an image in a line of text, can open its own: the sequence of one element
 // must not contain the sequence of another (ISO 32000-2, "Marked-content
-// sequences as content items"). It returns the element whose sequence it
-// closed, for resumeRun, or nil. In an artifact it closes nothing.
+// sequences as content items"). A pending sequence is dropped. It returns the
+// element whose sequence it closed or dropped, for resumeRun, or nil. In an
+// artifact it closes nothing.
 func (oc *objectContext) interruptRun() *StructureElement {
+	if oc.inArtifact {
+		return nil
+	}
+	if parent := oc.pending; parent != nil {
+		oc.pending = nil
+		return parent
+	}
 	parent := oc.run
-	if parent == nil || oc.inArtifact {
+	if parent == nil {
 		return nil
 	}
 	oc.gotoTextMode(ScopePage)
-	oc.writef("EMC\n")
+	oc.rawf("EMC\n")
 	oc.run = nil
 	return parent
 }
 
 // resumeRun continues the content of parent, whose sequence interruptRun
-// closed, in a new sequence. One element may own several; the structure tree
-// puts the inner element between them in reading order.
+// closed, in a new sequence, which opens with the next content, see openRun.
+// One element may own several; the structure tree puts the inner element
+// between them in reading order.
 func (oc *objectContext) resumeRun(parent *StructureElement) {
 	if parent != nil {
-		oc.beginRun(parent)
+		oc.openRun(parent)
 	}
 }
 
@@ -405,10 +450,8 @@ func (oc *objectContext) outputInline(tag *StructureElement, output func()) {
 	tag.ID = oc.beginRun(tag)
 	oc.tag = tag
 	output()
-	oc.gotoTextMode(ScopePage)
-	oc.writef("EMC\n")
+	oc.endRun(tag, false)
 	oc.tag = savedTag
-	oc.run = nil
 	oc.resumeRun(parent)
 }
 
@@ -484,14 +527,29 @@ func (oc *objectContext) endActualText(opened bool) {
 
 // writef writes a formatted string to the object stream
 func (oc *objectContext) writef(format string, args ...any) {
+	oc.writeContent(fmt.Sprintf(format, args...))
+}
+
+// writeContent writes str, after opening a pending sequence, unless str is
+// nothing but white space, which is no content.
+func (oc *objectContext) writeContent(str string) {
+	if strings.TrimSpace(str) != "" {
+		oc.flushRun()
+	}
+	io.WriteString(oc.s, str)
+	oc.hasNewline = false
+}
+
+// rawf is writef without opening a pending sequence, for the operators that
+// open and close the sequences themselves.
+func (oc *objectContext) rawf(format string, args ...any) {
 	fmt.Fprintf(oc.s, format, args...)
 	oc.hasNewline = false
 }
 
 // write emits a non-formatted string to the object stream
 func (oc *objectContext) write(args ...any) {
-	fmt.Fprint(oc.s, args...)
-	oc.hasNewline = false
+	oc.writeContent(fmt.Sprint(args...))
 }
 
 // newline makes sure a newline is inserted at the current position
@@ -1707,7 +1765,7 @@ func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VL
 		// A box with an element of its own inside the sequence of
 		// another, an image in a line of text, interrupts it.
 		interrupted = oc.interruptRun()
-		childTag.ID = oc.beginRun(childTag)
+		oc.openRun(childTag)
 		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	}
 
@@ -1723,16 +1781,22 @@ func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VL
 
 	oc.outputVerticalItems(x+v.ShiftX, top, v)
 
-	if (childTag != nil && !childXObjectFigure) || childArtifact {
-		oc.gotoTextMode(ScopePage)
-		oc.writef("EMC\n")
-	}
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
-	oc.run = savedRun
-	if interrupted != nil {
-		oc.resumeRun(interrupted)
+	switch {
+	case childTag != nil && !childXObjectFigure:
+		oc.endRun(childTag, false)
+		if interrupted != nil {
+			oc.resumeRun(interrupted)
+		} else {
+			oc.run = savedRun
+		}
+	case childArtifact:
+		oc.gotoTextMode(ScopePage)
+		oc.rawf("EMC\n")
 	}
+	// Otherwise the content of v belongs to the sequence around it, which
+	// it may have opened, see openRun.
 	oc.endScope(scope)
 }
 
@@ -2021,7 +2085,7 @@ func (oc *objectContext) outputVListChild(x, top bag.ScaledPoint, v *node.VList)
 // outputVListChildList outputs v, a VList in a VList, see outputVListChild.
 func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VList) {
 	scope := oc.startScope(v)
-	savedRun := oc.run
+	savedRun, savedPending := oc.run, oc.pending
 	// PDF/UA: check for tag/artifact/xobject-figure on child VLists
 	var childTag *StructureElement
 	var childArtifact bool
@@ -2066,7 +2130,7 @@ func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VL
 		}
 	case childTag != nil:
 		oc.gotoTextMode(ScopePage)
-		childTag.ID = oc.beginRun(childTag)
+		oc.openRun(childTag)
 		setFigureBBox(childTag, x+v.ShiftX, top, v.Width, v.Height+v.Depth)
 	}
 
@@ -2082,13 +2146,20 @@ func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VL
 
 	oc.outputVerticalItems(x+v.ShiftX, top+v.Shift, v)
 
-	if (childTag != nil && !childXObjectFigure) || childArtifact {
+	switch {
+	case childArtifact:
 		oc.gotoTextMode(ScopePage)
-		oc.writef("EMC\n")
+		oc.rawf("EMC\n")
+	case childTag != nil && !childXObjectFigure:
+		// The sequence of v sat inside the one open around it, if any,
+		// and a pending one around it waits for content after v.
+		oc.endRun(childTag, false)
+		oc.run, oc.pending = savedRun, savedPending
 	}
+	// Otherwise the content of v belongs to the sequence around it, which
+	// it may have opened, see openRun.
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
-	oc.run = savedRun
 	oc.endScope(scope)
 }
 
@@ -2152,6 +2223,11 @@ func (oc *objectContext) paintDeferred(df deferredPaint) {
 	oc.tag = df.tag
 	oc.inArtifact = df.inArtifact
 	oc.run = nil
+	// A sequence pending around the deferred node waits for content after
+	// it; the node's own opens now, for content that is there.
+	savedPending := oc.pending
+	oc.pending = nil
+	defer func() { oc.pending = savedPending }()
 
 	wrap := false
 	if !df.ownMarking {
@@ -2176,7 +2252,7 @@ func (oc *objectContext) paintDeferred(df deferredPaint) {
 	oc.gotoTextMode(ScopePage)
 	if wrap {
 		oc.newline()
-		oc.writef("EMC\n")
+		oc.rawf("EMC\n")
 	}
 	oc.run = nil
 }
@@ -2367,7 +2443,7 @@ func (p *Page) Shipout() {
 					oc.writef("/Artifact BMC\n")
 				}
 			} else if oc.tag != nil {
-				oc.tag.ID = oc.beginRun(oc.tag)
+				oc.openRun(oc.tag)
 				setFigureBBox(oc.tag, x, y, vlist.Width, vlist.Height+vlist.Depth)
 			}
 
@@ -2376,12 +2452,14 @@ func (p *Page) Shipout() {
 			oc.gotoTextMode(ScopePage)
 
 			// Close the object-level BDC
-			if oc.tag != nil || oc.inArtifact {
+			if oc.inArtifact {
 				oc.newline()
-				oc.writef("EMC\n")
+				oc.rawf("EMC\n")
+			} else if oc.tag != nil {
+				oc.endRun(oc.tag, true)
 			}
 			oc.tag, oc.inArtifact = nil, false
-			oc.run = nil
+			oc.run, oc.pending = nil, nil
 			oc.endScope(scope)
 		})
 		collect(oc)

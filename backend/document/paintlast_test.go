@@ -164,17 +164,19 @@ func TestPaintLastReadingOrder(t *testing.T) {
 		t.Errorf("Div /K: want the Figure before the P as in the list, got %q", kStr)
 	}
 
-	// The untagged marked box is painted in a Div sequence of its own.
-	if len(div.mcids) != 2 {
-		t.Fatalf("Div has %d marked-content sequences, want 2 (its own and the deferred box's)", len(div.mcids))
+	// The untagged marked box is painted in a Div sequence of its own. The
+	// Div has no content of its own besides, so it has no other sequence:
+	// before issue #106, one held the sequence of the P, which must not nest.
+	if len(div.mcids) != 1 {
+		t.Fatalf("Div has %d marked-content sequences, want 1 (the deferred box's)", len(div.mcids))
 	}
-	divSeq := fmt.Sprintf("/Div <</MCID %d>> BDC", div.mcids[1].mcid)
+	divSeq := fmt.Sprintf("/Div <</MCID %d>> BDC", div.mcids[0].mcid)
 	seqAt := strings.Index(stream, divSeq)
 	untaggedAt, _ := fillPos(t, stream, "3cm")
 	if seqAt < 0 || seqAt > untaggedAt || strings.Contains(stream[seqAt:untaggedAt], "EMC") {
 		t.Errorf("want the deferred untagged box inside %q, got\n%s", divSeq, stream)
 	}
-	if lastMCR := strings.LastIndex(kStr, fmt.Sprintf("/MCID %d", div.mcids[1].mcid)); lastMCR < paraRef {
+	if lastMCR := strings.LastIndex(kStr, fmt.Sprintf("/MCID %d", div.mcids[0].mcid)); lastMCR < paraRef {
 		t.Errorf("Div /K: want the deferred box's sequence after the P, got %q", kStr)
 	}
 }

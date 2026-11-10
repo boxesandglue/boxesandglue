@@ -173,10 +173,9 @@ func (oc *objectContext) paintGroupWith(opacity float64, ownMarking bool, paint 
 	paint()
 	oc.gotoTextMode(ScopePage)
 	if inner != nil {
-		oc.newline()
-		oc.writef("EMC\n")
+		oc.endRun(inner, true)
 	}
-	oc.run = nil
+	oc.run, oc.pending = nil, nil
 	oc.paintDeferredFrom(start)
 	oc.gotoTextMode(ScopePage)
 
