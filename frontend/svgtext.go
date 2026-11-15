@@ -17,6 +17,10 @@ import (
 type SVGTextRenderer struct {
 	doc           *Document
 	DefaultFamily *FontFamily
+	// FamilyAliases maps a font-family name of the SVG to the name the
+	// family is registered under, such as the CSS keyword sans-serif to a
+	// family named sans.
+	FamilyAliases map[string]string
 	usedFaces     map[*pdf.Face]bool
 }
 
@@ -122,7 +126,8 @@ func (tr *SVGTextRenderer) RenderText(text string, x, y, fontSize float64, fontF
 
 // resolveFamily maps an SVG font-family string to a boxesandglue FontFamily.
 // It tries direct name match first, then checks comma-separated fallbacks,
-// and finally falls back to DefaultFamily.
+// each one also under its alias from FamilyAliases, and finally falls back
+// to DefaultFamily.
 func (tr *SVGTextRenderer) resolveFamily(name string) *FontFamily {
 	name = strings.Trim(name, "'\"")
 	if ff, ok := tr.doc.FontFamilies[name]; ok {
@@ -133,6 +138,11 @@ func (tr *SVGTextRenderer) resolveFamily(name string) *FontFamily {
 		candidate = strings.TrimSpace(strings.Trim(candidate, "'\""))
 		if ff, ok := tr.doc.FontFamilies[candidate]; ok {
 			return ff
+		}
+		if alias, ok := tr.FamilyAliases[candidate]; ok {
+			if ff, ok := tr.doc.FontFamilies[alias]; ok {
+				return ff
+			}
 		}
 	}
 	return tr.DefaultFamily

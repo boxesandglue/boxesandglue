@@ -49,3 +49,25 @@ func TestSVGTextLigatureHasSourceText(t *testing.T) {
 		t.Errorf("%d glyphs map to U+FFFD, want 1", got)
 	}
 }
+
+// TestSVGTextFamilyAlias: a font-family list falls back to a generic
+// keyword such as sans-serif, which the document registers under another
+// name. The alias table finds it, otherwise the text takes DefaultFamily.
+func TestSVGTextFamilyAlias(t *testing.T) {
+	fe, err := NewForWriter(&bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sans := fe.NewFontFamily("sans")
+	serif := fe.NewFontFamily("serif")
+	tr := NewSVGTextRenderer(fe)
+	tr.DefaultFamily = serif
+	list := `-apple-system, 'Segoe UI', Helvetica, sans-serif`
+	if got := tr.resolveFamily(list); got != serif {
+		t.Errorf("without aliases: got %v, want DefaultFamily", got)
+	}
+	tr.FamilyAliases = map[string]string{"sans-serif": "sans"}
+	if got := tr.resolveFamily(list); got != sans {
+		t.Errorf("with alias: got %v, want sans", got)
+	}
+}
