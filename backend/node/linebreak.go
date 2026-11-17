@@ -145,9 +145,8 @@ func (lb *linebreaker) computeAdjustmentRatio(n Node, a *Breakpoint) (r float64,
 	case *Disc:
 		// A Disc followed by glue breaks at a word boundary, the second
 		// pass sets no hyphen there, so the hyphen is not measured either.
-		if _, isGlue := t.Next().(*Glue); !isGlue && !lb.settings.HangingPunctuationEnd {
-			wd, _, _ := Dimensions(t.Pre, nil, Horizontal)
-			curW += wd
+		if _, isGlue := t.Next().(*Glue); !isGlue {
+			curW += t.PreWidth(lb.settings.HangingPunctuationEnd)
 		}
 	case *Glue:
 		if lb.settings.HangingPunctuationEnd {
@@ -902,6 +901,15 @@ func Linebreak(n Node, settings *LinebreakSettings) (*VList, []*Breakpoint) {
 			}
 			if d, ok := e.Position.(*Disc); ok {
 				if glyf, ok := Tail(d.Pre).(*Glyph); ok {
+					// The kern of the glyph before to the hyphen does
+					// not hang, the glyph before ends the line.
+					for k := glyf.Prev(); k != nil; k = k.Prev() {
+						kern, ok := k.(*Kern)
+						if !ok {
+							break
+						}
+						kern.Kern = 0
+					}
 					hang(glyf)
 				}
 			}

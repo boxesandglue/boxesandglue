@@ -1998,6 +1998,8 @@ func measureParagraph(prep *paragraphPrep) (minwd, maxwd bag.ScaledPoint) {
 	// Discardable glue after a break opportunity starts no segment, after
 	// a forced break no line either.
 	var skipSeg, skipLine bool
+	// The number of nodes after a Disc that a break there drops.
+	var replaced int
 	endSegment := func(extra bag.ScaledPoint) {
 		wd := seg + extra + ls.IndentForRow(row) + ls.IndentRightForRow(row)
 		if wd > minwd {
@@ -2053,20 +2055,31 @@ func measureParagraph(prep *paragraphPrep) (minwd, maxwd bag.ScaledPoint) {
 			// Not a box: glue after the discretionary stays a break
 			// opportunity. The hyphen is only there when the line breaks
 			// here, and hanging punctuation lets it hang.
-			var pre bag.ScaledPoint
-			if !ls.HangingPunctuationEnd && t.Pre != nil {
-				pre, _, _ = node.Dimensions(t.Pre, nil, node.Horizontal)
-			}
-			endSegment(pre)
+			endSegment(t.PreWidth(ls.HangingPunctuationEnd))
 			skipSeg = false
+			// The nodes the Disc replaces are on the line without a
+			// break, the segment after the break starts with Post.
+			replaced = t.ReplaceCount
+			if replaced > 0 {
+				post, _, _ := node.Dimensions(t.Post, nil, node.Horizontal)
+				seg += post
+			}
 		case *node.Glyph:
 			prevItemBox = true
-			seg += t.Width
+			if replaced > 0 {
+				replaced--
+			} else {
+				seg += t.Width
+			}
 			line += t.Width
 			skipSeg, skipLine = false, false
 		case *node.Kern:
 			prevItemBox = true
-			seg += t.Kern
+			if replaced > 0 {
+				replaced--
+			} else {
+				seg += t.Kern
+			}
 			line += t.Kern
 			skipSeg, skipLine = false, false
 		default:
@@ -2839,6 +2852,20 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 			// breaker treats the position as a discretionary breakpoint
 			// with the font's hyphenchar as the visible material.
 			if hyphensMode != "none" {
+				// The glyph before and the hyphen are shaped together,
+				// so the font kerns them (bag#109).
+				before, kerns := cur, 0
+				for before != nil && before.Type() == node.TypeKern {
+					before = before.Prev()
+					kerns++
+				}
+				if g, ok := before.(*node.Glyph); ok {
+					if disc := discReplacing(g, kerns); disc != nil {
+						head = node.InsertBefore(head, g, disc)
+						lastglue = nil
+						continue
+					}
+				}
 				disc := node.NewDisc()
 				run := node.NewGlyph()
 				run.Font = fnt

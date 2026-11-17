@@ -208,6 +208,12 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 			}
 			continue
 		}
+		if g, ok := before.(*node.Glyph); ok && before != split {
+			insertDiscAfter(g, fnt)
+			continue
+		}
+		// A point right after a ligature that a Disc sets apart: that
+		// Disc replaces it already.
 		if cur.Type() == node.TypeKern {
 			cur = cur.Next()
 		}
@@ -215,6 +221,75 @@ func insertBreakpoints(l *lang.Lang, word *strings.Builder, wordstart node.Node,
 		disc.Pre = newHyphen(fnt, before)
 		node.InsertBefore(wordstart, cur, disc)
 	}
+}
+
+// insertDiscAfter puts a Disc for a break after the glyph g into the list.
+// The text shaper kerns g against the glyph after it, which a break moves to
+// the next line, and does not kern g against the hyphen, which it did not
+// see. As TeX does, a break replaces g and the kerns after it with g and the
+// hyphen shaped together: the line ends with the kern of the font between
+// them, and the kern to the next glyph goes (bag#109). Without the hyphen
+// in g's font, and in right to left text, which the shaper returns in
+// visual order, g stays and only its kerns go.
+func insertDiscAfter(g *node.Glyph, fnt *font.Font) {
+	kerns := 0
+	for n := g.Next(); n != nil && n.Type() == node.TypeKern; n = n.Next() {
+		kerns++
+	}
+	if disc := discReplacing(g, kerns); disc != nil {
+		node.InsertBefore(g.Prev(), g, disc)
+		return
+	}
+	disc := node.NewDisc()
+	disc.SetBidiLevel(g.BidiLevel())
+	disc.Pre = newHyphen(fnt, g)
+	var at node.Node = g
+	if g.BidiLevel()%2 == 0 {
+		disc.ReplaceCount = kerns
+	} else if kerns > 0 {
+		// As before: after the kern of g to the next glyph.
+		at = g.Next()
+	}
+	node.InsertAfter(at, at, disc)
+}
+
+// discReplacing returns the Disc that goes before g for a break after g and
+// replaces g and the kerns after it, or nil when g is right to left, starts
+// the list or the hyphen cannot be shaped with g, see insertDiscAfter.
+func discReplacing(g *node.Glyph, kerns int) *node.Disc {
+	if g.BidiLevel()%2 != 0 || g.Prev() == nil {
+		return nil
+	}
+	pre := hyphenated(g, g.Components)
+	if pre == nil {
+		return nil
+	}
+	disc := node.NewDisc()
+	disc.SetBidiLevel(g.BidiLevel())
+	disc.Pre = pre
+	disc.ReplaceCount = 1 + kerns
+	return disc
+}
+
+// hyphenated returns the glyphs of text followed by the hyphen of g's run,
+// shaped together in the font of g the way its run was, so the font kerns
+// the last glyph against the hyphen. It is nil when the run has no hyphen,
+// text is empty or the font has no glyph for it or the hyphen.
+func hyphenated(g *node.Glyph, text string) node.Node {
+	if g.Font == nil || text == "" {
+		return nil
+	}
+	hyphen := g.Font.Hyphenchar.Components
+	if g.Shaping != nil && g.Shaping.Hyphen != nil {
+		hyphen = *g.Shaping.Hyphen
+	}
+	if hyphen == "" {
+		return nil
+	}
+	if shaped := shapeLike(g, text+hyphen, false); allGlyphsKnown(shaped) {
+		return shaped
+	}
+	return nil
 }
 
 // newHyphen is the list of glyphs that ends a line after the glyph before: the
@@ -275,15 +350,21 @@ func splitLigature(g *node.Glyph, k int, fnt *font.Font) {
 	// Pre is followed by the hyphen, so it takes the letter spacing after
 	// its last glyph. After Post the letter spacing of g follows in the
 	// list.
-	pre := shapeLike(g, string(r[:k]), true)
+	// Pre and the hyphen are shaped together, so the font kerns them
+	// (bag#109).
+	pre := hyphenated(g, string(r[:k]))
+	if pre == nil {
+		pre = shapeLike(g, string(r[:k]), true)
+		if tail := node.Tail(pre); tail != nil {
+			if hyphen := newHyphen(fnt, tail); hyphen != nil {
+				tail.SetNext(hyphen)
+				hyphen.SetPrev(tail)
+			}
+		}
+	}
 	post := shapeLike(g, string(r[k:]), false)
 	if pre == nil || post == nil {
 		return
-	}
-	tail := node.Tail(pre)
-	if hyphen := newHyphen(fnt, tail); hyphen != nil {
-		tail.SetNext(hyphen)
-		hyphen.SetPrev(tail)
 	}
 	disc := node.NewDisc()
 	disc.Pre = pre
@@ -349,6 +430,8 @@ func Hyphenate(nodelist node.Node, defaultLang *lang.Lang) {
 	var wordstart node.Node
 	var b strings.Builder
 	var curfont *font.Font
+	// The nodes a soft hyphen's Disc replaces end the word before it.
+	var endAfter int
 
 	for e := nodelist; e != nil; e = e.Next() {
 		switch v := e.(type) {
@@ -376,9 +459,21 @@ func Hyphenate(nodelist node.Node, defaultLang *lang.Lang) {
 			wordboundary = true
 		case *node.Kern:
 			wordboundary = false
+		case *node.Disc:
+			if v.ReplaceCount > 0 {
+				endAfter = v.ReplaceCount
+				continue
+			}
+			wordboundary = true
 		default:
 			wordboundary = true
 
+		}
+		if endAfter > 0 {
+			endAfter--
+			if endAfter == 0 {
+				wordboundary = true
+			}
 		}
 		if wordboundary {
 			insertBreakpoints(curlang, &b, wordstart, curfont)

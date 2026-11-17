@@ -466,8 +466,9 @@ func glyphText(n node.Node) string {
 // A hyphenation point inside a ligature gets a Disc that sets the ligature
 // apart if the word breaks there: the line ends with the characters before
 // the point and a hyphen, the next starts with the rest, shaped anew, and a
-// break drops the ligature. A point right after a ligature gets a plain
-// hyphen (bag#90).
+// break drops the ligature (bag#90). Any other point gets a Disc that
+// replaces the glyph before it, {e-|} (bag#109), and right after a ligature
+// that a Disc sets apart a plain hyphen.
 func TestHyphenateInsideLigature(t *testing.T) {
 	l, err := GetLanguage("de")
 	if err != nil {
@@ -475,9 +476,9 @@ func TestHyphenateInsideLigature(t *testing.T) {
 	}
 	for _, tc := range []struct{ word, want string }{
 		{"Auflage", "Au{f-|l}[fl]age"},
-		{"Kaffeefilter", "Ka{f-|f}[ff]ee-[fi]l-ter"},
-		{"offiziell", "o{f-|[fi]}[ffi]-zi-ell"},
-		{"Schifffahrt", "Schi[ff]-fahrt"},
+		{"Kaffeefilter", "Ka{f-|f}[ff]e{e-|}e[fi]{l-|}lter"},
+		{"offiziell", "o{f-|[fi]}[ffi]-z{i-|}iell"},
+		{"Schifffahrt", "Schi{[ff]-|}[ff]fahrt"},
 	} {
 		head, _ := shapedWord(t, tc.word)
 		Hyphenate(head, l)
