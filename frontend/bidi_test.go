@@ -1,7 +1,7 @@
 package frontend
 
 import (
-	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/boxesandglue/boxesandglue/backend/node"
@@ -219,15 +219,22 @@ func TestApplyL1NoTrailingWhitespace(t *testing.T) {
 	}
 }
 
-func TestCollectParagraphTextIgnoresNonStrings(t *testing.T) {
-	// Images and other non-string items are bidi-neutral and must not crash
-	// the collector.
+func TestCollectBidiText(t *testing.T) {
+	// Items Mknodes does not know contribute nothing; nodes and leaders are
+	// one object replacement character each, as is the list marker of the
+	// paragraph. The marker of a child is not built and not collected.
+	leader := NewText()
+	leader.Settings[SettingLeader] = "."
+	child := NewText()
+	child.Settings[SettingPrepend] = node.NewHList()
+	child.Items = append(child.Items, "gh")
 	te := NewText()
-	te.Items = append(te.Items, "abc", 42, struct{ X int }{1}, "def")
-	var b bytes.Buffer
-	collectParagraphText(te, &b)
-	if got := b.String(); got != "abcdef" {
-		t.Errorf("collectParagraphText = %q, want %q", got, "abcdef")
+	te.Settings[SettingPrepend] = node.NewHList()
+	te.Items = append(te.Items, "abc", 42, struct{ X int }{1}, "def", node.NewGlyph(), leader, child, &Table{})
+	var b strings.Builder
+	collectBidiText(te, &b, true)
+	if got, want := b.String(), "￼abcdef￼￼gh"; got != want {
+		t.Errorf("collectBidiText = %q, want %q", got, want)
 	}
 }
 

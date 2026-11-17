@@ -97,6 +97,18 @@ func TestBidiCharacterTest(t *testing.T) {
 			t.Fatalf("line %d: %v", lineno, err)
 		}
 		wantPara, _ := strconv.Atoi(fields[2])
+		if fields[1] == "2" {
+			// Without a default direction P2 and P3 decide, and FirstStrong
+			// has to agree with them.
+			fs := p.FirstStrong()
+			if (fs == RightToLeft) != (wantPara == 1) {
+				failures++
+				if failures <= maxReported {
+					t.Errorf("line %d: %s: FirstStrong %v, want paragraph level %d", lineno, fields[0], fs, wantPara)
+				}
+				continue
+			}
+		}
 		gotLevels := o.Levels()
 		if int(o.ParagraphLevel()) == wantPara && levelsMatch(gotLevels, strings.Fields(fields[3])) {
 			continue

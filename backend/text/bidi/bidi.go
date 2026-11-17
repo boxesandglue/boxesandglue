@@ -173,6 +173,30 @@ func (p *Paragraph) SetString(s string, opts ...Option) (n int, err error) {
 	return p.prepareInput()
 }
 
+// FirstStrong reports the direction of the first strong character of the
+// paragraph outside isolates (rule P2), Neutral if there is none. Unlike
+// ParagraphLevel it tells a paragraph without strong characters from a left
+// to right one, so a caller can look at the next paragraph instead.
+func (p *Paragraph) FirstStrong() Direction {
+	depth := 0
+	for _, t := range p.types {
+		switch {
+		case t == LRI || t == RLI || t == FSI:
+			depth++
+		case t == PDI:
+			if depth > 0 {
+				depth--
+			}
+		case depth > 0:
+		case t == L:
+			return LeftToRight
+		case t == R || t == AL:
+			return RightToLeft
+		}
+	}
+	return Neutral
+}
+
 // IsLeftToRight reports whether the principle direction of rendering for this
 // paragraphs is left-to-right. If this returns false, the principle direction
 // of rendering is right-to-left.

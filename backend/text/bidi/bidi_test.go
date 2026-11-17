@@ -103,6 +103,23 @@ func TestParagraphLevel(t *testing.T) {
 			t.Errorf("%q: paragraph level %d, want %d", tc.text, got, tc.want)
 		}
 	}
+	for _, tc := range []struct {
+		text string
+		want Direction
+	}{
+		{"abc", LeftToRight},
+		{"2026 שנה", RightToLeft},
+		{"123 !", Neutral},
+		{"⁧abc⁩", Neutral},
+		{"⁧abc⁩ אבג", RightToLeft},
+		{"⁧abc", Neutral}, // an isolate without PDI runs to the end
+	} {
+		var p Paragraph
+		p.SetString(tc.text)
+		if got := p.FirstStrong(); got != tc.want {
+			t.Errorf("%q: FirstStrong %v, want %v", tc.text, got, tc.want)
+		}
+	}
 	// The first run of the RTL paragraph is the number, left to right.
 	o, _ := runsOf(t, "2026 שנה")
 	if o.Direction() != LeftToRight {

@@ -4,6 +4,7 @@ import (
 	"maps"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	pdf "github.com/boxesandglue/baseline-pdf"
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -382,10 +383,14 @@ func (fe *Document) coverageSegments(s string, stack []*FontFamily, weight FontW
 // Kerning is dropped at run boundaries (last atom's Kernafter = 0): cross-face
 // kerning is undefined and the existing reverseAtoms shift logic only handles
 // kerning within a single shape() call.
+//
+// bidiLevels holds the bidi level of every rune of str (see shapeWithBidi);
+// each font run takes its part of them.
 func (fe *Document) shapeForBuild(
 	primaryFnt *font.Font,
 	primarySource *FontSource,
 	str string,
+	bidiLevels []uint8,
 	primary *font.Shaping,
 	direction Direction,
 	stack []*FontFamily,
@@ -398,7 +403,7 @@ func (fe *Document) shapeForBuild(
 	settingVariations map[string]float64,
 ) ([]font.Atom, []uint8, []*font.Font, []*font.Shaping) {
 	if !needsCoverage(stack, weight, style, synth) {
-		atoms, levels := shapeWithBidi(primaryFnt, str, primary.Features, primary.Variations, direction)
+		atoms, levels := shapeWithBidi(primaryFnt, str, primary.Features, primary.Variations, direction, bidiLevels)
 		atomFonts := make([]*font.Font, len(atoms))
 		atomShapings := make([]*font.Shaping, len(atoms))
 		for i := range atomFonts {
@@ -408,6 +413,12 @@ func (fe *Document) shapeForBuild(
 		return atoms, levels, atomFonts, atomShapings
 	}
 	runs := fe.coverageSegments(str, stack, weight, style, synth)
+	if len(bidiLevels) != utf8.RuneCountInString(str) {
+		bidiLevels = resolveLevels(str, direction)
+	}
+	// The runs cover str in order; runeOffset is the rune index of the run
+	// in str.
+	runeOffset := 0
 	var atoms []font.Atom
 	var levels []uint8
 	var atomFonts []*font.Font
@@ -422,7 +433,13 @@ func (fe *Document) shapeForBuild(
 				runShaping = &font.Shaping{Features: rfeat, Variations: rvar, LetterSpacing: primary.LetterSpacing, Hyphen: primary.Hyphen}
 			}
 		}
-		runAtoms, runLevels := shapeWithBidi(runFnt, run.Text, runShaping.Features, runShaping.Variations, direction)
+		runRunes := utf8.RuneCountInString(run.Text)
+		var runBidi []uint8
+		if runeOffset+runRunes <= len(bidiLevels) {
+			runBidi = bidiLevels[runeOffset : runeOffset+runRunes]
+		}
+		runeOffset += runRunes
+		runAtoms, runLevels := shapeWithBidi(runFnt, run.Text, runShaping.Features, runShaping.Variations, direction, runBidi)
 		if n := len(runAtoms); n > 0 {
 			// Cross-face kerning is undefined; clip the trailing pair so
 			// the last glyph of this segment doesn't pull the next.
