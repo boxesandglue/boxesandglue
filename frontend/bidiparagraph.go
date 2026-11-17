@@ -27,16 +27,27 @@ const objectReplacement = '￼'
 
 // collectBidiText writes the text of te to b in the order in which Mknodes
 // builds the nodes of te: a string as it is, one objectReplacement for each
-// node item, leader and the list marker. top is true for the Text Mknodes is
-// called with; the list marker of a child Text is not built (Mknodes removes
-// it before it descends). Items Mknodes does not know contribute nothing.
-func collectBidiText(te *Text, b *strings.Builder, top bool) {
+// node item, leader and the list marker, and the bidi control characters of
+// SettingUnicodeBidi around a child Text (bidiControls) and around the whole
+// paragraph (paragraphControls). The control characters exist in this text
+// only; Mknodes skips their levels at the same places. top is true for the
+// Text Mknodes is called with; the list marker of a child Text is not built
+// (Mknodes removes it before it descends). dir is the direction te inherits.
+// Items Mknodes does not know contribute nothing.
+func collectBidiText(te *Text, b *strings.Builder, top bool, dir Direction) {
+	if d, ok := te.Settings[SettingDirection].(Direction); ok {
+		dir = d
+	}
+	var closing string
 	if top {
 		if prep, ok := te.Settings[SettingPrepend]; ok {
 			if _, ok := prep.(node.Node); ok {
 				b.WriteRune(objectReplacement)
 			}
 		}
+		var open string
+		open, closing = paragraphControls(te)
+		b.WriteString(open)
 	}
 	for _, itm := range te.Items {
 		switch t := itm.(type) {
@@ -47,11 +58,75 @@ func collectBidiText(te *Text, b *strings.Builder, top bool) {
 				b.WriteRune(objectReplacement)
 				continue
 			}
-			collectBidiText(t, b, false)
+			open, childClosing := bidiControls(t, dir)
+			b.WriteString(open)
+			collectBidiText(t, b, false, dir)
+			b.WriteString(childClosing)
 		case node.Node:
 			b.WriteRune(objectReplacement)
 		}
 	}
+	b.WriteString(closing)
+}
+
+// Bidi control characters of UAX#9.
+const (
+	bidiLRE = "\u202A"
+	bidiRLE = "\u202B"
+	bidiPDF = "\u202C"
+	bidiLRO = "\u202D"
+	bidiRLO = "\u202E"
+	bidiLRI = "\u2066"
+	bidiRLI = "\u2067"
+	bidiFSI = "\u2068"
+	bidiPDI = "\u2069"
+)
+
+// bidiControls returns the control characters that open and close the
+// SettingUnicodeBidi of the child Text te, in the direction of te or else
+// the one it inherits (CSS Writing Modes 3 §2.4.2). A child without the
+// setting gets none.
+func bidiControls(te *Text, inherited Direction) (open, closing string) {
+	ub, _ := te.Settings[SettingUnicodeBidi].(UnicodeBidi)
+	dir := inherited
+	if d, ok := te.Settings[SettingDirection].(Direction); ok {
+		dir = d
+	}
+	rtl := dir == DirectionRTL
+	pick := func(ltr, rtlValue string) string {
+		if rtl {
+			return rtlValue
+		}
+		return ltr
+	}
+	switch ub {
+	case UnicodeBidiEmbed:
+		return pick(bidiLRE, bidiRLE), bidiPDF
+	case UnicodeBidiIsolate:
+		return pick(bidiLRI, bidiRLI), bidiPDI
+	case UnicodeBidiBidiOverride:
+		return pick(bidiLRO, bidiRLO), bidiPDF
+	case UnicodeBidiIsolateOverride:
+		return pick(bidiLRI, bidiRLI) + pick(bidiLRO, bidiRLO), bidiPDF + bidiPDI
+	case UnicodeBidiPlaintext:
+		return bidiFSI, bidiPDI
+	}
+	return "", ""
+}
+
+// paragraphControls returns the control characters around the text of the
+// paragraph te. Only the overrides have an effect on a paragraph: every
+// character takes the paragraph direction. Embed and isolate open no level
+// on a block, plaintext sets the paragraph direction (paragraphOptions).
+func paragraphControls(te *Text) (open, closing string) {
+	ub, _ := te.Settings[SettingUnicodeBidi].(UnicodeBidi)
+	if ub != UnicodeBidiBidiOverride && ub != UnicodeBidiIsolateOverride {
+		return "", ""
+	}
+	if d, _ := te.Settings[SettingDirection].(Direction); d == DirectionRTL {
+		return bidiRLO, bidiPDF
+	}
+	return bidiLRO, bidiPDF
 }
 
 // paragraphBidi holds the resolved levels of the text collectBidiText
@@ -66,7 +141,7 @@ type paragraphBidi struct {
 // dir.
 func newParagraphBidi(te *Text, dir Direction) *paragraphBidi {
 	var b strings.Builder
-	collectBidiText(te, &b, true)
+	collectBidiText(te, &b, true, dir)
 	return &paragraphBidi{levels: resolveLevels(b.String(), dir)}
 }
 
@@ -131,7 +206,7 @@ func resolveLevels(text string, dir Direction) []uint8 {
 // the parts before it have no strong character.
 func detectParagraphDirection(te *Text) Direction {
 	var b strings.Builder
-	collectBidiText(te, &b, true)
+	collectBidiText(te, &b, true, DirectionLTR)
 	var p bidi.Paragraph
 	for rest := b.String(); rest != ""; {
 		n, err := p.SetString(rest)

@@ -130,3 +130,71 @@ func TestDetectParagraphDirectionFirstStrong(t *testing.T) {
 		}
 	}
 }
+
+// TestUnicodeBidi sets SettingUnicodeBidi on child texts and on the
+// paragraph. The child text that sets it is read in its own direction.
+func TestUnicodeBidi(t *testing.T) {
+	fe, err := NewForWriter(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := fe.NewFontFamily("test")
+	if err := ff.AddMember(&FontSource{Location: "../qa/fonts/upem/fonts/texgyreheros-regular.otf"}, FontWeight400, FontStyleNormal); err != nil {
+		t.Fatal(err)
+	}
+	paragraph := func(dir Direction, ub UnicodeBidi, items ...any) *Text {
+		te := NewText()
+		te.Settings[SettingFontFamily] = ff
+		te.Settings[SettingSize] = bag.MustSP("10pt")
+		te.Settings[SettingDirection] = dir
+		if ub != UnicodeBidiNormal {
+			te.Settings[SettingUnicodeBidi] = ub
+		}
+		te.Items = items
+		return te
+	}
+	span := func(dir Direction, ub UnicodeBidi, s string) *Text {
+		te := NewText()
+		te.Settings[SettingDirection] = dir
+		te.Settings[SettingUnicodeBidi] = ub
+		te.Items = append(te.Items, s)
+		return te
+	}
+	testcases := []struct {
+		name string
+		te   *Text
+		want string
+	}{
+		// The example of HTML's bdi element: without an isolate the
+		// colon and the number after the name join its RTL run.
+		{"name without isolate", paragraph(DirectionLTR, UnicodeBidiNormal, "User ", span(DirectionLTR, UnicodeBidiNormal, "אבג"), ": 3 posts"), "User 3 :גבא posts"},
+		{"name in plaintext isolate", paragraph(DirectionLTR, UnicodeBidiNormal, "User ", span(DirectionLTR, UnicodeBidiPlaintext, "אבג"), ": 3 posts"), "User גבא: 3 posts"},
+		{"name in RTL isolate", paragraph(DirectionLTR, UnicodeBidiNormal, "User ", span(DirectionRTL, UnicodeBidiIsolate, "אבג"), ": 3 posts"), "User גבא: 3 posts"},
+		// Latin text in an RTL embedding is at level 2 and keeps its
+		// order; a neutral at its edge takes the embedding direction.
+		{"RTL embedding", paragraph(DirectionLTR, UnicodeBidiNormal, "x ", span(DirectionRTL, UnicodeBidiEmbed, "abc!"), " y"), "x !abc y"},
+		{"no embedding", paragraph(DirectionLTR, UnicodeBidiNormal, "x ", span(DirectionRTL, UnicodeBidiNormal, "abc!"), " y"), "x abc! y"},
+		// The characters of an RTL override from left to right; the
+		// shaper mirrors the brackets (textshape TestShapeTargetDirection).
+		{"RTL override brackets", paragraph(DirectionLTR, UnicodeBidiNormal, "x ", span(DirectionRTL, UnicodeBidiBidiOverride, "(ab)"), " y"), "x )ba( y"},
+		{"RTL override", paragraph(DirectionLTR, UnicodeBidiNormal, "x ", span(DirectionRTL, UnicodeBidiBidiOverride, "abc"), " y"), "x cba y"},
+		{"RTL isolate override", paragraph(DirectionLTR, UnicodeBidiNormal, "x ", span(DirectionRTL, UnicodeBidiIsolateOverride, "abc"), " y"), "x cba y"},
+		{"LTR override in RTL", paragraph(DirectionRTL, UnicodeBidiNormal, "אב ", span(DirectionLTR, UnicodeBidiBidiOverride, "גדה"), " וז"), "זו גדה בא"},
+		// On the paragraph.
+		{"paragraph override", paragraph(DirectionRTL, UnicodeBidiBidiOverride, "abc def"), "fed cba"},
+		{"paragraph plaintext", paragraph(DirectionLTR, UnicodeBidiPlaintext, "אבג abc"), "abc גבא"},
+		{"paragraph isolate", paragraph(DirectionLTR, UnicodeBidiIsolate, "abc אבג 123 דהו xyz"), "abc והד 123 גבא xyz"},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := visualLine(t, fe, tc.te); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+			// A second pass, as table layout makes, sees the same: the
+			// setting is not copied to the child texts.
+			if got := visualLine(t, fe, tc.te); got != tc.want {
+				t.Errorf("second pass: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -483,7 +483,58 @@ const (
 	// own do not replace them. A child text that sets the list replaces the
 	// parent's, as with any setting, so it has to hold the ancestors' entries.
 	SettingTextDecorations
+	// SettingUnicodeBidi (UnicodeBidi) is the CSS property unicode-bidi of a
+	// Text. On a child Text, embed, isolate, bidi-override, isolate-override
+	// and plaintext put the text between the bidi control characters of
+	// UAX#9 in the direction of the child (SettingDirection, else the one of
+	// its parent); plaintext isolates it with the direction of its first
+	// strong character. On the paragraph's own Text, plaintext sets the
+	// paragraph direction from the first strong character even when
+	// SettingDirection is set, and the two overrides override the whole
+	// paragraph. The setting is not inherited by child texts, as in CSS.
+	SettingUnicodeBidi
 )
+
+// UnicodeBidi is a value of SettingUnicodeBidi, see CSS Writing Modes 3
+// §2.2.
+type UnicodeBidi int
+
+const (
+	// UnicodeBidiNormal opens no level of its own.
+	UnicodeBidiNormal UnicodeBidi = iota
+	// UnicodeBidiEmbed opens an embedding (LRE or RLE ... PDF).
+	UnicodeBidiEmbed
+	// UnicodeBidiIsolate opens an isolate (LRI or RLI ... PDI): the text
+	// inside does not affect the text around it and vice versa.
+	UnicodeBidiIsolate
+	// UnicodeBidiBidiOverride opens an override (LRO or RLO ... PDF): every
+	// character inside takes the direction of the text.
+	UnicodeBidiBidiOverride
+	// UnicodeBidiIsolateOverride is an isolate with an override inside it.
+	UnicodeBidiIsolateOverride
+	// UnicodeBidiPlaintext is an isolate whose direction is the one of its
+	// first strong character (FSI ... PDI); on a paragraph it sets the
+	// paragraph direction that way.
+	UnicodeBidiPlaintext
+)
+
+func (ub UnicodeBidi) String() string {
+	switch ub {
+	case UnicodeBidiNormal:
+		return "normal"
+	case UnicodeBidiEmbed:
+		return "embed"
+	case UnicodeBidiIsolate:
+		return "isolate"
+	case UnicodeBidiBidiOverride:
+		return "bidi-override"
+	case UnicodeBidiIsolateOverride:
+		return "isolate-override"
+	case UnicodeBidiPlaintext:
+		return "plaintext"
+	}
+	return fmt.Sprintf("UnicodeBidi(%d)", int(ub))
+}
 
 // BackgroundArea is the box an inline background covers vertically. CSS 2.1
 // §10.6.1 leaves the height of an inline box's content area to the user agent:
@@ -673,6 +724,8 @@ func (st SettingType) String() string {
 		settingName = "SettingTextDecorationLine"
 	case SettingTextDecorations:
 		settingName = "SettingTextDecorations"
+	case SettingUnicodeBidi:
+		settingName = "SettingUnicodeBidi"
 	case SettingVAlign:
 		settingName = "SettingVAlign"
 	case SettingWidth:
@@ -1597,7 +1650,11 @@ func (fe *Document) paragraphOptions(te *Text, hsize bag.ScaledPoint, opts ...Ty
 	// Resolve paragraph direction. An explicit SettingDirection wins; otherwise
 	// auto-detect from the paragraph text using UAX#9. The resolved direction
 	// is propagated to all child Text nodes via Mknodes.
-	if _, ok := te.Settings[SettingDirection]; !ok {
+	if ub, _ := te.Settings[SettingUnicodeBidi].(UnicodeBidi); ub == UnicodeBidiPlaintext {
+		// CSS Writing Modes 3 §2.2: plaintext takes the base direction
+		// from the text, not from the direction property.
+		te.Settings[SettingDirection] = detectParagraphDirection(te)
+	} else if _, ok := te.Settings[SettingDirection]; !ok {
 		if d := detectParagraphDirection(te); d == DirectionRTL {
 			te.Settings[SettingDirection] = DirectionRTL
 		}
@@ -2436,6 +2493,8 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 			if d, ok := v.(Direction); ok {
 				direction = d
 			}
+		case SettingUnicodeBidi:
+			// consumed by Mknodes for the bidi levels of the paragraph.
 		case SettingLanguage:
 			// consumed at the paragraph level (FormatParagraph) and at
 			// sub-Text boundaries (Mknodes); the glyph builder ignores it.
@@ -2942,7 +3001,7 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 	}
 	dir, _ := ts.Settings[SettingDirection].(Direction)
 	pb := newParagraphBidi(ts, dir)
-	head, tail, err = fe.mknodes(ts, pb)
+	head, tail, err = fe.mknodes(ts, pb, true)
 	if err == nil && !pb.done() {
 		// collectBidiText and mknodes walk the items differently. The
 		// strings after the difference were resolved on their own.
@@ -2953,7 +3012,8 @@ func (fe *Document) Mknodes(ts *Text) (head node.Node, tail node.Node, err error
 
 // mknodes builds the nodes of ts, see Mknodes. pb holds the bidi levels of
 // the paragraph ts belongs to; every item takes the levels of its runes.
-func (fe *Document) mknodes(ts *Text, pb *paragraphBidi) (head node.Node, tail node.Node, err error) {
+// top is true for the Text Mknodes is called with.
+func (fe *Document) mknodes(ts *Text, pb *paragraphBidi, top bool) (head node.Node, tail node.Node, err error) {
 	if len(ts.Items) == 0 {
 		return nil, nil, nil
 	}
@@ -2990,6 +3050,13 @@ func (fe *Document) mknodes(ts *Text, pb *paragraphBidi) (head node.Node, tail n
 			head = node.InsertAfter(head, tail, cp)
 			tail = node.Tail(cp)
 		}
+	}
+	// An override of the whole paragraph, see collectBidiText.
+	var paragraphClosing string
+	if top {
+		var open string
+		open, paragraphClosing = paragraphControls(ts)
+		pb.take(utf8.RuneCountInString(open))
 	}
 
 	for _, itm := range ts.Items {
@@ -3102,7 +3169,7 @@ func (fe *Document) mknodes(ts *Text, pb *paragraphBidi) (head node.Node, tail n
 			}
 			// copy current settings to the child if not already set.
 			for k, v := range newSettings {
-				if _, found := t.Settings[k]; !found && !isParagraphIndentSetting(k) {
+				if _, found := t.Settings[k]; !found && !isParagraphIndentSetting(k) && k != SettingUnicodeBidi {
 					t.Settings[k] = v
 				}
 			}
@@ -3169,7 +3236,12 @@ func (fe *Document) mknodes(ts *Text, pb *paragraphBidi) (head node.Node, tail n
 				tail = bgStart
 			}
 
-			nl, end, err = fe.mknodes(t, pb)
+			// The bidi control characters around the child are in the
+			// text of the paragraph only, see collectBidiText.
+			open, closing := bidiControls(t, DirectionLTR)
+			pb.take(utf8.RuneCountInString(open))
+			nl, end, err = fe.mknodes(t, pb, false)
+			pb.take(utf8.RuneCountInString(closing))
 			// Restore the settings consumed above so a later
 			// re-formatting of the same Text (table measurement passes)
 			// still sees them.
@@ -3247,6 +3319,7 @@ func (fe *Document) mknodes(ts *Text, pb *paragraphBidi) (head node.Node, tail n
 		node.InsertAfter(head, tail, endHL)
 		tail = endHL
 	}
+	pb.take(utf8.RuneCountInString(paragraphClosing))
 	return head, tail, nil
 }
 

@@ -232,7 +232,7 @@ func TestCollectBidiText(t *testing.T) {
 	te.Settings[SettingPrepend] = node.NewHList()
 	te.Items = append(te.Items, "abc", 42, struct{ X int }{1}, "def", node.NewGlyph(), leader, child, &Table{})
 	var b strings.Builder
-	collectBidiText(te, &b, true)
+	collectBidiText(te, &b, true, DirectionLTR)
 	if got, want := b.String(), "￼abcdef￼￼gh"; got != want {
 		t.Errorf("collectBidiText = %q, want %q", got, want)
 	}
