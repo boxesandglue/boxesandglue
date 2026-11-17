@@ -493,6 +493,12 @@ const (
 	// SettingDirection is set, and the two overrides override the whole
 	// paragraph. The setting is not inherited by child texts, as in CSS.
 	SettingUnicodeBidi
+	// SettingStructure (*document.StructureElement) makes the glyphs of the
+	// text the content of that element in tagged PDF (PDF/UA): they get
+	// marked-content sequences of their own inside the one of the block,
+	// across lines and pages. The caller links the element into the
+	// structure tree. Child texts inherit it.
+	SettingStructure
 )
 
 // UnicodeBidi is a value of SettingUnicodeBidi, see CSS Writing Modes 3
@@ -726,6 +732,8 @@ func (st SettingType) String() string {
 		settingName = "SettingTextDecorations"
 	case SettingUnicodeBidi:
 		settingName = "SettingUnicodeBidi"
+	case SettingStructure:
+		settingName = "SettingStructure"
 	case SettingVAlign:
 		settingName = "SettingVAlign"
 	case SettingWidth:
@@ -2379,6 +2387,7 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 	lineShift := bag.ScaledPoint(0)
 	hscale := 1.0
 	direction := DirectionLTR
+	var textStructure *document.StructureElement
 	hyphensMode := "" // CSS hyphens: "" (auto), "auto", "manual", "none"
 	var hyphenCharacter *string
 	var settingFontFeatures []ot.Feature
@@ -2495,6 +2504,10 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 			}
 		case SettingUnicodeBidi:
 			// consumed by Mknodes for the bidi levels of the paragraph.
+		case SettingStructure:
+			if se, ok := v.(*document.StructureElement); ok {
+				textStructure = se
+			}
 		case SettingLanguage:
 			// consumed at the paragraph level (FormatParagraph) and at
 			// sub-Text boundaries (Mknodes); the glyph builder ignores it.
@@ -2925,8 +2938,27 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 		head = node.InsertAfter(head, cur, hyperlinkStop)
 		cur = hyperlinkStop
 	}
+	if textStructure != nil {
+		setTextStructure(head, textStructure)
+	}
 
 	return head, nil
+}
+
+// setTextStructure gives every glyph in the list, also in the hyphenation
+// material of a discretionary, the structure element se, see
+// SettingStructure.
+func setTextStructure(list node.Node, se *document.StructureElement) {
+	for n := list; n != nil; n = n.Next() {
+		switch v := n.(type) {
+		case *node.Glyph:
+			v.SetAttribute(document.AttrTextStructure, se)
+		case *node.Disc:
+			setTextStructure(v.Pre, se)
+			setTextStructure(v.Post, se)
+			setTextStructure(v.Replace, se)
+		}
+	}
 }
 
 // tabGlue returns the glue for a tab, SettingTabSize or SettingTabSizeSpaces

@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
+	"github.com/boxesandglue/boxesandglue/backend/document"
 	"github.com/boxesandglue/boxesandglue/backend/font"
 	"github.com/boxesandglue/boxesandglue/backend/lang"
 	"github.com/boxesandglue/boxesandglue/backend/node"
@@ -240,6 +241,12 @@ func newHyphen(fnt *font.Font, before node.Node) node.Node {
 	if g, ok := before.(*node.Glyph); ok && g.HorizontalScale != 0 && g.HorizontalScale != 1 {
 		hyphen.Width = bag.MultiplyFloat(hyphen.Width, g.HorizontalScale)
 		hyphen.HorizontalScale = g.HorizontalScale
+	}
+	// The hyphen belongs to the element of the word it breaks.
+	if g, ok := before.(*node.Glyph); ok {
+		if se, ok := g.Attributes[document.AttrTextStructure]; ok {
+			hyphen.SetAttribute(document.AttrTextStructure, se)
+		}
 	}
 	return hyphen
 }

@@ -317,6 +317,8 @@ type objectContext struct {
 	tag               *StructureElement
 	run               *StructureElement // the element whose marked-content sequence is open, see beginRun
 	pending           *StructureElement // the element whose sequence opens with the next content, see openRun
+	textRun           *StructureElement // the element of the glyphs being written, see switchTextRun
+	textRunParent     *StructureElement // the element switchTextRun interrupted for textRun
 	artifactType      ArtifactType
 	outputDebug       *outputDebug
 	curOutputDebug    *outputDebug
@@ -442,6 +444,64 @@ func (oc *objectContext) resumeRun(parent *StructureElement) {
 	}
 }
 
+// AttrTextStructure is the attribute of a glyph that holds the structure
+// element (*StructureElement) the glyph is the content of, in tagged PDF. The
+// glyphs of a text run get it when the run is an element of its own inside
+// the element of its block, see switchTextRun.
+const AttrTextStructure = "textstructure"
+
+// textStructure returns the structure element of the glyph g, see
+// AttrTextStructure, or nil.
+func (oc *objectContext) textStructure(g *node.Glyph) *StructureElement {
+	if g.Attributes == nil {
+		return nil
+	}
+	se, _ := g.Attributes[AttrTextStructure].(*StructureElement)
+	return se
+}
+
+// switchTextRun makes want the element of the glyphs written next. A glyph
+// with an element of its own interrupts the sequence of the block around
+// it, as an inline image does, and the glyphs after it continue in the
+// block's sequence again. Unlike the sequence of an image, the one of a
+// text run does not end with a node: it lasts as long as glyphs of the same
+// element follow, across lines, and across the reordering of a line of
+// right-to-left text. want nil returns to the block.
+func (oc *objectContext) switchTextRun(want *StructureElement) {
+	if want == oc.textRun {
+		return
+	}
+	if oc.textRun != nil {
+		oc.endRun(oc.textRun, false)
+		oc.resumeRun(oc.textRunParent)
+		oc.textRun, oc.textRunParent = nil, nil
+	}
+	if want != nil {
+		oc.textRunParent = oc.interruptRun()
+		oc.openRun(want)
+		oc.textRun = want
+	}
+}
+
+// enterTextScope starts a box with sequences of its own, such as a block of
+// text, in which glyphs switch text runs independently of the ones around
+// it, and returns the state to give leaveTextScope.
+func (oc *objectContext) enterTextScope() [2]*StructureElement {
+	saved := [2]*StructureElement{oc.textRun, oc.textRunParent}
+	oc.textRun, oc.textRunParent = nil, nil
+	return saved
+}
+
+// leaveTextScope closes the text run open in the box and restores the
+// state of the box around it. The box's own sequence, which the text run
+// interrupted, is not resumed: the box closes after.
+func (oc *objectContext) leaveTextScope(saved [2]*StructureElement) {
+	if oc.textRun != nil {
+		oc.endRun(oc.textRun, false)
+	}
+	oc.textRun, oc.textRunParent = saved[0], saved[1]
+}
+
 // outputInline outputs the content output draws as the content of tag, an
 // element inside the sequence that is open, in a sequence of its own.
 func (oc *objectContext) outputInline(tag *StructureElement, output func()) {
@@ -449,7 +509,9 @@ func (oc *objectContext) outputInline(tag *StructureElement, output func()) {
 	savedTag := oc.tag
 	tag.ID = oc.beginRun(tag)
 	oc.tag = tag
+	textScope := oc.enterTextScope()
 	output()
+	oc.leaveTextScope(textScope)
 	oc.endRun(tag, false)
 	oc.tag = savedTag
 	oc.resumeRun(parent)
@@ -983,6 +1045,9 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		switch v := hItem.(type) {
 		case *node.Glyph:
 			textRun, spaceOwed = false, false
+			if oc.p.document.Format.IsPDFUA() && !oc.inArtifact {
+				oc.switchTextRun(oc.textStructure(v))
+			}
 			if oc.p.document.DumpOutput {
 				od = &outputDebug{
 					Name: "glyph",
@@ -1368,8 +1433,11 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						// Reserve an object number for the annotation
 						a.Objectnumber = oc.p.document.PDFWriter.NextObject()
 						// Create a Link SE and register the OBJR
+						// A link inside a text run of its own is part of it.
 						linkSE := &StructureElement{Role: "Link"}
-						if oc.tag != nil {
+						if oc.textRun != nil {
+							oc.textRun.AddChild(linkSE)
+						} else if oc.tag != nil {
 							oc.tag.AddChild(linkSE)
 						} else if oc.p.document.RootStructureElement != nil {
 							oc.p.document.RootStructureElement.AddChild(linkSE)
@@ -1779,7 +1847,17 @@ func (oc *objectContext) outputHListChildList(x, top bag.ScaledPoint, v *node.VL
 		oc.inArtifact = true
 	}
 
+	// A box with a sequence of its own switches text runs inside it on its
+	// own; the content of any other box belongs to the sequence around it.
+	ownSequence := childTag != nil && !childXObjectFigure
+	var textScope [2]*StructureElement
+	if ownSequence {
+		textScope = oc.enterTextScope()
+	}
 	oc.outputVerticalItems(x+v.ShiftX, top, v)
+	if ownSequence {
+		oc.leaveTextScope(textScope)
+	}
 
 	oc.tag = savedTag
 	oc.inArtifact = savedInArtifact
@@ -1974,8 +2052,11 @@ func (oc *objectContext) outputVerticalItems(x, y bag.ScaledPoint, vlist *node.V
 						// Reserve an object number for the annotation
 						a.Objectnumber = oc.p.document.PDFWriter.NextObject()
 						// Create a Link SE and register the OBJR
+						// A link inside a text run of its own is part of it.
 						linkSE := &StructureElement{Role: "Link"}
-						if oc.tag != nil {
+						if oc.textRun != nil {
+							oc.textRun.AddChild(linkSE)
+						} else if oc.tag != nil {
 							oc.tag.AddChild(linkSE)
 						} else if oc.p.document.RootStructureElement != nil {
 							oc.p.document.RootStructureElement.AddChild(linkSE)
@@ -2144,7 +2225,16 @@ func (oc *objectContext) outputVListChildList(x, top bag.ScaledPoint, v *node.VL
 		oc.inArtifact = true
 	}
 
+	// See outputHListChildList.
+	ownSequence := childTag != nil && !childXObjectFigure
+	var textScope [2]*StructureElement
+	if ownSequence {
+		textScope = oc.enterTextScope()
+	}
 	oc.outputVerticalItems(x+v.ShiftX, top+v.Shift, v)
+	if ownSequence {
+		oc.leaveTextScope(textScope)
+	}
 
 	switch {
 	case childArtifact:
@@ -2448,7 +2538,9 @@ func (p *Page) Shipout() {
 			}
 
 			scope := oc.startScope(vlist)
+			textScope := oc.enterTextScope()
 			oc.outputVerticalItems(x, y, vlist)
+			oc.leaveTextScope(textScope)
 			oc.gotoTextMode(ScopePage)
 
 			// Close the object-level BDC
@@ -2744,11 +2836,18 @@ type StructureElement struct {
 	ListNumbering string
 	BBox          [4]float64 // bounding box [x, y, width, height] in PDF points; set during shipout
 	HasBBox       bool
-	children      []*StructureElement
-	mcids         []mcidEntry
-	objRefs       []objRefEntry
-	afs           []associatedFile
-	ID            int
+	// KeepOrder writes the children in the order they were added instead of
+	// sorting them into the order of their content in the content stream.
+	// For an element whose children the caller adds in reading order while
+	// their content is drawn in another, the text runs and images of a line
+	// of right-to-left text say, which the content stream holds in visual
+	// order.
+	KeepOrder bool
+	children  []*StructureElement
+	mcids     []mcidEntry
+	objRefs   []objRefEntry
+	afs       []associatedFile
+	ID        int
 }
 
 // associatedFile is a file to embed and reference from a structure element's
@@ -2991,7 +3090,9 @@ func (d *PDFDocument) serializeStructureElement(se *StructureElement, parentObjn
 		kentries = append(kentries, kEntry{d.readingKey(child), child.Obj.ObjectNumber.Ref()})
 	}
 
-	sort.SliceStable(kentries, func(i, j int) bool { return d.readingBefore(kentries[i].key, kentries[j].key) })
+	if !se.KeepOrder {
+		sort.SliceStable(kentries, func(i, j int) bool { return d.readingBefore(kentries[i].key, kentries[j].key) })
+	}
 
 	kItems := make([]string, len(kentries))
 	for i, e := range kentries {
