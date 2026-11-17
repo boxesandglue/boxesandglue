@@ -18,12 +18,21 @@ package bidi
 
 import (
 	"bytes"
+	"unicode/utf8"
 )
 
-// This API tries to avoid dealing with embedding levels for now. Under the hood
-// these will be computed, but the question is to which extent the user should
-// know they exist. We should at some point allow the user to specify an
-// embedding hierarchy, though.
+// The resolved embedding levels are part of the API: an Ordering holds runs of
+// one level each (Run.Level), the level of every rune (Ordering.Levels) and the
+// paragraph embedding level (Ordering.ParagraphLevel). The direction of a run
+// alone is not enough to reorder a line, because rule L2 reverses by level:
+// a number inside a right-to-left run in a left-to-right paragraph has level
+// 2, the left-to-right text around it level 0.
+//
+// This package is a fork of golang.org/x/text/unicode/bidi. It differs in the
+// bracket pairs of rule N0 (a closing bracket is matched by its opening
+// counterpart, canonical equivalents are matched), the explicit default
+// direction LeftToRight and the exposed levels. conformance_test.go runs the
+// Unicode test files BidiTest.txt and BidiCharacterTest.txt against it.
 
 // A Direction indicates the overall flow of text.
 type Direction int
@@ -84,30 +93,30 @@ type Paragraph struct {
 	options    options
 }
 
-// Initialize the p.pairTypes, p.pairValues and p.types from the input previously
+// Initialize p.runes, p.pairTypes, p.pairValues and p.types from the input previously
 // set by p.SetBytes() or p.SetString(). Also limit the input up to (and including) a paragraph
-// separator (bidi class B).
+// separator (bidi class B): the separator is the last character of its paragraph and gets
+// the paragraph level (rule L1).
 //
 // The function p.Order() needs these values to be set, so this preparation could be postponed.
 // But since the SetBytes and SetStrings functions return the length of the input up to the paragraph
 // separator, the whole input needs to be processed anyway and should not be done twice.
 //
-// The function has the same return values as SetBytes() / SetString()
+// The function has the same return values as SetBytes() / SetString(). The
+// length counts the bytes of the input, an invalid UTF-8 byte as one byte.
 func (p *Paragraph) prepareInput() (n int, err error) {
-	p.runes = bytes.Runes(p.p)
-	bytecount := 0
 	// clear slices from previous SetString or SetBytes
+	p.runes = nil
 	p.pairTypes = nil
 	p.pairValues = nil
 	p.types = nil
 
-	for _, r := range p.runes {
-		props, i := LookupRune(r)
-		bytecount += i
+	for n < len(p.p) {
+		r, size := utf8.DecodeRune(p.p[n:])
+		n += size
+		props, _ := LookupRune(r)
 		cls := props.Class()
-		if cls == B {
-			return bytecount, nil
-		}
+		p.runes = append(p.runes, r)
 		p.types = append(p.types, cls)
 		switch {
 		case !props.IsBracket():
@@ -115,13 +124,31 @@ func (p *Paragraph) prepareInput() (n int, err error) {
 			p.pairValues = append(p.pairValues, 0)
 		case props.IsOpeningBracket():
 			p.pairTypes = append(p.pairTypes, bpOpen)
-			p.pairValues = append(p.pairValues, r)
+			p.pairValues = append(p.pairValues, canonicalBracket(r))
 		default:
 			p.pairTypes = append(p.pairTypes, bpClose)
-			p.pairValues = append(p.pairValues, props.reverseBracket(r))
+			p.pairValues = append(p.pairValues, canonicalBracket(props.reverseBracket(r)))
+		}
+		if cls == B {
+			break
 		}
 	}
-	return bytecount, nil
+	return n, nil
+}
+
+// canonicalBracket returns the opening bracket r stands for when brackets are
+// paired. BD16 compares brackets under canonical equivalence, and the angle
+// brackets U+2329 and U+232A decompose to U+3008 and U+3009, so U+2329 also
+// pairs with U+3009 and U+3008 with U+232A. These two are the only bracket
+// characters with a canonical decomposition.
+func canonicalBracket(r rune) rune {
+	switch r {
+	case '〈':
+		return '〈'
+	case '〉':
+		return '〉'
+	}
+	return r
 }
 
 // SetBytes configures p for the given paragraph text. It replaces text
@@ -167,44 +194,44 @@ func (p *Paragraph) Direction() Direction {
 // This method can be used for computing line breaks on paragraphs.
 func (p *Paragraph) RunAt(pos int) Run {
 	c := 0
-	runNumber := 0
+	runNumber := len(p.o.runes) - 1
 	for i, r := range p.o.runes {
 		c += len(r)
 		if pos < c {
 			runNumber = i
+			break
 		}
 	}
 	return p.o.Run(runNumber)
 }
 
-func calculateOrdering(levels []level, runes []rune) Ordering {
-	var curDir Direction
-
-	prevDir := Neutral
-	prevI := 0
-
-	o := Ordering{}
-	// lvl = 0,2,4,...: left to right
-	// lvl = 1,3,5,...: right to left
-	for i, lvl := range levels {
-		if lvl%2 == 0 {
-			curDir = LeftToRight
-		} else {
-			curDir = RightToLeft
-		}
-		if curDir != prevDir {
-			if i > 0 {
-				o.runes = append(o.runes, runes[prevI:i])
-				o.directions = append(o.directions, prevDir)
-				o.startpos = append(o.startpos, prevI)
-			}
-			prevI = i
-			prevDir = curDir
-		}
+// directionOf returns the direction of the runes at level lvl: even levels
+// are left to right, odd levels right to left.
+func directionOf(lvl level) Direction {
+	if lvl%2 == 0 {
+		return LeftToRight
 	}
-	o.runes = append(o.runes, runes[prevI:])
-	o.directions = append(o.directions, prevDir)
-	o.startpos = append(o.startpos, prevI)
+	return RightToLeft
+}
+
+// calculateOrdering splits runes into runs of one embedding level each.
+// paragraphLevel is the resolved paragraph embedding level.
+func calculateOrdering(levels []level, runes []rune, paragraphLevel level) Ordering {
+	o := Ordering{levels: levels, paragraphLevel: paragraphLevel}
+	if len(levels) == 0 {
+		return o
+	}
+	start := 0
+	for i := 1; i <= len(levels); i++ {
+		if i < len(levels) && levels[i] == levels[start] {
+			continue
+		}
+		o.runes = append(o.runes, runes[start:i])
+		o.directions = append(o.directions, directionOf(levels[start]))
+		o.runLevels = append(o.runLevels, levels[start])
+		o.startpos = append(o.startpos, start)
+		start = i
+	}
 	return o
 }
 
@@ -214,6 +241,9 @@ func (p *Paragraph) Order() (Ordering, error) {
 		return Ordering{}, nil
 	}
 
+	// The options belong to the last SetString or SetBytes, not to an earlier
+	// text of the same Paragraph.
+	p.options = options{}
 	for _, fn := range p.opts {
 		fn(&p.options)
 	}
@@ -231,7 +261,7 @@ func (p *Paragraph) Order() (Ordering, error) {
 
 	levels := para.getLevels([]int{len(p.types)})
 
-	p.o = calculateOrdering(levels, p.runes)
+	p.o = calculateOrdering(levels, p.runes, para.embeddingLevel)
 	return p.o, nil
 }
 
@@ -244,24 +274,47 @@ func (p *Paragraph) Line(start, end int) (Ordering, error) {
 		return Ordering{}, err
 	}
 	levels := para.getLevels([]int{len(lineTypes)})
-	o := calculateOrdering(levels, p.runes[start:end])
+	o := calculateOrdering(levels, p.runes[start:end], para.embeddingLevel)
 	return o, nil
 }
 
-// An Ordering holds the computed visual order of runs of a Paragraph. Calling
-// SetBytes or SetString on the originating Paragraph invalidates an Ordering.
-// The methods of an Ordering should only be called by one goroutine at a time.
+// An Ordering holds the runs of a Paragraph in logical order, one run per
+// stretch of runes with the same embedding level. Calling SetBytes or
+// SetString on the originating Paragraph invalidates an Ordering. The methods
+// of an Ordering should only be called by one goroutine at a time.
 type Ordering struct {
-	runes      [][]rune
-	directions []Direction
-	startpos   []int
+	runes          [][]rune
+	directions     []Direction
+	runLevels      []level
+	startpos       []int
+	levels         []level
+	paragraphLevel level
 }
 
-// Direction reports the directionality of the runs.
-//
-// The direction may be LeftToRight, RightToLeft, Mixed, or Neutral.
+// Direction reports the direction of the first run. It is not the paragraph
+// direction: a right-to-left paragraph that starts with a number has a
+// left-to-right first run. Use ParagraphLevel for the paragraph direction.
 func (o *Ordering) Direction() Direction {
 	return o.directions[0]
+}
+
+// ParagraphLevel returns the paragraph embedding level: 0 for a left-to-right
+// paragraph, 1 for a right-to-left one. Without a default direction it is
+// resolved from the first strong character (rules P2 and P3).
+func (o *Ordering) ParagraphLevel() uint8 {
+	return uint8(o.paragraphLevel)
+}
+
+// Levels returns the resolved embedding level of every rune of the paragraph
+// in logical order, after rule L1 with the whole paragraph taken as one line.
+// Characters removed by rule X9 (explicit formatting characters, BN) get the
+// level of the character before them, or the paragraph level at the start.
+func (o *Ordering) Levels() []uint8 {
+	ret := make([]uint8, len(o.levels))
+	for i, l := range o.levels {
+		ret[i] = uint8(l)
+	}
+	return ret
 }
 
 // NumRuns returns the number of runs.
@@ -274,6 +327,7 @@ func (o *Ordering) Run(i int) Run {
 	r := Run{
 		runes:     o.runes[i],
 		direction: o.directions[i],
+		level:     o.runLevels[i],
 		startpos:  o.startpos[i],
 	}
 	return r
@@ -286,10 +340,13 @@ func (o *Ordering) Run(i int) Run {
 // 	panic("unimplemented")
 // }
 
-// A Run is a continuous sequence of characters of a single direction.
+// A Run is a continuous sequence of characters of a single embedding level.
+// Two neighboring runs may have the same direction, a number at level 2 next
+// to left-to-right text at level 0 say.
 type Run struct {
 	runes     []rune
 	direction Direction
+	level     level
 	startpos  int
 }
 
@@ -311,6 +368,12 @@ func (r *Run) Bytes() []byte {
 // Direction reports the direction of the run.
 func (r *Run) Direction() Direction {
 	return r.direction
+}
+
+// Level reports the embedding level of the run. Even levels are left to
+// right, odd levels right to left.
+func (r *Run) Level() uint8 {
+	return uint8(r.level)
 }
 
 // Pos returns the position of the Run within the text passed to SetBytes or SetString of the

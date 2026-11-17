@@ -2306,28 +2306,36 @@ func shapeWithBidi(fnt *font.Font, str string, features []ot.Feature, variations
 	if paragraphDir == DirectionRTL {
 		defaultDir = bidi.RightToLeft
 	}
+	// The bidi package resolves one UAX#9 paragraph per call: a paragraph
+	// separator (class B, a newline for example) ends it and is its last
+	// character. The rest of str is resolved in the next round with the same
+	// default direction, so every part has the paragraph direction of te.
+	// The runs of an Ordering are in logical order, the order the node list
+	// needs.
+	var atoms []font.Atom
+	var levels []uint8
 	p := bidi.Paragraph{}
-	if _, err := p.SetString(str, bidi.DefaultDirection(defaultDir)); err != nil {
-		return shapeFallback(fnt, str, features, variations, paragraphDir)
+	for rest := str; rest != ""; {
+		n, err := p.SetString(rest, bidi.DefaultDirection(defaultDir))
+		if err != nil || n == 0 {
+			return shapeFallback(fnt, str, features, variations, paragraphDir)
+		}
+		o, err := p.Order()
+		if err != nil || o.NumRuns() == 0 {
+			return shapeFallback(fnt, str, features, variations, paragraphDir)
+		}
+		paraAtoms, paraLevels := shapeBidiRuns(fnt, &o, features, variations, paragraphDir)
+		atoms = append(atoms, paraAtoms...)
+		levels = append(levels, paraLevels...)
+		rest = rest[n:]
 	}
-	o, err := p.Order()
-	if err != nil || o.NumRuns() == 0 {
-		return shapeFallback(fnt, str, features, variations, paragraphDir)
-	}
-	// Order() returns runs in visual order; we need logical order to build
-	// the node list (linebreak walks logical order). Sort run indices by
-	// their startpos.
-	type runRef struct {
-		idx, start int
-	}
-	refs := make([]runRef, o.NumRuns())
-	for i := 0; i < o.NumRuns(); i++ {
-		r := o.Run(i)
-		s, _ := r.Pos()
-		refs[i] = runRef{idx: i, start: s}
-	}
-	sort.Slice(refs, func(i, j int) bool { return refs[i].start < refs[j].start })
+	return atoms, levels
+}
 
+// shapeBidiRuns shapes the runs of one bidi paragraph, each with its own
+// direction, and returns the atoms in logical order with a parallel slice of
+// bidi levels.
+func shapeBidiRuns(fnt *font.Font, o *bidi.Ordering, features []ot.Feature, variations map[string]float64, paragraphDir Direction) ([]font.Atom, []uint8) {
 	// For plain text without explicit embedding controls, the embedding
 	// level of a run is one of three values:
 	//   - paragraph base (0 in LTR, 1 in RTL) — used when the run direction
@@ -2344,8 +2352,8 @@ func shapeWithBidi(fnt *font.Font, str string, features []ot.Feature, variations
 	}
 	var atoms []font.Atom
 	var levels []uint8
-	for _, ref := range refs {
-		run := o.Run(ref.idx)
+	for i := 0; i < o.NumRuns(); i++ {
+		run := o.Run(i)
 		runDir := ot.DirectionLTR
 		var lvl uint8
 		if run.Direction() == bidi.RightToLeft {
