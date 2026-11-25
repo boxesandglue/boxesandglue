@@ -513,7 +513,50 @@ const (
 	// across lines and pages. The caller links the element into the
 	// structure tree. Child texts inherit it.
 	SettingStructure
+	// SettingWordSpacing (bag.ScaledPoint) is added to the width of every
+	// word space, U+0020 and U+00A0, as CSS word-spacing does; a negative
+	// value narrows them. The limits of SettingWordSpacingLimits stay
+	// where they are relative to the new width. Child texts inherit it.
+	SettingWordSpacing
+	// SettingWordSpacingLimits (WordSpacing) sets the natural width of a
+	// word space and how far a justified line may shrink and stretch it,
+	// as factors of the font's space width. Child texts inherit it.
+	SettingWordSpacingLimits
 )
+
+// WordSpacing holds the minimum, natural and maximum width of a word space
+// as factors of the font's space width, the values typesetting programs
+// call minimum, desired and maximum word spacing. Opt is the width in
+// ragged text, a justified line may shrink the space to Min and stretches
+// it up to Max before it counts as loose. Max is no hard limit: a line
+// that cannot be filled otherwise stretches further.
+type WordSpacing struct {
+	Min, Opt, Max float64
+}
+
+// wordSpace returns the natural width, stretch and shrink of a word space
+// in fnt for the limits ws, the font's own values when ws is nil. A limit
+// on the wrong side of Opt counts as Opt: the space then does not stretch
+// or shrink.
+func wordSpace(fnt *font.Font, scaled func(bag.ScaledPoint) bag.ScaledPoint, ws *WordSpacing) (width, stretch, shrink bag.ScaledPoint) {
+	if ws == nil {
+		return scaled(fnt.Space), scaled(fnt.SpaceStretch), scaled(fnt.SpaceShrink)
+	}
+	space := scaled(fnt.Space)
+	width = bag.MultiplyFloat(space, ws.Opt)
+	if ws.Max > ws.Opt {
+		stretch = bag.MultiplyFloat(space, ws.Max-ws.Opt)
+	}
+	if ws.Min < ws.Opt {
+		shrink = bag.MultiplyFloat(space, ws.Opt-max(ws.Min, 0))
+	}
+	return width, stretch, shrink
+}
+
+// DefaultWordSpacing is the word spacing without SettingWordSpacingLimits:
+// the space width, shrinking by a third and stretching by a half, the
+// ratios of TeX's cmr10.
+var DefaultWordSpacing = WordSpacing{Min: 2.0 / 3.0, Opt: 1, Max: 1.5}
 
 // UnicodeBidi is a value of SettingUnicodeBidi, see CSS Writing Modes 3
 // §2.2.
@@ -786,6 +829,10 @@ func (st SettingType) String() string {
 		settingName = "SettingBreaker"
 	case SettingRecordLineTrims:
 		settingName = "SettingRecordLineTrims"
+	case SettingWordSpacing:
+		settingName = "SettingWordSpacing"
+	case SettingWordSpacingLimits:
+		settingName = "SettingWordSpacingLimits"
 	default:
 		settingName = fmt.Sprintf("%d", st)
 	}
@@ -2410,6 +2457,8 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 	preserveWhitespace := false
 	whiteSpace := WhiteSpaceNormal
 	letterSpacing := bag.ScaledPoint(0)
+	wordSpacing := bag.ScaledPoint(0)
+	var wordSpacingLimits *WordSpacing
 	yoffset := bag.ScaledPoint(0)
 	lineShift := bag.ScaledPoint(0)
 	hscale := 1.0
@@ -2490,6 +2539,11 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 			// ignore
 		case SettingLetterSpacing:
 			letterSpacing = v.(bag.ScaledPoint)
+		case SettingWordSpacing:
+			wordSpacing = v.(bag.ScaledPoint)
+		case SettingWordSpacingLimits:
+			ws := v.(WordSpacing)
+			wordSpacingLimits = &ws
 		case SettingHAlign, SettingHAlignLast, SettingLeading, SettingIndentLeft, SettingIndentLeftRows, SettingIndentRight, SettingIndentRightRows, SettingIndentStart, SettingIndentStartRows, SettingIndentLeftSteps, SettingIndentRightSteps, SettingTabSize, SettingTabSizeSpaces, SettingTabStops:
 			// ignore
 		case SettingBorderBottomWidth, SettingBorderLeftWidth, SettingBorderRightWidth, SettingBorderTopWidth:
@@ -2768,18 +2822,18 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 						// pre-wrap: the width is fixed but the position is
 						// still a legal breakpoint, which a Rule is not.
 						gl := node.NewGlue()
-						gl.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
+						gl.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing + wordSpacing
 						if ink != nil {
 							inkLeader(gl, ink)
 						}
 						g = gl
 					} else if ink != nil {
 						// pre: a space with ink is a glyph like any other.
-						ink.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
+						ink.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing + wordSpacing
 						g = ink
 					} else {
 						r := node.NewRule()
-						r.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
+						r.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing + wordSpacing
 						g = r
 					}
 					head = node.InsertAfter(head, cur, g)
@@ -2897,9 +2951,8 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 						g := node.NewGlue()
 						g.Attributes = node.H{"origin": "lastglue=nil"}
 						// CSS Text 3 §7.2: letter-spacing follows a space too.
-						g.Width = scaled(fnt.Space) + letterSpacing
-						g.Stretch = scaled(fnt.SpaceStretch)
-						g.Shrink = scaled(fnt.SpaceShrink)
+						g.Width, g.Stretch, g.Shrink = wordSpace(fnt, scaled, wordSpacingLimits)
+						g.Width += letterSpacing + wordSpacing
 						if ink := inkGlyph(i, r); ink != nil {
 							inkLeader(g, ink)
 						}
