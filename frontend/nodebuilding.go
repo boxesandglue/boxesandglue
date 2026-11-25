@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/boxesandglue/boxesandglue/backend/bag"
@@ -176,6 +177,19 @@ func (ws WhiteSpace) keepsSpaceWidth() bool {
 // `nowrap` do not wrap at all, which also means no hyphenation break.
 func (ws WhiteSpace) breaksAtSpace() bool {
 	return ws != WhiteSpacePre && ws != WhiteSpaceNowrap
+}
+
+// fixedWidthSpace reports whether s is a space separator (Unicode category
+// Zs) with a width of its own, which is every one but U+0020 SPACE and
+// U+00A0 NO-BREAK SPACE, and whether a line may break after it. UAX #14
+// puts U+2007 FIGURE SPACE and U+202F NARROW NO-BREAK SPACE in class GL
+// (no break), the others in class BA (break after).
+func fixedWidthSpace(s string) (fixed, breakable bool) {
+	r, size := utf8.DecodeRuneInString(s)
+	if size != len(s) || r == ' ' || r == ' ' || !unicode.Is(unicode.Zs, r) {
+		return false, false
+	}
+	return true, r != ' ' && r != ' '
 }
 
 // BorderStyle represents the HTML border styles such as solid, dashed, ...
@@ -2775,6 +2789,26 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 				head = node.InsertAfter(head, cur, g)
 				cur = g
 				lastglue = g
+			} else if fixed, breakable := fixedWidthSpace(r.Components); fixed {
+				// U+2009 THIN SPACE, U+2003 EM SPACE and their kin are not
+				// word separators (CSS Text 3 §4.1.1): they keep the width
+				// of their glyph, do not stretch or shrink, and do not
+				// collapse with a space next to them. A line may break after
+				// one unless UAX #14 makes it glue (U+2007, U+202F), which
+				// gets the infinite penalty of a no-break space.
+				if !breakable || !whiteSpace.breaksAtSpace() {
+					p := node.NewPenalty()
+					p.Penalty = 10000
+					head = node.InsertAfter(head, cur, p)
+					cur = p
+				}
+				g := node.NewGlue()
+				g.Attributes = node.H{"origin": "fixed-width space"}
+				g.Width = scaled(r.Advance) + letterSpacing
+				head = node.InsertAfter(head, cur, g)
+				cur = g
+				// A space after it is a space of its own.
+				lastglue = nil
 			} else {
 				if r.Components == "\n" {
 					// Forced line break. The line breaker handles

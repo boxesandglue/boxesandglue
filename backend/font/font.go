@@ -206,6 +206,14 @@ func (f *Font) ShapeDir(text string, features []ot.Feature, variations map[strin
 		}
 
 		if unicode.IsSpace(char) {
+			if char != ' ' && unicode.Is(unicode.Zs, char) && f.Face.Codepoint(char) == 0 {
+				// The font has no glyph for this space (U+2009 THIN SPACE,
+				// U+2003 EM SPACE, ...), so the shaper put the space glyph
+				// in and gave it the fallback width of the codepoint, one
+				// fifth of an em for a thin space. The nominal advance would
+				// be that of U+0020.
+				advanceWant = float32(adv) * float32(f.Mag)
+			}
 			glyphs = append(glyphs, Atom{
 				IsSpace:    true,
 				NoBreak:    char == '\u00A0',
