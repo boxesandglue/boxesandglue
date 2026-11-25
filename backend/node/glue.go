@@ -45,6 +45,11 @@ const (
 	LeaderCentered
 	// LeaderExpanded distributes excess space equally between copies (TeX's \xleaders).
 	LeaderExpanded
+	// LeaderSingle shows the pattern once at the start of the glue, at its
+	// own width, and leaves the rest of the glue empty. A space glyph with
+	// ink, the stripe of a color font for one, is drawn this way, as
+	// browsers draw it: a justified line widens the space, not the glyph.
+	LeaderSingle
 )
 
 // A Glue node has the value of a shrinking and stretching space

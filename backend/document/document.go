@@ -1071,8 +1071,20 @@ func (oc *objectContext) outputGlueSpace(v *node.Glue, n node.Node, x, y bag.Sca
 		sf.Face.RegisterCodepoint(spaceGID)
 		oc.p.document.lastSpaceFont = sf
 		spaceAdv = sf.Face.AdvanceWidth(spaceGID)
-		oc.gotoTextMode(ScopeGlyph)
-		oc.writef("%04x", spaceGID)
+		if sf.GlyphHasInk(spaceGID) {
+			// The space glyph is there for text extraction only. A font
+			// that paints its space, with a stripe for one, would show it
+			// where the layout has an empty gap, so it is invisible.
+			oc.gotoTextMode(ScopeText)
+			oc.writef("3 Tr ")
+			oc.gotoTextMode(ScopeGlyph)
+			oc.writef("%04x", spaceGID)
+			oc.gotoTextMode(ScopeText)
+			oc.writef("0 Tr ")
+		} else {
+			oc.gotoTextMode(ScopeGlyph)
+			oc.writef("%04x", spaceGID)
+		}
 	}
 	// Subtract the space glyph advance from the move. Rounded like the
 	// other moves: truncating pulled every word space toward the width of
@@ -1345,7 +1357,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				od.copyNodeAttributes(v.Attributes)
 				oc.curOutputDebug.Items = append(oc.curOutputDebug.Items, od)
 			}
-			if v.Leader != nil && v.Leader.Width > 0 && v.Width > 0 {
+			if v.Leader != nil && v.LeaderType == node.LeaderSingle {
+				// A space glyph with ink: shown once at the start of the
+				// glue and at its own width, the rest of a stretched glue
+				// stays empty. The glyph carries the space for text
+				// extraction, so the gap writes no other space glyph.
+				oc.gotoTextMode(ScopePage)
+				oc.outputHorizontalItems(x+sumX, y, v.Leader)
+				oc.gotoTextMode(ScopePage)
+				gapHasSpace = true
+				sumX += v.Width
+			} else if v.Leader != nil && v.Leader.Width > 0 && v.Width > 0 {
 				oc.gotoTextMode(ScopePage)
 				absX := x + sumX
 				endX := absX + v.Width

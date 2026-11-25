@@ -2719,6 +2719,36 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 		fontfamilyStack = []*FontFamily{fontfamily}
 	}
 	atoms, atomLevels, atomFonts, atomShapings := fe.shapeForBuild(fnt, fs, str, bidiLevels, shaping, direction, fontfamilyStack, fontweight, fontstyle, synth, fontsize, fontfeatures, settingFontFeatures, settingVariations)
+	// inkGlyph returns the glyph of space atom i if it paints anything, the
+	// stripe a color font runs through its word spaces for one, and nil for
+	// the empty space glyph of an ordinary font. The shaped glyph counts:
+	// contextual alternates may have put a variant with ink in.
+	inkGlyph := func(i int, r font.Atom) *node.Glyph {
+		atomFnt := atomFonts[i]
+		if !atomFnt.GlyphHasInk(r.Codepoint) {
+			return nil
+		}
+		n := node.NewGlyph()
+		n.Codepoint = r.Codepoint
+		n.Components = r.Components
+		n.Font = atomFnt
+		n.Shaping = atomShapings[i]
+		n.Width = scaled(r.Advance)
+		n.HorizontalScale = glyphScale
+		n.Height = atomFnt.Size - atomFnt.Depth
+		n.Depth = atomFnt.Depth
+		n.YOffset = yoffset + lineShift + atomFnt.Depth - fnt.Depth
+		n.LineShift = lineShift
+		return n
+	}
+	// inkLeader shows glyph g once at the start of glue gl. The glue does
+	// not shrink below the glyph, and what it stretches stays empty, as a
+	// browser draws a space in justified text.
+	inkLeader := func(gl *node.Glue, g *node.Glyph) {
+		gl.Leader = node.Hpack(g)
+		gl.LeaderType = node.LeaderSingle
+		gl.Shrink = 0
+	}
 	for i, r := range atoms {
 		atomFnt := atomFonts[i]
 		level := atomLevels[i]
@@ -2733,12 +2763,20 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 					// glue default of size*333/1000), so monospace ASCII
 					// art and code blocks line up column-for-column.
 					var g node.Node
+					ink := inkGlyph(i, r)
 					if whiteSpace.breaksAtSpace() {
 						// pre-wrap: the width is fixed but the position is
 						// still a legal breakpoint, which a Rule is not.
 						gl := node.NewGlue()
 						gl.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
+						if ink != nil {
+							inkLeader(gl, ink)
+						}
 						g = gl
+					} else if ink != nil {
+						// pre: a space with ink is a glyph like any other.
+						ink.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
+						g = ink
 					} else {
 						r := node.NewRule()
 						r.Width = scaled(fnt.SpaceChar.Advance) + letterSpacing
@@ -2769,10 +2807,17 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 					// looked up the font's own glyph advance; emit a
 					// rigid Rule of that width so the visible gap
 					// matches the codepoint, not the TeX inter-word
-					// fnt.Space default. The rule renders nothing (the
-					// font's glyph is typically blank).
-					g := node.NewRule()
-					g.Width = scaled(r.Advance) + letterSpacing
+					// fnt.Space default. The rule renders nothing, so a
+					// glyph with ink is set as a glyph instead.
+					var g node.Node
+					if ink := inkGlyph(i, r); ink != nil {
+						ink.Width = scaled(r.Advance) + letterSpacing
+						g = ink
+					} else {
+						rule := node.NewRule()
+						rule.Width = scaled(r.Advance) + letterSpacing
+						g = rule
+					}
 					head = node.InsertAfter(head, cur, g)
 					cur = g
 					lastglue = g
@@ -2805,6 +2850,9 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 				g := node.NewGlue()
 				g.Attributes = node.H{"origin": "fixed-width space"}
 				g.Width = scaled(r.Advance) + letterSpacing
+				if ink := inkGlyph(i, r); ink != nil {
+					inkLeader(g, ink)
+				}
 				head = node.InsertAfter(head, cur, g)
 				cur = g
 				// A space after it is a space of its own.
@@ -2852,6 +2900,9 @@ func (fe *Document) buildNodelistFromString(ts TypesettingSettings, str string, 
 						g.Width = scaled(fnt.Space) + letterSpacing
 						g.Stretch = scaled(fnt.SpaceStretch)
 						g.Shrink = scaled(fnt.SpaceShrink)
+						if ink := inkGlyph(i, r); ink != nil {
+							inkLeader(g, ink)
+						}
 						head = node.InsertAfter(head, cur, g)
 						cur = g
 						lastglue = g

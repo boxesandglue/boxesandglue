@@ -2,6 +2,7 @@ package document
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -156,5 +157,64 @@ func TestASpaceBetweenColorGlyphs(t *testing.T) {
 	})
 	if n := countGlyph(shownGlyphs(stream), gid(text, " ")); n != 2 {
 		t.Errorf("%d space glyphs, want one per line:\n%s", n, stream)
+	}
+}
+
+// A glue with a single leader shows its glyph once, at the start of the
+// glue, and the rest of the glue stays empty: the striped space of a color
+// font in a stretched line. The glyph carries the space for extraction, so
+// the gap writes no space glyph of its own.
+func TestASingleLeaderShowsItsGlyphOnce(t *testing.T) {
+	var buf bytes.Buffer
+	d := NewDocument(&buf)
+	d.CompressLevel = 0
+	face, err := d.LoadFace("../../frontend/testdata/ink-space.ttf", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fnt := font.NewFont(face, bag.MustSP("10pt"))
+	atoms := fnt.Shape("b c", nil, nil)
+	glyph := func(i int) *node.Glyph {
+		g := node.NewGlyph()
+		g.Font = fnt
+		g.Codepoint = atoms[i].Codepoint
+		g.Components = atoms[i].Components
+		g.Width = atoms[i].Advance
+		g.Height = bag.MustSP("8pt")
+		return g
+	}
+	glue := glueOf("6pt")
+	glue.Leader = node.Hpack(glyph(1))
+	glue.LeaderType = node.LeaderSingle
+	b, c := glyph(0), glyph(2)
+	p := d.NewPage()
+	p.OutputAt(bag.MustSP("1cm"), bag.MustSP("10cm"), hbox(b, glue, c, colorSwitchNode()))
+	p.Shipout()
+	if err := d.Finish(); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.PDFWriter.FinishAndClose(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	at := strings.Index(out, colorSwitch)
+	stream := out[strings.LastIndex(out[:at], "stream") : at+strings.Index(out[at:], "endstream")]
+
+	if n := strings.Count(stream, "/ActualText ( )"); n != 1 {
+		t.Errorf("%d ActualText spans of a space, want 1:\n%s", n, stream)
+	}
+	// The space glyph has two layers, each drawn once at the glue's start.
+	start := (bag.MustSP("1cm") + b.Width).String()
+	if n := strings.Count(stream, "1 0 0 1 "+start+" "); n != 2 {
+		t.Errorf("%d layers at x %s, want 2:\n%s", n, start, stream)
+	}
+	// The space glyph is not shown as text: no text font has one here
+	// but the color glyph itself, whose base glyph is not shown.
+	if n := countGlyph(shownGlyphs(stream), fmt.Sprintf("%04x", atoms[1].Codepoint)); n != 0 {
+		t.Errorf("the base space glyph is shown %d times:\n%s", n, stream)
+	}
+	// c starts after the whole glue.
+	if want := (bag.MustSP("1cm") + b.Width + bag.MustSP("6pt")).String(); !strings.Contains(stream, "1 0 0 1 "+want+" ") {
+		t.Errorf("c does not start at x %s:\n%s", want, stream)
 	}
 }
