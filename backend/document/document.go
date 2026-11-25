@@ -1011,6 +1011,80 @@ func (oc *objectContext) gotoTextMode(newMode TextScope) {
 	}
 }
 
+// spaceFont returns the font whose space glyph a glue at n writes: the font
+// of the text state, or, if that has no space glyph, the font of the
+// nearest glyph in the list before or after n that has one, or else the
+// font of the last space glyph the document wrote. Color emoji fonts often
+// have no space glyph, and a line of nothing but emoji has no other font.
+// nil if there is none.
+func (oc *objectContext) spaceFont(n node.Node) *font.Font {
+	hasSpace := func(f *font.Font) bool {
+		return f != nil && f.Size != 0 && f.Face.Codepoint(' ') != 0
+	}
+	if cur := oc.text.font; hasSpace(cur) {
+		return cur
+	}
+	for _, step := range []func(node.Node) node.Node{node.Node.Prev, node.Node.Next} {
+		for m := step(n); m != nil; m = step(m) {
+			if g, ok := m.(*node.Glyph); ok && hasSpace(g.Font) {
+				return g.Font
+			}
+		}
+	}
+	return oc.p.document.lastSpaceFont
+}
+
+// outputGlueSpace writes glue v, inside a TJ array or, if owed, at x on the
+// baseline y in a TJ array of its own. With space it writes a space glyph
+// first, so that PDF readers can extract proper word boundaries, and the
+// glue is a move for the rest of its width. It reports whether it placed
+// the owed glue with Tm.
+func (oc *objectContext) outputGlueSpace(v *node.Glue, n node.Node, x, y bag.ScaledPoint, owed, space bool) bool {
+	sf := oc.text.font
+	if space || owed {
+		sf = oc.spaceFont(n)
+	}
+	if sf == nil || sf.Size == 0 {
+		return false
+	}
+	if sf != oc.text.font {
+		want := oc.text
+		want.font = sf
+		oc.syncText(want)
+	}
+	if owed {
+		// A start/stop node or a color glyph ended the text's TJ array.
+		// Tf, Tz and Ts survive ET, the text matrix does not: place the
+		// glue on the baseline of the text before. The space stays in the
+		// marked-content sequence of that text, as no BDC or EMC came in
+		// between.
+		oc.moveto(x, y)
+	}
+	// Tz scales the move by the scale of the glyph before and by the font
+	// expansion; v.Width already holds its run's scale and stays
+	// unexpanded.
+	adv := v.Width.ToPT() / sf.Size.ToPT() / oc.text.scale / oc.text.expandFactor()
+	scale := sf.Face.Scale
+	var spaceAdv float64
+	spaceGID := sf.Face.Codepoint(' ')
+	if space && spaceGID != 0 {
+		sf.Face.RegisterCodepoint(spaceGID)
+		oc.p.document.lastSpaceFont = sf
+		spaceAdv = sf.Face.AdvanceWidth(spaceGID)
+		oc.gotoTextMode(ScopeGlyph)
+		oc.writef("%04x", spaceGID)
+	}
+	// Subtract the space glyph advance from the move. Rounded like the
+	// other moves: truncating pulled every word space toward the width of
+	// the space glyph (boxesandglue#87).
+	move := int(math.Round(-1 * 1000 / scale * (adv - spaceAdv)))
+	if move != 0 {
+		oc.gotoTextMode(ScopeArray)
+		oc.writef(" %d ", move)
+	}
+	return owed
+}
+
 // outputHorizontalItems outputs a list of horizontal item and advances the
 // cursor. x and y must be the start of the base line coordinate.
 func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node.HList) {
@@ -1037,14 +1111,19 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 	// a TJ array. spaceOwed is true when a start/stop node ended that
 	// array, a color change with ET for one: the glue that follows still
 	// writes its space glyph, so that text read in content-stream order
-	// keeps the word boundary (boxesandglue#93). Both are local to the
-	// list, so a space is never owed across a line, a table cell or a
-	// marked-content sequence.
-	var textRun, spaceOwed bool
+	// keeps the word boundary (boxesandglue#93). A color, bitmap or SVG
+	// glyph leaves the text object as well and owes the space too. owedY is
+	// the baseline the owed space goes on. gapHasSpace is true when a glue
+	// since the last glyph wrote a space glyph: the next glue of the same gap
+	// (the right skip after a word space, for one) only moves. All of them
+	// are local to the list, so a space is never owed across a line, a table
+	// cell or a marked-content sequence.
+	var textRun, spaceOwed, gapHasSpace bool
+	var owedY bag.ScaledPoint
 	for hItem := hlist.List; hItem != nil; hItem = hItem.Next() {
 		switch v := hItem.(type) {
 		case *node.Glyph:
-			textRun, spaceOwed = false, false
+			textRun, spaceOwed, gapHasSpace = false, false, false
 			if oc.p.document.Format.IsPDFUA() && !oc.inArtifact {
 				oc.switchTextRun(oc.textStructure(v))
 			}
@@ -1098,6 +1177,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.newline()
 				}
 				sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
+				spaceOwed, owedY = true, yPos
 				continue
 			}
 			// Bitmap-color path (sbix or CBDT). Tried first because a
@@ -1126,6 +1206,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 						oc.shiftX = 0
 						oc.usedFaces[v.Font.Face] = true
 						sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
+						spaceOwed, owedY = true, yPos
 						continue
 					}
 				}
@@ -1157,6 +1238,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
 					sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
+					spaceOwed, owedY = true, yPos
 					continue
 				}
 			}
@@ -1178,6 +1260,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 					oc.shiftX = 0
 					oc.usedFaces[v.Font.Face] = true
 					sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
+					spaceOwed, owedY = true, yPos
 					continue
 				}
 			}
@@ -1248,7 +1331,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			sumX += bag.MultiplyFloat(v.Width, oc.text.expandFactor())
 			textRun = true
 		case *node.Glue:
-			owed := spaceOwed && oc.currentTmYValid
+			owed := spaceOwed
 			textRun, spaceOwed = false, false
 			var od *outputDebug
 			if oc.p.document.DumpOutput {
@@ -1290,53 +1373,17 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				// anew with Tm, which Tz does not scale either. A glue
 				// owed a space starts a TJ array of its own instead.
 				if oc.textmode < ScopeText || owed {
-					if curFont := oc.text.font; curFont != nil {
-						if oc.text.font.Size != 0 {
-							if owed {
-								// A start/stop node ended the text's TJ
-								// array. Tf, Tz and Ts survive ET, the
-								// text matrix does not: place the glue on
-								// the baseline of the text before. The
-								// space stays in the marked-content
-								// sequence of that text, as no BDC or EMC
-								// came in between.
-								oc.moveto(x+oc.shiftX+sumX, oc.currentTmY)
-								oc.shiftX = 0
-							}
-							// Emit a space glyph so that PDF readers can
-							// extract proper word boundaries.
-							spaceGID := curFont.Face.Codepoint(' ')
-							if spaceGID != 0 {
-								curFont.Face.RegisterCodepoint(spaceGID)
-								oc.gotoTextMode(ScopeGlyph)
-								oc.writef("%04x", spaceGID)
-							}
-							// Tz scales the move by the scale of the glyph
-							// before and by the font expansion; v.Width
-							// already holds its run's scale and stays
-							// unexpanded.
-							adv := v.Width.ToPT() / oc.text.font.Size.ToPT() / oc.text.scale / oc.text.expandFactor()
-							scale := curFont.Face.Scale
-							// Subtract space glyph advance from the move.
-							// Rounded like the other moves: truncating
-							// pulled every word space toward the width of
-							// the space glyph (boxesandglue#87).
-							var spaceAdv float64
-							if spaceGID != 0 {
-								spaceAdv = curFont.Face.AdvanceWidth(spaceGID)
-							}
-							move := int(math.Round(-1 * 1000 / scale * (adv - spaceAdv)))
-							if move != 0 {
-								oc.gotoTextMode(ScopeArray)
-								oc.writef(" %d ", move)
-							}
-						}
+					if oc.outputGlueSpace(v, hItem, x+oc.shiftX+sumX, owedY, owed, !gapHasSpace || owed) {
+						oc.shiftX = 0
 					}
+					// The first glue of a gap writes the space glyph, if
+					// it had one to write; the others of the gap only move.
+					gapHasSpace = true
 				}
 				sumX += v.Width
 			}
 		case *node.Rule:
-			textRun, spaceOwed = false, false
+			textRun, spaceOwed, gapHasSpace = false, false, false
 			posX := x + sumX
 			posY := y
 			if hlist.VAlign == node.VAlignTop {
@@ -1352,7 +1399,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			sumX += v.Width
 		case *node.Image:
-			textRun, spaceOwed = false, false
+			textRun, spaceOwed, gapHasSpace = false, false, false
 			oc.gotoTextMode(ScopePage)
 			if v.Used {
 				bag.Logger.Warn(fmt.Sprintf("image node already in use, id: %d", hlist.ID))
@@ -1524,8 +1571,8 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 				oc.moveto(-posX, -posY)
 				// The text matrix no longer holds the text's baseline.
 				textRun, spaceOwed = false, false
-			} else if textRun && oc.textmode > ScopeArray {
-				spaceOwed = true
+			} else if textRun && oc.textmode > ScopeArray && oc.currentTmYValid {
+				spaceOwed, owedY = true, oc.currentTmY
 			}
 		case *node.Kern:
 			if oc.p.document.DumpOutput {
@@ -1561,7 +1608,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 		case *node.HList:
 			// The box may be an inline formula with a marked-content
 			// sequence of its own, and it ends where its text ends.
-			textRun, spaceOwed = false, false
+			textRun, spaceOwed, gapHasSpace = false, false, false
 			moveY := y + v.Shift
 			if hlist.VAlign == node.VAlignTop {
 				moveY -= v.Height
@@ -1638,7 +1685,7 @@ func (oc *objectContext) outputHorizontalItems(x, y bag.ScaledPoint, hlist *node
 			}
 			sumX += v.Width
 		case *node.VList:
-			textRun, spaceOwed = false, false
+			textRun, spaceOwed, gapHasSpace = false, false, false
 			top := y + hlist.Height + v.Shift
 			if hlist.VAlign == node.VAlignTop {
 				top = y + v.Shift
@@ -3165,6 +3212,7 @@ type PDFDocument struct {
 	// and nil for any other value. It brings these colors into SVG images.
 	DefinedColor        func(name string) *color.Color
 	colorStates         map[pdf.Name]pdf.ExtGState // graphics states of the transparent colors, see AddColorStates
+	lastSpaceFont       *font.Font                 // the font of the last space glyph written, see spaceFont
 	pdfStructureObjects []*pdfStructureObject
 	preShipoutCallback  []CallbackShipout
 	Bleed               bag.ScaledPoint
