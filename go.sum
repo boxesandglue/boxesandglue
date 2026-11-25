@@ -6,8 +6,8 @@ github.com/boxesandglue/gofpdi v1.0.26 h1:OGmo9+8bt7pvROmBapIU3CySAKIzOkMWxjsCeM
 github.com/boxesandglue/gofpdi v1.0.26/go.mod h1:UW30y0gG63duS5HQwI0HbKZcYVf1YUU5J4ceiVF0JAc=
 github.com/boxesandglue/svgreader v0.0.10 h1:ZQrTtqVN33Yp182gKTHfGWuGNh20OewDQ2dzGId8W2w=
 github.com/boxesandglue/svgreader v0.0.10/go.mod h1:EGGvqEiNQsKBrnLYqDfMznN044fFcKkCHrXDLYJ56IY=
-github.com/boxesandglue/textshape v0.0.20 h1:Q0f5N6UvZ7v7NQ0Dq2YS6nJnrKqgy4yt/c2wVAcODNo=
-github.com/boxesandglue/textshape v0.0.20/go.mod h1:GFrtrbTDuWyIXn0g2p0skIsa/ZPmroRhibmh1SKxPuE=
+github.com/boxesandglue/textshape v0.0.21 h1:MVmnZEXhvL4PtuiwOXIoSFElP/79ZOlPidZlxc9DtJA=
+github.com/boxesandglue/textshape v0.0.21/go.mod h1:GFrtrbTDuWyIXn0g2p0skIsa/ZPmroRhibmh1SKxPuE=
 github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJv2v7Vk=
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
