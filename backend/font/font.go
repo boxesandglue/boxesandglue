@@ -74,6 +74,9 @@ type Font struct {
 	// the text matrix applies to an upright face standing in for an italic
 	// the family was not cut with. 0 for a face drawn as it is.
 	Slant float64
+	// ink caches GlyphHasInk per glyph. It lives with the font, so a
+	// finished document and its faces are not kept by a global cache.
+	ink map[int]bool
 }
 
 // NewFont creates a new font instance.
@@ -127,16 +130,6 @@ func NewFont(face *pdf.Face, size bag.ScaledPoint) *Font {
 	return fnt
 }
 
-// inkKey identifies a glyph of a face for the ink cache.
-type inkKey struct {
-	face *pdf.Face
-	gid  int
-}
-
-// inkCache holds GlyphHasInk per face and glyph. Only spaces are asked, so
-// it stays small; faces live as long as the process in practice.
-var inkCache sync.Map
-
 // GlyphHasInk reports whether glyph gid of the font paints anything: color
 // layers, a color bitmap or SVG, or an outline with an area. A space glyph
 // in an ordinary font has none, the striped space of a color font does.
@@ -144,15 +137,17 @@ func (f *Font) GlyphHasInk(gid int) bool {
 	if f == nil || f.Face == nil || gid == 0 {
 		return false
 	}
-	key := inkKey{f.Face, gid}
-	if v, ok := inkCache.Load(key); ok {
-		return v.(bool)
+	if ink, ok := f.ink[gid]; ok {
+		return ink
 	}
 	var ink bool
 	if otFace := f.Face.OTFace(); otFace != nil {
 		ink = otFace.GlyphHasInk(ot.GlyphID(gid))
 	}
-	inkCache.Store(key, ink)
+	if f.ink == nil {
+		f.ink = make(map[int]bool)
+	}
+	f.ink[gid] = ink
 	return ink
 }
 
